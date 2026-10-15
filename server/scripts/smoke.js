@@ -69,6 +69,7 @@ await import('./smoke/history-and-streams.js');
 await import('./smoke/heard-triggers.js');
 await import('./smoke/points.js');
 await import('./smoke/profile-card.js');
+await import('./smoke/slash-commands.js');
 await import('./smoke/loyalty-roles.js');
 await import('./smoke/moments.js');
 await import('./smoke/discord-pages.js');
