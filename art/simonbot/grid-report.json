@@ -1,0 +1,25 @@
+{
+  "grid": "57 x 57 cells in the upload (each 59.47 px), placed on a 64 x 64 canvas",
+  "pixel_check": "no cell has an edge inside it and every colour edge sits on the lattice: no mixels",
+  "cells": 1854,
+  "palette": {
+    "outline": "#38133e",
+    "hair": "#473d49",
+    "hair_moss": "#505748",
+    "hair_hi": "#9756a0",
+    "hair_mid": "#7c4583",
+    "hair_deep": "#4c2559",
+    "skin": "#d7b79a",
+    "skin_shade": "#c2947f",
+    "skin_pink": "#b18387",
+    "blush": "#d78c7e",
+    "frames": "#6a466a",
+    "heart": "#66ad4f",
+    "heart_shade": "#3c7b5a",
+    "heart_hi": "#b8e99c",
+    "hoodie": "#62468a",
+    "hoodie_dark": "#452e68",
+    "hoodie_mauve": "#976792"
+  },
+  "max_snap_distance": 20.7
+}
