@@ -1,35 +1,90 @@
-# SimonSays V3
+<p align="center">
+  <img src="art/simonbot/bot-avatar-mint-circle-512.png" alt="SimonBot, Pixel Simon on mint" width="160">
+</p>
 
-Multi-platform stream automation that **runs without a browser open**.
+<h1 align="center">SimonBot</h1>
 
-V2 did all its real work inside a React hook, so closing the dashboard tab
-killed the bot, the alerts, the XP system and every automation. V3 moves that
-work into a headless server. The web UI is now exactly what you asked for:
-a place to connect platforms and author automations, and nothing more.
+<p align="center">
+  <b>Simon's community bot for Discord and the stream, running on your own machine.</b><br>
+  Welcomes, levels, points, giveaways, go-live posts and slash commands on Discord,
+  with the whole SimonSays stream stack behind it.
+</p>
+
+SimonBot is the Discord face of **SimonSays**, the headless stream automation
+app. It is the same server and the same dashboard, reshaped bot-first: the
+dashboard opens on the bot's own home screen, the menu leads with the bot's
+modules, and the look is taken from the bot's avatar (Pixel Simon holding a
+pixel heart, in leaf, mint, grape and plum).
+
+Everything runs **without a browser open**. The server owns every connection
+and automation; the dashboard is only where you set it up, and closing it
+changes nothing.
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │  server/  —  always running, owns everything          │
 │                                                       │
-│  Twitch IRC · EventSub · TikTok · Discord gateway     │
-│  OBS · Spotify · commands · actions · alerts · XP     │
-│  cooldowns · tags · persistence                       │
+│  Discord gateway · slash commands · Twitch · YouTube  │
+│  TikTok · OBS · Spotify · levels · points · alerts    │
+│  commands · actions · tags · persistence              │
 └──────────────────────────────────────────────────────┘
         ▲                    ▲                   ▲
         │ one WebSocket      │                   │
    ┌────┴─────┐        ┌─────┴──────┐     ┌──────┴──────┐
-   │ Config UI│        │ Chat dock  │     │ OBS overlay │
-   │ (closable)│       │ (closable) │     │  (closable) │
+   │ Dashboard│        │ Chat dock  │     │ OBS overlay │
+   │(closable)│        │ (closable) │     │  (closable) │
    └──────────┘        └────────────┘     └─────────────┘
 ```
 
 Every client is a replica. None of them hold authority, so opening or closing
-any of them changes nothing about what the stack is doing.
+any of them changes nothing about what the bot is doing.
 
-**Versions.** Releases are numbered from 1.0.0. What each version changed is in
-[CHANGELOG.md](CHANGELOG.md), and how the numbers move is explained at its top.
-The running server reports its version at `/api/health`, and the app shows it
-under Settings → About. ("V3" is the third rewrite, not a version.)
+## What SimonBot does
+
+**On your Discord server**
+
+| Module | What it does |
+|---|---|
+| Welcome & goodbye | A drawn card and a reaction when somebody joins or leaves |
+| Levels & XP | XP for chatting anywhere (Discord, Twitch, YouTube, TikTok), one level per person across accounts |
+| Points & shop | Points to spend on sounds, TTS, effects and songs on stream |
+| Giveaways | Open a giveaway, people enter with a button or `/sorteo` |
+| Go live & recap | A post when you go live, a DM to whoever asked, highlights and a recap afterwards |
+| Role sync | Twitch subs, VIPs and mods get their Discord roles |
+| Role menus | Reaction roles and button menus people press to take a role |
+| Polls & questions | Polls in the channel, questions collected for the stream |
+| Discord pages | Rules, information and links as tidy channel posts, built from blocks |
+| Voice overlay | Who is talking in the voice call, shown on stream |
+
+**Slash commands.** Typing `/` in your server lists them, in Spanish first
+and in English on an English Discord. Each answers the same way its button
+or `!` word does.
+
+| Command | What it does |
+|---|---|
+| `/perfil` | Your level, points, streak and linked accounts |
+| `/rango` | Your level and place |
+| `/top` | Who leads the levels |
+| `/tienda` | Spend points in the shop |
+| `/puntos` | How many points you have |
+| `/sorteo` | Enter the open giveaway |
+| `/avisame` | A DM when the stream starts |
+| `/pregunta` | A question for the stream |
+| `/comando` | Any channel command, like `!outfit` |
+
+**The bot's home** shows whether SimonBot is online and which server it is
+looking after, what it will do when you go live, every module with its state,
+and two buttons: one gives the bot account Pixel Simon's face (no trip to the
+Developer Portal), the other registers the slash commands again.
+
+**On stream** it keeps everything SimonSays does: chat from every platform,
+alerts, overlays and looks, commands and actions, a dock for OBS and your
+phone, pixel avatars, timers and moderator sign-in.
+
+**Versions.** SimonBot follows the SimonSays version numbers, from 1.0.0.
+What each version changed is in [CHANGELOG.md](CHANGELOG.md), and how the
+numbers move is explained at its top. The running server reports its version
+at `/api/health`, and the app shows it under Settings → About.
 
 **Privacy.** What it keeps about you and your viewers, where, and what reaches
 which service is in [PRIVACY.md](PRIVACY.md). Nothing is ever sent to the
@@ -39,7 +94,7 @@ people who make it.
 
 ## Getting started
 
-About half an hour from nothing to a first stream. The app also walks you
+About half an hour from nothing to SimonBot answering in your server. The app also walks you
 through all of this itself, on its home screen and in **Guides**, in English
 and Spanish — this is the same path, written down.
 
@@ -51,13 +106,14 @@ and Spanish — this is the same path, written down.
 - **[Node.js](https://nodejs.org) 22 or newer.** Take the LTS installer and
   keep its defaults. To check, open a terminal and run `node -v`.
 - **[OBS Studio](https://obsproject.com) 28 or newer**, for the overlays.
-- **The accounts you stream from** — Twitch, YouTube, TikTok — and Discord
-  or Spotify if you want those too.
+- **A Discord server** you manage, for the bot.
+- **The accounts you stream from**, if you want the stream side too:
+  Twitch, YouTube, TikTok, and Spotify.
 
 ### 1. Download it
 
 On GitHub, press **Code → Download ZIP** and unzip it somewhere that stays
-put, like `Documents\SimonSays`. Or, with git, copy the address under
+put, like `Documents\SimonBot`. Or, with git, copy the address under
 **Code** and run `git clone` with it.
 
 ### 2. Install it
@@ -86,11 +142,27 @@ Every time after that, `npm start` is enough. Start it before you go live.
 
 ### 4. Open it
 
-Go to **http://localhost:8081** in your browser. The home screen welcomes
-you with the setup steps still to do, each with a button to where it's
-done, and ticks them off as you go.
+Go to **http://localhost:8081** in your browser. SimonBot's home screen
+says whether the bot is connected, and **Guides** lists the setup steps
+still to do, each with a button to where it's done.
 
-### 5. Connect where you stream
+### 5. Connect SimonBot to Discord
+
+1. At [discord.com/developers/applications](https://discord.com/developers/applications),
+   press **New Application** and name it (SimonBot, or what your bot should
+   be called).
+2. Under **Bot**, turn on **Server Members Intent** and **Message Content
+   Intent** (Privileged Gateway Intents). The bot won't connect without them.
+3. Copy the **Client ID** (OAuth2), the **bot token** (Bot → Reset Token,
+   shown once) and the **client secret** (OAuth2 → Reset Secret).
+4. On the **Connections** screen, paste the three, press the Discord login,
+   then pick your server and the channel the bot talks in.
+5. In Discord, **Server Settings → Roles**: drag the bot's role above every
+   role it should hand out (levels, subs, role menus).
+6. Back on SimonBot's home, press **Use SimonBot's face** to give the bot its
+   avatar, and **Register / commands** so `/` lists its commands.
+
+### 6. Connect where you stream
 
 On the **Connections** screen:
 
@@ -106,18 +178,18 @@ On the **Connections** screen:
 
   Sign in on the computer the app runs on: Twitch accepts a plain `http://`
   address only for `localhost`. A second account for the bot is optional
-  (see [Connecting a separate bot account](#connecting-a-separate-bot-account)).
-- **YouTube**, **TikTok LIVE**, **Discord** and **Spotify** each have a
-  click-by-click walkthrough in **Guides → Start here**.
+  (see [Connecting a separate Twitch bot account](#connecting-a-separate-twitch-bot-account)).
+- **YouTube**, **TikTok LIVE** and **Spotify** each have a click-by-click
+  walkthrough in **Guides → Start here**.
 
-### 6. Connect OBS
+### 7. Connect OBS
 
 In OBS: **Tools → WebSocket Server Settings**, tick **Enable WebSocket
 server**, press **Show Connect Info** and copy the password. On the
 Connections screen, fill in `localhost`, `4455` and that password, and
 connect.
 
-### 7. Put your stream in OBS
+### 8. Put your stream in OBS
 
 Add a **Browser** source to your scenes, 1920 × 1080, with the address from
 the **Overlays** screen (`http://localhost:8081/?mode=canvas`). That one
@@ -128,7 +200,7 @@ is on, it carries the key OBS needs.
 For the chat and your buttons beside OBS's preview, add a dock: **Docks →
 Custom Browser Docks**, with `http://localhost:8081/?mode=dock`.
 
-### 8. Make it yours
+### 9. Make it yours
 
 - **Overlays:** make a layout, or start from a theme in **Looks**. Bind
   each layout to the OBS scenes it shows in, or turn on **Omnilayer** to run
@@ -139,14 +211,14 @@ Custom Browser Docks**, with `http://localhost:8081/?mode=dock`.
 - **Dock Actions:** a grid of buttons for those actions, in the OBS dock and
   on your phone.
 
-### 9. Before anyone else can reach it
+### 10. Before anyone else can reach it
 
 On your home network nothing more is needed. If the app can be reached
 from anywhere else — a public address in front of it, say — switch
 **sign-in** on first (**Settings → Sign-in**): from then on only you and
 your Twitch channel's moderators can open the dashboard. Every address you
 sign in from must be added to your Twitch app's OAuth Redirect URLs, as in
-step 5.
+step 6.
 
 Moderators then sign in with their own Twitch account and help run the
 stream from their own dock, without touching what's yours. The
@@ -250,7 +322,7 @@ A few things worth knowing:
 To point a dev-mode UI at a server on another machine, append
 `?server=ws://<host-ip>:8081` to the URL.
 
-## Connecting a separate bot account
+## Connecting a separate Twitch bot account
 
 Twitch authorises whichever account your browser is already signed into, so
 clicking "Connect Bot" in the same window tends to reconnect your main account.
@@ -359,10 +431,15 @@ It has no updater; keep a development copy up to date with git.
 
 ---
 
-## What changed from V2
+## Where it came from
 
-See [docs/MIGRATION.md](docs/MIGRATION.md) for the full list, including bugs
-fixed along the way and the handful of things that need attention.
+SimonBot is built on SimonSays V3, the third rewrite of Simon's stream app.
+V2 did all its work inside a React hook, so closing the dashboard tab killed
+the bot; V3 moved that work into the headless server, which is what lets
+SimonBot stay online with no browser open. See
+[docs/MIGRATION.md](docs/MIGRATION.md) for what changed from V2 and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the server is put
+together.
 
 Design note: the move to V3 began with `App.tsx` and everything under
 `web/components/` copied byte-for-byte from V2, so the refactor happened
