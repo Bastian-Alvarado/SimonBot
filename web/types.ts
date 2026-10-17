@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-export type AppView = 'twitch' | 'dashboard' | 'assets' | 'plan' | 'run' | 'people' | 'questions' | 'players' | 'remote-players' | 'polls' | 'giveaway' | 'points' | 'streams' | 'requests' | 'voice' | 'go-live' | 'pngtuber' | 'pixel-avatars' | 'events' | 'studio' | 'actions' | 'gallery' | 'settings' | 'tags' | 'role-management' | 'reaction-roles' | 'discord-buttons' | 'welcome-goodbye' | 'discord-pages' | 'spotify-overlay' | 'levels' | 'dock-actions' | 'omnibar' | 'countdown' | 'timer' | 'viewers' | 'layouts' | 'library' | 'alerts' | 'guides' | 'roadmap' | 'moderators';
+export type AppView = 'bot-home' | 'twitch' | 'dashboard' | 'assets' | 'plan' | 'run' | 'people' | 'questions' | 'players' | 'remote-players' | 'polls' | 'giveaway' | 'points' | 'streams' | 'requests' | 'voice' | 'go-live' | 'pngtuber' | 'pixel-avatars' | 'events' | 'studio' | 'actions' | 'gallery' | 'settings' | 'tags' | 'role-management' | 'reaction-roles' | 'discord-buttons' | 'welcome-goodbye' | 'discord-pages' | 'spotify-overlay' | 'levels' | 'dock-actions' | 'omnibar' | 'countdown' | 'timer' | 'viewers' | 'layouts' | 'library' | 'alerts' | 'guides' | 'roadmap' | 'moderators';
 
 /** One button on the Dock Actions surface. */
 export interface DockButton {

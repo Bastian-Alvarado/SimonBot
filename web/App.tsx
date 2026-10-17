@@ -140,15 +140,15 @@ const WelcomeGoodbyeView = screen(() => import('./components/views/WelcomeGoodby
 const DiscordButtonsView = screen(() => import('./components/views/DiscordButtonsView'), 'DiscordButtonsView');
 const SpotifyOverlayView = screen(() => import('./components/views/SpotifyOverlayView'), 'SpotifyOverlayView');
 const LevelsView = screen(() => import('./components/views/LevelsView'), 'LevelsView');
+const BotHomeView = screen(() => import('./components/views/BotHomeView'), 'BotHomeView');
+import botFace from '../art/simonbot/bot-avatar-mint-circle-512.png';
 
 // --- Custom Components ---
 const Logo = ({ className = "" }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} width="24" height="24">
-    <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" />
-    <path d="M16 9H8a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h1l2 2 2-2h3a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1z" />
-    <circle cx="10" cy="12" r="0.5" fill="currentColor" stroke="none" />
-    <circle cx="12" cy="12" r="0.5" fill="currentColor" stroke="none" />
-    <circle cx="14" cy="12" r="0.5" fill="currentColor" stroke="none" />
+  <svg viewBox="0 0 24 24" fill="none" className={className} width="24" height="24">
+    <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    {/* the pixel heart SimonBot holds, 7 x 6 */}
+    <path fill="currentColor" shapeRendering="crispEdges" d="M8.5 9h2v1h-2zM13.5 9h2v1h-2zM7.5 10h9v2h-9zM8.5 12h7v1h-7zM9.5 13h5v1h-5zM10.5 14h3v1h-3zM11.5 15h1v1h-1z" />
   </svg>
 );
 const TwitchIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
@@ -203,7 +203,7 @@ export default function App() {
   
   // --- UI State (Non-Persistent / View-Specific) ---
   const [showIntro, setShowIntro] = useState(true);
-  const [view, setView] = useState<AppView>('dashboard');
+  const [view, setView] = useState<AppView>('bot-home');
   // A moderator never lands on a screen that is the streamer's (MOD_HIDDEN_VIEWS), however it was asked for.
   useEffect(() => { if (system.auth.isMod && MOD_HIDDEN_VIEWS.has(view)) setView('dashboard'); }, [system.auth.isMod, view]);
   /** Which omnibar the Omnibar screen is editing: 'main', or another bar's id. */
@@ -273,6 +273,7 @@ export default function App() {
   // The pages OBS shows on stream speak the stream's language, whatever this device's is.
   const streamT = TRANSLATIONS.es;
   const viewNames: Record<AppView, string> = { 
+    'bot-home': 'SimonBot',
     twitch: t.twitchNav || 'Twitch',
     dashboard: t.dashboard, 
     viewers: t.navViewerCount || 'Viewer count',
@@ -320,7 +321,7 @@ export default function App() {
   // The browser tab says which screen it is; a page OBS shows keeps the app's name.
   const screenTitle = notFound ? (t.notFoundTab || 'Page not found') : !mode || mode === 'dashboard' ? viewNames[view] : '';
   useEffect(() => {
-    document.title = screenTitle ? `${screenTitle} · Simon Says` : 'Simon Says';
+    document.title = screenTitle && screenTitle !== 'SimonBot' ? `${screenTitle} · SimonBot` : 'SimonBot';
   }, [screenTitle]);
 
   // URL Generation Helpers
@@ -1068,38 +1069,8 @@ export default function App() {
     on whichever of the two was last used, with tabs between them.
   */
   const navSections: NavSection[] = [
-    { id: 'live', label: t.navLive || 'Live', items: [
-      { view: 'dashboard', label: t.dashboard, icon: <Layout size={I} /> },
-      { view: 'assets', label: t.chatDock, icon: <Package size={I} />, keywords: 'chat' },
-      { view: 'events', label: t.eventsDock, icon: <List size={I} />, keywords: 'events thank eventos' },
-      { view: 'plan', label: t.planNav || 'Stream plan', icon: <ListOrdered size={I} /> },
-      { view: 'questions', label: t.questionsNav || 'Questions', icon: <MessageCircleQuestion size={I} />, number: waitingQuestions || undefined },
-      { view: 'polls', label: t.pollsNav || 'Polls', icon: <BarChart3 size={I} />, dot: pollOpen ? 'on' : undefined, hint: pollOpen ? (t.navRunning || 'Running now') : undefined },
-      { view: 'giveaway', label: t.giveawayNav || 'Giveaways', icon: <Gift size={I} />, dot: giveawayOpen ? 'on' : undefined, hint: giveawayOpen ? (t.navRunning || 'Running now') : undefined },
-      { view: 'run', label: t.gameNav || 'Game', icon: <Gamepad2 size={I} />, keywords: 'run title category juego' },
-      { view: 'people', label: t.navPeopleOnStream || 'People on stream', icon: <Video size={I} />, keywords: `who host guests commentators nameplates ${t.peopleNav || ''}` },
-      { view: 'players', label: t.navGameNight || 'Game night', icon: <Users size={I} />, keywords: `players among us ${t.playersNav || ''}` },
-      { view: 'remote-players', label: t.remotePlayersNav || 'Remote players', icon: <Cast size={I} />, keywords: 'vdo ninja co-op guests 4 players jugadores remotos invite', dot: remoteSending ? 'on' : undefined, hint: remoteSending ? (t.remoteNavSending || 'Somebody is sending') : undefined },
-    ] },
-    { id: 'community', label: t.navCommunity || 'Community', items: [
-      { view: 'levels', label: t.levels || 'Levels & XP', icon: <Trophy size={I} />, keywords: 'xp ranks niveles' },
-      { view: 'points', label: t.pointsNav || 'Points', icon: <Coins size={I} />, keywords: 'shop tienda puntos' },
-      { view: 'requests', label: t.requestsNav || 'Game requests', icon: <Inbox size={I} />, number: newRequests || undefined, hint: newRequests ? fill(t.navNewRequests || '{count} new since you last looked', { count: newRequests }) : undefined },
-      { view: 'streams', label: t.streamsNav || 'Streams', icon: <History size={I} />, keywords: 'history vod chapters historial' },
-    ] },
-    { id: 'screen', label: t.navOnScreen || 'On screen', items: [
-      { view: 'layouts', label: t.layouts || 'Overlays', icon: <Layers size={I} />, keywords: 'layouts canvas scenes' },
-      { view: 'alerts', label: t.alerts || 'Alerts', icon: <Bell size={I} /> },
-      { view: 'omnibar', label: t.omnibar || 'Omnibar', icon: <Radio size={I} /> },
-      { view: 'viewers', label: t.navViewerCount || 'Viewer count', icon: <Eye size={I} />, keywords: `viewers ${t.viewers || ''}` },
-      { view: 'tags', label: t.navStreamLabels || 'Stream labels', icon: <Tag size={I} />, keywords: `tags latest follower subscriber donation ${t.tags || ''}` },
-      { view: 'spotify-overlay', label: t.spotifyOverlay || 'Spotify Overlay', icon: <SpotifyIconComponent size={I} />, keywords: 'music song' },
-      { view: lastOfPair.timers || 'countdown', also: ['countdown', 'timer'], label: t.navTimers || 'Timers', icon: <Clock size={I} />, keywords: `${t.countdown || 'countdown'} ${t.timer || 'timer'} clock` },
-      { view: 'pngtuber', label: t.pngtuberNav || 'PNGtuber', icon: <Mic size={I} />, keywords: 'avatar voice' },
-      { view: 'pixel-avatars', label: t.pixelAvatarsNav || 'Pixel avatars', icon: <Sparkles size={I} /> },
-      { view: 'library', label: t.navLooks || 'Looks', icon: <Palette size={I} />, keywords: `library styles css ${t.libraryNav || ''}` },
-    ] },
-    { id: 'discord', label: t.navDiscord || 'Discord', items: [
+    { id: 'bot', label: 'SimonBot', items: [
+      { view: 'bot-home', label: system.settings.language === 'es' ? 'Inicio' : 'Home', icon: <Bot size={I} />, keywords: 'simonbot bot home inicio slash commands comandos' },
       { view: 'welcome-goodbye', label: t.welcomeGoodbye || 'Welcome & Goodbye', icon: <DoorOpen size={I} /> },
       { view: 'discord-pages', label: t.discordPagesNav || 'Discord pages', icon: <Newspaper size={I} /> },
       { view: 'role-management', label: t.roleManagement, icon: <Shield size={I} />, keywords: 'link accounts loyalty mod log' },
@@ -1107,18 +1078,33 @@ export default function App() {
       { view: 'voice', label: t.voiceNav || 'Voice call', icon: <Headphones size={I} /> },
       { view: 'go-live', label: t.goLiveNav || 'Go live', icon: <Megaphone size={I} />, keywords: 'announce highlights dms anuncio' },
     ] },
+    { id: 'community', label: t.navCommunity || 'Community', items: [
+      { view: 'levels', label: t.levels || 'Levels & XP', icon: <Trophy size={I} />, keywords: 'xp ranks niveles' },
+      { view: 'points', label: t.pointsNav || 'Points', icon: <Coins size={I} />, keywords: 'shop tienda puntos' },
+      { view: 'giveaway', label: t.giveawayNav || 'Giveaways', icon: <Gift size={I} />, dot: giveawayOpen ? 'on' : undefined, hint: giveawayOpen ? (t.navRunning || 'Running now') : undefined },
+      { view: 'polls', label: t.pollsNav || 'Polls', icon: <BarChart3 size={I} />, dot: pollOpen ? 'on' : undefined, hint: pollOpen ? (t.navRunning || 'Running now') : undefined },
+      { view: 'questions', label: t.questionsNav || 'Questions', icon: <MessageCircleQuestion size={I} />, number: waitingQuestions || undefined },
+      { view: 'requests', label: t.requestsNav || 'Game requests', icon: <Inbox size={I} />, number: newRequests || undefined, hint: newRequests ? fill(t.navNewRequests || '{count} new since you last looked', { count: newRequests }) : undefined },
+    ] },
+    { id: 'live', label: t.navLive || 'Live', items: [
+      { view: 'dashboard', label: t.dashboard, icon: <Layout size={I} /> },
+      { view: 'assets', label: t.chatDock, icon: <Package size={I} />, keywords: 'chat' },
+      { view: 'events', label: t.eventsDock, icon: <List size={I} />, keywords: 'events thank eventos' },
+      { view: 'streams', label: t.streamsNav || 'Streams', icon: <History size={I} />, keywords: 'history vod chapters historial' },
+    ] },
     { id: 'automation', label: t.navAutomation || 'Automation', items: [
       { view: 'studio', label: t.commands, icon: <Terminal size={I} /> },
       { view: 'actions', label: t.actions, icon: <Zap size={I} /> },
-      { view: 'dock-actions', label: t.dockActions, icon: <LayoutGrid size={I} /> },
+    ] },
+    { id: 'screen', label: t.navOnScreen || 'On screen', items: [
+      { view: 'layouts', label: t.layouts || 'Overlays', icon: <Layers size={I} />, keywords: 'layouts canvas scenes' },
+      { view: 'alerts', label: t.alerts || 'Alerts', icon: <Bell size={I} /> },
     ] },
     { id: 'setup', label: t.navSetup || 'Setup', items: [
       { view: 'gallery', label: t.connections, icon: <Share2 size={I} />, dot: dropped.length ? 'alert' : undefined, hint: dropped.length ? fill(t.navDropped || '{names} dropped since it was on', { names: dropped.join(', ') }) : undefined },
       { view: 'twitch', label: t.twitchNav || 'Twitch', icon: <TwitchIcon size={I} />, keywords: 'raid shoutout hype clips schedule' },
       // Who has signed in as a moderator, and what they did: the streamer's own (server/api/ws.js MODERATORS).
       { view: 'moderators', label: t.moderatorsNav || 'Moderators', icon: <ShieldCheck size={I} />, keywords: 'mods moderadores sign in access sesión acceso log' },
-      // Where the app has been and is going: every release, and the major updates planned.
-      { view: 'roadmap', label: t.roadmapNav || 'Roadmap', icon: <GitBranch size={I} />, keywords: 'changelog changes updates versions what new novedades cambios versiones hoja de ruta plan' },
       { view: 'settings', label: t.settings, icon: <SettingsIcon size={I} />, keywords: 'language theme idioma version versión about acerca backup update actualizar', dot: updateOut ? 'news' : undefined, hint: updateOut ? fill(t.updatesAvailable || 'Version {version} is out', { version: updateOut }) : undefined },
       // Last in the menu: where somebody new starts, counting the setup steps still to do.
       { view: 'guides', label: t.guidesNav || 'Guides', icon: <BookOpen size={I} />, keywords: 'help ayuda tutorial start empezar setup configurar how como glossary glosario',
@@ -1160,19 +1146,19 @@ export default function App() {
   // The phone's bar: what is pressed mid-stream.
   const phoneItems = [
     navSections[0].items[0],
-    { ...navSections[0].items[1], label: t.chat || 'Chat' },
-    { ...navSections[0].items[3], label: t.dockTabPlan || 'Plan' },
-    navSections[0].items[4],
+    { ...navSections[2].items[1], label: t.chat || 'Chat' },
+    navSections[1].items[2],
+    navSections[1].items[4],
   ];
 
   const renderSidebar = (isMobile?: boolean) => (
     <>
       <div className={`shrink-0 p-6 flex items-center gap-3 ${isMobile ? 'justify-between' : ''}`}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-tr from-rose-500 to-rose-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-rose-500/20">
+          <div className="w-8 h-8 bg-gradient-to-tr from-[#66AD4F] to-[#3C7B5A] rounded-lg flex items-center justify-center text-white shadow-lg shadow-[#66AD4F]/20">
             <Logo className="w-5 h-5" />
           </div>
-          <span className={`font-black tracking-tight text-lg ${activeTheme.id === 'light' ? 'text-zinc-900' : 'text-white'}`}>SIMON SAYS</span>
+          <span className={`font-black tracking-tight text-lg ${activeTheme.id === 'light' ? 'text-zinc-900' : 'text-white'}`}>SIMON<span className="text-[#66AD4F]">BOT</span></span>
         </div>
         {isMobile && ( <button onClick={() => setIsMobileMenuOpen(false)} className="text-zinc-500 hover:text-white transition-colors"> <X size={24} /> </button> )}
       </div>
@@ -1205,7 +1191,7 @@ export default function App() {
         t={t}
       />
 
-      {showIntro && ( <div className="fixed inset-0 z-50 bg-[#050505] flex items-center justify-center font-sans overflow-hidden"> <div className="relative flex items-center justify-center"> <div className="absolute inset-0 bg-rose-500/20 blur-[100px] rounded-full animate-pulse"></div> <div className="relative z-10 flex flex-col items-center"> <div className="relative w-32 h-32 mb-8"> <div className="absolute inset-0 border-4 border-rose-500/30 rounded-full animate-[spin_3s_linear_infinite]"></div> <div className="absolute inset-2 border-4 border-rose-500/50 rounded-full border-t-transparent animate-[spin_2s_linear_infinite_reverse]"></div> <div className="absolute inset-0 flex items-center justify-center"> <Logo className="w-16 h-16 text-rose-500 animate-[pulse_2s_ease-in-out_infinite]" /> </div> </div> <h1 className="text-4xl md:text-6xl font-black tracking-tighter text-white mb-4 animate-[slide-up_0.8s_ease-out]"> SIMON SAYS </h1> <div className="h-1 w-24 bg-gradient-to-r from-transparent via-rose-500 to-transparent rounded-full animate-[width_1s_ease-out]"></div> </div> </div> </div> )}
+      {showIntro && ( <div className="fixed inset-0 z-50 bg-[#0F0913] flex items-center justify-center font-sans overflow-hidden"> <div className="relative flex flex-col items-center"> <div className="absolute -inset-10 bg-[#66AD4F]/20 blur-[100px] rounded-full animate-pulse"></div> <img src={botFace} alt="" className="relative w-40 h-40 mb-8 [image-rendering:pixelated] animate-[pulse_2s_ease-in-out_infinite]" /> <h1 className="relative text-4xl md:text-6xl font-black tracking-tighter text-white mb-4 animate-[slide-up_0.8s_ease-out]"> SIMON<span className="text-[#66AD4F]">BOT</span> </h1> <div className="relative h-1 w-24 bg-gradient-to-r from-transparent via-[#66AD4F] to-transparent rounded-full"></div> </div> </div> )}
       {isMobileMenuOpen && ( <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm md:hidden animate-fade-in" onClick={() => setIsMobileMenuOpen(false)} /> )}
       
       <aside className={`fixed inset-y-0 left-0 z-[70] w-72 ${activeTheme.bgClass} border-r ${activeTheme.borderClass} md:hidden transform transition-transform duration-300 ease-out flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full shadow-none'}`}> {renderSidebar(true)} </aside>
@@ -1328,6 +1314,7 @@ export default function App() {
                openUpdates={() => goTo('settings')}
              />
            )}
+           {view === 'bot-home' && <BotHomeView system={system} t={t} go={goTo} language={system.settings.language} />}
            {view === 'dashboard' && ( <DashboardView activeTheme={activeTheme} t={t} setView={setView} spotify={system.spotify} setup={guidesReady ? setupProgress : null} isMod={system.auth.isMod} system={system} language={system.settings.language} openGuide={openGuideAt} dropped={dropped} updateOut={updateOut} /> )}
            {view === 'guides' && (
              <GuidesView

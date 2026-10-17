@@ -17,10 +17,10 @@ export const DISCORD_COLOR = '#5865F2';
 export const THEMES: ThemeConfig[] = [
   {
     id: 'simon-default',
-    name: 'Simon-Default',
-    primary: '#f43f5e',
+    name: 'SimonBot',
+    primary: '#66AD4F',
     accentClass: 'rose-500',
-    bgClass: 'bg-[#292929]',
+    bgClass: 'bg-[#0F0913]',
     panelClass: 'bg-zinc-900/40',
     textClass: 'text-zinc-100',
     borderClass: 'border-zinc-800'

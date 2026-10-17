@@ -67,7 +67,7 @@ const log = createLogger('boot');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  log.info(`SimonSays ${VERSION} — headless server starting`);
+  log.info(`SimonBot (from SimonSays ${VERSION}) — headless server starting`);
   log.info('config:', describeConfig());
 
   // 1. Persistence

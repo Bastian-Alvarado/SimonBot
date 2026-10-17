@@ -9,3 +9,9 @@ declare module '*?raw' {
   const text: string;
   export default text;
 }
+
+/** A picture brought in as its URL (SimonBot's face, art/simonbot). */
+declare module '*.png' {
+  const url: string;
+  export default url;
+}

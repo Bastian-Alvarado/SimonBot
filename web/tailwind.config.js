@@ -27,7 +27,24 @@ export default {
   ],
   theme: {
     extend: {
+      /*
+        SimonBot's colours, from its avatar. Every screen came over from
+        SimonSays written in rose (its accent) and zinc (its greys), so the two
+        are redefined here rather than rewritten across hundreds of files:
+        rose is the heart's leaf green, zinc greys lean towards the outline's plum.
+      */
+      colors: {
+        rose: {
+          50: '#F2F9EE', 100: '#E1F2D8', 200: '#C9ECB4', 300: '#B8E99C', 400: '#84C765',
+          500: '#5FA647', 600: '#4F9140', 700: '#3F7335', 800: '#345C2E', 900: '#2C4C28', 950: '#142A12',
+        },
+        zinc: {
+          50: '#FAF7FB', 100: '#F3EEF5', 200: '#E3DBE7', 300: '#CBBFD1', 400: '#A394AA', 500: '#7B6B83',
+          600: '#5A4B61', 700: '#42344A', 800: '#2C2032', 900: '#1C1121', 950: '#0F0913',
+        },
+      },
       fontFamily: {
+        pixel: ['"Pixelify Sans"', 'monospace'],
         sans: ['Montserrat', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
         creep: ['Creepster', 'cursive'],
