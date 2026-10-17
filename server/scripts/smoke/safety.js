@@ -15,51 +15,49 @@ import { assert, collection, emojiKey, engine, isSameMachine, test } from './har
 // Platform modules are not started in the smoke harness, so stand up the one
 // collection whose secret handling is worth asserting.
 const fakeTwitch = collection('twitch_credentials', {});
-fakeTwitch.set({ channel: 'somechannel', login: 'somechannel', clientId: 'public-id', accessToken: 'SECRET-token', botToken: 'SECRET-bot' });
+fakeTwitch.set({ clientId: 'public-id', clientSecret: 'SECRET-token' });
 
 const bundle = engine.exportConfig();
 
 test('a backup carries the configuration, not just preferences', () => {
   assert.equal(bundle.meta.app, 'SimonBot', 'the backup does not say SimonBot wrote it');
-  assert.equal(typeof bundle.collections.relay_config, 'object', 'the relay settings are missing from the backup');
-  assert.equal(typeof bundle.collections.poll_settings, 'object', 'the poll settings are missing from the backup');
+  assert.equal(typeof bundle.collections.questions_settings, 'object', 'the question settings are missing from the backup');
 });
 
 test('secrets are left out of a backup', () => {
   const twitch = bundle.collections.twitch_credentials;
-  assert.equal(twitch.channel, 'somechannel', 'the non-secret part should travel');
-  assert.ok(!('accessToken' in twitch), 'an access token was written into the backup');
-  assert.ok(!('botToken' in twitch), 'a bot token was written into the backup');
+  assert.equal(twitch.clientId, 'public-id', 'the non-secret part should travel');
+  assert.ok(!('clientSecret' in twitch), 'the Twitch client secret was written into the backup');
   assert.ok(!JSON.stringify(bundle).includes('SECRET-'), 'a secret survived somewhere in the file');
-  assert.ok(bundle.meta.stripped.includes('twitch_credentials.accessToken'), 'the file does not say what it dropped');
+  assert.ok(bundle.meta.stripped.includes('twitch_credentials.clientSecret'), 'the file does not say what it dropped');
 });
 
 test('what viewers did tonight and caches are not part of a backup', () => {
-  for (const name of ['poll', 'questions', 'giveaway', 'discord_cache', 'youtube_tokens']) {
+  for (const name of ['questions', 'giveaway', 'discord_cache', 'youtube_api', 'youtube_usage']) {
     assert.ok(!(name in bundle.collections), `${name} should not be backed up`);
   }
 });
 
 test('importing restores what the file holds', () => {
   const edited = structuredClone(bundle);
-  edited.collections.relay_config = { ...edited.collections.relay_config, twitchToDiscord: true };
+  edited.collections.questions_settings = { ...edited.collections.questions_settings, atStreamEnd: 'finished' };
   const summary = engine.importConfig(edited);
-  assert.ok(summary.restored.includes('relay_config'));
-  assert.equal(engine.snapshot().relayConfig.twitchToDiscord, true, 'the imported relay setting did not land');
+  assert.ok(summary.restored.includes('questions_settings'));
+  assert.equal(engine.snapshot().questionSettings.atStreamEnd, 'finished', 'the imported question setting did not land');
 });
 
 test('a backup from SimonSays is read: what SimonBot has a place for comes in, its overlays are passed over', () => {
   const fromSimonSays = {
     meta: { app: 'SimonSays', kind: 'config-backup', version: 2 },
-    collections: { relay_config: { twitchToDiscord: false }, layouts: [{ id: 'l1' }], commands: [{ id: 'c1' }] },
+    collections: { questions_settings: { atStreamEnd: 'keep' }, relay_config: { twitchToDiscord: false }, layouts: [{ id: 'l1' }], commands: [{ id: 'c1' }] },
   };
   const summary = engine.importConfig(fromSimonSays);
-  assert.deepEqual(summary.restored, ['relay_config'], 'only the collections SimonBot keeps are restored');
+  assert.deepEqual(summary.restored, ['questions_settings'], 'only the collections SimonBot keeps are restored');
 });
 
-test('importing does not sign this machine out', () => {
-  assert.equal(fakeTwitch.get().accessToken, 'SECRET-token', 'an import wiped a stored sign-in');
-  assert.equal(fakeTwitch.get().channel, 'somechannel');
+test('importing does not wipe the keys on this machine', () => {
+  assert.equal(fakeTwitch.get().clientSecret, 'SECRET-token', 'an import wiped a stored key');
+  assert.equal(fakeTwitch.get().clientId, 'public-id');
 });
 
 test('a file from another application is refused', () => {
@@ -155,13 +153,12 @@ test('a custom emoji is never confused with a unicode one of the same name', () 
 
 // The collections that gained secrets so a first-run setup needs no .env file.
 collection('discord_settings', {}).set({ guildId: 'g1', channelId: 'c1', clientId: 'public', clientSecret: 'SECRET-dc', botToken: 'SECRET-bot' });
-collection('tiktok_credentials', {}).set({ username: 'someone', signApiKey: 'SECRET-euler' });
 
 const withSecrets = engine.exportConfig();
 
 test('secrets never travel in a backup', () => {
   const raw = JSON.stringify(withSecrets);
-  for (const needle of ['SECRET-dc', 'SECRET-bot', 'SECRET-euler']) {
+  for (const needle of ['SECRET-dc', 'SECRET-bot']) {
     assert.ok(!raw.includes(needle), `${needle} was written into the backup`);
   }
 });
@@ -169,11 +166,10 @@ test('secrets never travel in a backup', () => {
 test('the non-secret settings beside them still travel', () => {
   assert.equal(withSecrets.collections.discord_settings.guildId, 'g1');
   assert.equal(withSecrets.collections.discord_settings.clientId, 'public');
-  assert.equal(withSecrets.collections.tiktok_credentials.username, 'someone');
 });
 
 test('a backup says which secrets it dropped', () => {
-  for (const field of ['discord_settings.botToken', 'discord_settings.clientSecret', 'tiktok_credentials.signApiKey']) {
+  for (const field of ['discord_settings.botToken', 'discord_settings.clientSecret']) {
     assert.ok(withSecrets.meta.stripped.includes(field), `${field} is not named in meta.stripped`);
   }
 });

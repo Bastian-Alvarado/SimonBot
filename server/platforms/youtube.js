@@ -2,86 +2,54 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * YouTube live chat.
+ * YouTube, for going-live alerts only: whether a channel is live right now,
+ * and what the stream is called. Nobody signs in. The bot uses an API key
+ * from Google Cloud, which can read any channel's public videos.
  *
- * The sign-in is a client id and secret from the Connections screen, an
- * authorisation code exchanged once for a refresh token, and a poll from then
- * on.
- *
- * What YouTube gives, and what it does not
- * ----------------------------------------
- * The live chat API carries messages, new members, gifted memberships and
- * Super Chats. It carries NO event for somebody subscribing for free, and the
- * author of a message says whether they are a member (`isChatSponsor`) but
- * never whether they are a subscriber. Subscriber counts are rounded to three
- * significant figures above a thousand, so watching the number is no
- * substitute — you cannot see one arrive.
- *
- * So this app has no YouTube follow event, because there is nothing to raise
- * one from. An event offered for it would be a line in a menu that can never
- * fire, which is worse than an absence you can see and understand.
- *
- * The mapping, which shared/platforms.js explains and this must obey:
- *
- *   YouTube member (isChatSponsor)  ->  isSub    they pay you
- *   YouTube subscriber (free)       ->  nothing  the API never says
- *
- * Reading chat needs youtube.readonly; changing the broadcast's title and
- * description needs youtube.force-ssl, which covers reading as well and is
- * what is asked for now. An account linked before that has only the first,
- * so what it granted is kept, and the Connections screen asks for one more
- * sign-in rather than letting a title change fail on stream.
+ * Cheap on purpose. A channel's public feed (no key, no allowance) lists its
+ * newest videos; one videos.list call then says which of them are live, for
+ * up to fifty videos at a time, at one unit out of the 10,000 a day YouTube
+ * gives a project. Counted here, so the Connections screen can show what is
+ * left, and when the allowance runs out the bot waits for it to come back
+ * instead of knocking.
  */
+
 import { collection } from '../core/store.js';
-import { bus, EVENTS, normaliseChat, normaliseEvent } from '../core/bus.js';
+import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
-import { config } from '../config.js';
-import { defaultNameColour } from '../../shared/platforms.js';
-import { twitchLive, onTwitchLive } from '../core/twitch-live.js';
 import { refusal } from '../core/refusal.js';
-import { readChatStream, asListed } from './youtube-stream.js';
+import { config } from '../config.js';
 
 const log = createLogger('youtube');
 
-const AUTH = 'https://oauth2.googleapis.com/token';
 const API = 'https://www.googleapis.com/youtube/v3';
+const FEED = 'https://www.youtube.com/feeds/videos.xml';
+/** videos.list answers about this many videos in one call. */
+export const BATCH = 50;
+export const YOUTUBE_DAILY_UNITS = 10_000;
 
-export const SCOPES = 'https://www.googleapis.com/auth/youtube.force-ssl';
-
-/** Either of these lets the broadcast's details be written. */
-const EDIT_SCOPES = ['https://www.googleapis.com/auth/youtube.force-ssl', 'https://www.googleapis.com/auth/youtube'];
-
-/*
-  Whether the linked account granted a scope that can write. Tokens saved
-  before the scope was recorded have none, which reads as no — correctly,
-  since those were only ever asked for youtube.readonly.
-*/
-const canEdit = () => {
-  const granted = String(tokens?.get().scope || '').split(/\s+/);
-  return EDIT_SCOPES.some((scope) => granted.includes(scope));
-};
-
-let tokens = null;
 let settings = null;
 let usage = null;
+let status = { status: 'disconnected', error: null };
+/** Out of allowance until then (ms), or 0. */
+let outUntil = 0;
+let fetcher = (...args) => fetch(...args);
 
-/*
-  The day's allowance, as this app spends it. Every call costs units from the
-  project's 10,000 a day (YouTube's default), and posting a message costs ten
-  reads of chat: 50 against 5. Counted here, by YouTube's price list, so what
-  is left can be shown before a message is spent — an estimate, since
-  YouTube only says so once it is gone. A day is California's, as YouTube
-  counts it.
-*/
-export const YOUTUBE_DAILY_UNITS = 10_000;
-export const YOUTUBE_SEND_UNITS = 50;
-const COSTS = [
-  ['POST', '/liveChat/messages', YOUTUBE_SEND_UNITS],
-  ['GET', '/liveChat/messages', 5],
-  ['PUT', '/videos', 50],
-  ['POST', '/liveChat/bans', 200],
-];
-export const unitsFor = (method, endpoint) => COSTS.find(([m, path]) => m === method && endpoint.startsWith(path))?.[2] ?? 1;
+/** For tests: a stand-in for YouTube. */
+export const _setFetch = (fn) => { fetcher = fn || ((...args) => fetch(...args)); outUntil = 0; };
+
+const apiKey = () => settings?.get().apiKey || config.youtube.apiKey;
+export const hasKey = () => Boolean(apiKey());
+
+function setStatus(next, error = null) {
+  if (status.status === next && status.error === error) return;
+  status = { status: next, error };
+  if (error) log.warn(error);
+  bus.emit(EVENTS.STATUS, { platform: 'youtube', status: next, detail: status });
+}
+export const getStatus = () => status;
+
+// ------------------------------------------------------------------- the allowance
 
 /** The day YouTube is counting, as YYYY-MM-DD in California. */
 export function youtubeDay(now = Date.now()) {
@@ -92,198 +60,9 @@ export function youtubeDay(now = Date.now()) {
   }
 }
 
-function spend(units) {
-  if (!usage) return;
-  const day = youtubeDay();
-  const now = usage.get();
-  usage.set({ day, units: (now.day === day ? now.units : 0) + units });
-}
-
-/** What has been spent today, what is left, and how many messages that would still post. */
-export function usageToday() {
-  const now = usage?.get() || {};
-  const used = now.day === youtubeDay() ? now.units || 0 : 0;
-  const left = Math.max(0, YOUTUBE_DAILY_UNITS - used);
-  return { used, left, limit: YOUTUBE_DAILY_UNITS, messagesLeft: Math.floor(left / YOUTUBE_SEND_UNITS) };
-}
-
-/** Told to every screen as a stat — small, unlike the connection details — when it has moved on. */
-let announcedUnits = -1;
-function announceUsage(force = false) {
-  const { used } = usageToday();
-  if (!force && Math.abs(used - announcedUnits) < 100) return;
-  announcedUnits = used;
-  bus.emit(EVENTS.STAT, { key: 'youtubeUnitsUsed', value: used });
-}
-
-/*
-  What this app posted, by the id YouTube gave it: shown at once when it is
-  sent, so the copy that comes back on the next read of chat is skipped.
-*/
-const posted = new Set();
-let chatTimer = null;
-let viewerTimer = null;
-let status = 'disconnected';
-
-/** Where we are in the chat, and which chat it is. */
-let liveChatId = null;
-let videoId = null;
-let pageToken = null;
-
-/*
-  YouTube says how often to come back, and means it: polling faster spends
-  quota for nothing and gets an app throttled. Its number is used, with a floor
-  so that a zero cannot turn this into a spin.
-*/
-/*
-  Every read of chat is spent from a daily allowance — 10,000 units by
-  default, several of them per read — so how often this asks is how many
-  hours of chat a day buys. At YouTube's own pace, every few seconds, the
-  allowance ran out inside two hours and chat simply stopped arriving. Seven
-  seconds is the floor: messages land a few seconds later, and a normal
-  stream's worth of chat fits in a day.
-*/
-const MIN_POLL_MS = 7000;
-const VIEWER_POLL_MS = 30_000;
-/*
-  Better than looking at all: the chat as YouTube sends it, one connection
-  kept open (server/platforms/youtube-stream.js) at 5 units a connection,
-  where looking every seven seconds spent about 2,600 an hour. Closed by
-  YouTube, it is opened again from where it left off; refused, or closed
-  again and again within moments, this broadcast goes back to looking.
-*/
-const STREAM_PATH = '/liveChat/messages/stream';
-const QUICK_ENDS_ALLOWED = 3;
-/*
-  Closed sooner than quickMs is closed quickly; trouble waits backoffMs (times
-  how many in a row) before the next; nothing heard for idleMs and the
-  connection is taken as stalled and opened again; the first settleMs of a
-  connection from the start is the backlog. Changed only by tests.
-*/
-const STREAM_TIMING = { quickMs: 15_000, backoffMs: 2000, idleMs: 120_000, settleMs: 1500 };
-export function setStreamTimingForTests(next) { Object.assign(STREAM_TIMING, next); }
-let streamAbort = null;
-/** This broadcast's chat is looked at, not streamed: streaming did not work for it. */
-let streamOff = false;
-let quickEnds = 0;
-/*
-  Not live: how often to look for a broadcast. Looking every minute, with the
-  channel name read again each time, would spend over a quarter of the day's
-  allowance with nobody streaming. Three minutes still finds a stream moments
-  after it starts.
-*/
-const WAIT_MS = 180_000;
-/* After a failure that is not the allowance — a network blip, a chat that ended. */
-const RETRY_MS = 60_000;
-
-/*
-  Only while the Twitch stream is live (server/core/twitch-live.js): YouTube
-  is where that stream is also sent, so with Twitch not live there is no
-  broadcast to find, and every look is allowance spent for nothing. Twitch
-  going live is looked at once, then every minute for ten minutes —
-  YouTube's broadcast tends to start a beat after — then every three. With
-  Twitch not connected, nobody can say, and it looks every three minutes.
-
-  Reading a chat already, Twitch stopping is given five minutes before the
-  reading stops with it: a stream that drops and comes straight back is
-  not a stream that ended.
-*/
-const TWITCH_FAST_MS = 60_000;
-const TWITCH_FAST_FOR_MS = 10 * 60_000;
-const TWITCH_GRACE_MS = 5 * 60_000;
-let graceTimer = null;
-
-/** How long until the next look for a broadcast, or null for none until Twitch is live. */
-function nextLook(now = Date.now()) {
-  const tw = twitchLive();
-  if (!tw.known) return WAIT_MS;
-  if (!tw.live) return null;
-  return now - tw.since < TWITCH_FAST_FOR_MS ? TWITCH_FAST_MS : WAIT_MS;
-}
-
-/*
-  The sign-in Google refused — expired or taken back — until it works
-  again: a problem to show, not to cover with "waiting for Twitch".
-*/
-let authBroken = null;
-
-/** Not looking: waiting on Twitch to go live, said once — unless the sign-in is what is wrong, which stays said. */
-function pause() {
-  clearTimeout(chatTimer);
-  chatTimer = null;
-  if (authBroken) {
-    setStatus('disconnected');
-    if (health.state !== 'error' || health.message !== authBroken) setHealth({ state: 'error', message: authBroken });
-    return;
-  }
-  setStatus('connected');
-  if (health.state !== 'paused') log.info('Twitch is not live — not looking for a YouTube broadcast until it is');
-  setHealth({ state: 'paused' });
-}
-
-/*
-  The first page of a chat is its backlog — everything said before we arrived.
-  Replaying it would fire a sub event for every member who joined while the
-  app was shut, and fill the chat with an hour nobody was watching for.
-*/
-let seenFirstPage = false;
-
-/*
-  Whose account this is, so the screen can say so rather than only that
-  something is connected. Read once when the connection is made and kept, since
-  it is identity rather than state — and looked up here rather than when asked
-  for, because the screen asks on every broadcast.
-*/
-let channel = null;
-
-const clientId = () => settings?.get().clientId || config.youtube?.clientId || '';
-const clientSecret = () => settings?.get().clientSecret || config.youtube?.clientSecret || '';
-
-export const getSettings = () => ({
-  clientId: clientId(),
-  hasSecret: Boolean(clientSecret()),
-  authorised: Boolean(tokens?.get().refreshToken),
-  canEdit: Boolean(tokens?.get().refreshToken) && canEdit(),
-  channel,
-  // Whether there is a chat to post in right now. What is left of the day travels as the youtubeUnitsUsed stat:
-  // these details go out whole whenever any platform changes, and are not small.
-  live: Boolean(liveChatId),
-  health: tokens?.get().refreshToken ? health : { state: 'off' },
-});
-export const setSettings = (patch) => settings.set({ ...settings.get(), ...patch });
-export const getStatus = () => status;
-export const isAuthorised = () => Boolean(tokens?.get().refreshToken);
-
-function setStatus(next) {
-  if (status === next) return;
-  status = next;
-  bus.emit(EVENTS.STATUS, { platform: 'youtube', status });
-}
-
-/*
-  What the connection is actually doing, which "connected" and "disconnected"
-  never said: reading chat, waiting for a broadcast, out of allowance until
-  the reset, or failing for some other reason. The Connections screen shows
-  it, so whether YouTube chat is working is something you can see rather than
-  something you find out about after a stream.
-
-  Changed only on a real transition, never per message: it travels with the
-  connection details, which are not small.
-*/
-let health = { state: 'off' };
-function setHealth(next) {
-  health = { ...next, at: Date.now() };
-  // A status event is what carries the connection details to every screen.
-  bus.emit(EVENTS.STATUS, { platform: 'youtube', status });
-}
-
-/** Whether YouTube refused because the day's allowance is spent. */
-const isQuota = (err) => /quota/i.test(`${err?.reason || ''} ${err?.message || ''}`);
-
 /**
  * When the allowance comes back: midnight in California, where YouTube
- * counts its days. A minute's grace after it, so the first knock lands on
- * the new day rather than the last second of the old one.
+ * counts its days, and a minute after, so the first knock lands on the new day.
  */
 export function nextQuotaReset(now = Date.now()) {
   try {
@@ -296,631 +75,130 @@ export function nextQuotaReset(now = Date.now()) {
     const offset = there - Math.floor(now / 1000) * 1000;
     return Date.UTC(parts.year, parts.month - 1, parts.day + 1) - offset + 60_000;
   } catch {
-    // No time zone data: Pacific standard time is close enough to wait on.
     const day = 86_400_000;
     return Math.floor((now - 8 * 3_600_000) / day) * day + day + 8 * 3_600_000 + 60_000;
   }
 }
 
-export function initYouTube() {
-  tokens = collection('youtube_tokens', { accessToken: '', refreshToken: '', expiresAt: 0 });
-  settings = collection('youtube_settings', { clientId: '', clientSecret: '' });
-  usage = collection('youtube_usage', { day: '', units: 0 });
-  announceUsage(true);
-  watchTwitch();
-  if (tokens.get().refreshToken) {
-    // Twitch already known not to be live: nothing to look for yet.
-    if (nextLook() === null) { pause(); return; }
-    // Through onFailure, so a start that fails at boot is tried again like any other.
-    start().catch(onFailure);
-  }
+function spend(units) {
+  if (!usage) return;
+  const day = youtubeDay();
+  const now = usage.get();
+  usage.set({ day, units: (now.day === day ? now.units : 0) + units });
 }
 
-/*
-  Follows Twitch: live, look at once; not live, stop looking — and stop
-  reading a chat after the grace — and not known, look as before. Out of
-  allowance, nothing changes: that waits for the reset, whatever Twitch does.
-*/
-let watchingTwitch = false;
-function watchTwitch() {
-  if (watchingTwitch) return;
-  watchingTwitch = true;
-  onTwitchLive((tw, { wentLive }) => {
-    if (!tokens?.get().refreshToken || health.state === 'quota') return;
-    if (tw.live) {
-      clearTimeout(graceTimer);
-      graceTimer = null;
-      if (wentLive && !liveChatId) start().catch(onFailure);
-      return;
-    }
-    if (tw.known) {
-      if (!liveChatId) { pause(); return; }
-      clearTimeout(graceTimer);
-      graceTimer = setTimeout(() => {
-        graceTimer = null;
-        if (twitchLive().known && !twitchLive().live) { log.info('Twitch stopped five minutes ago — stopped reading YouTube chat'); stop(); pause(); }
-      }, TWITCH_GRACE_MS);
-      graceTimer.unref?.();
-      return;
-    }
-    // Twitch gone: nobody can say, so look as before.
-    if (health.state === 'paused') start().catch(onFailure);
-  });
+/** What has been spent today, what is left, and when it starts over. */
+export function usageToday() {
+  const now = usage?.get() || {};
+  const used = now.day === youtubeDay() ? now.units || 0 : 0;
+  return { used, left: Math.max(0, YOUTUBE_DAILY_UNITS - used), limit: YOUTUBE_DAILY_UNITS, resetsAt: nextQuotaReset(), outUntil };
 }
 
-async function accessToken() {
-  const t = tokens.get();
-  if (!t.refreshToken) throw new Error('YouTube: not authenticated');
-  if (Date.now() > t.expiresAt - 60_000) await refresh();
-  return tokens.get().accessToken;
+// ------------------------------------------------------------------- the key
+
+export const getCredentials = () => ({ hasApiKey: hasKey(), health: usageToday() });
+
+/** The API key, from the Connections screen. A new key is tried at once. */
+export function setCredentials(patch = {}) {
+  if (typeof patch.apiKey !== 'string') return;
+  settings.set({ ...settings.get(), apiKey: patch.apiKey.trim() });
+  outUntil = 0;
+  checkKey().catch(() => {});
 }
 
-async function refresh() {
-  const t = tokens.get();
-  const res = await fetch(AUTH, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: t.refreshToken,
-      client_id: clientId(),
-      client_secret: clientSecret(),
-    }),
-  });
-  const json = await res.json();
+async function api(endpoint, query = {}) {
+  if (!hasKey()) throw refusal('youtube_no_key', 'YouTube: add an API key on the Connections screen');
+  if (outUntil > Date.now()) throw refusal('youtube_quota', 'YouTube: today\'s allowance is spent');
+  const url = new URL(`${API}${endpoint}`);
+  for (const [k, v] of Object.entries({ ...query, key: apiKey() })) url.searchParams.set(k, v);
+  const res = await fetcher(url);
+  spend(1);
+  const json = await res.json().catch(() => null);
   if (!res.ok) {
-    authBroken = `YouTube auth failed: ${json.error_description || json.error}`;
-    throw new Error(authBroken);
-  }
-  authBroken = null;
-  tokens.set({
-    ...t,
-    accessToken: json.access_token,
-    // A refresh response carries no new refresh token; the stored one stands.
-    expiresAt: Date.now() + (json.expires_in || 3600) * 1000,
-  });
-}
-
-async function api(endpoint, { method = 'GET', body } = {}) {
-  const token = await accessToken();
-  // Spent whether or not it works: YouTube charges for a refused call too.
-  spend(unitsFor(method, endpoint));
-  const res = await fetch(`${API}${endpoint}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const text = await res.text();
-  const json = text ? JSON.parse(text) : null;
-  if (!res.ok) {
-    const err = new Error(`YouTube ${res.status}: ${json?.error?.message || text}`);
-    // quotaExceeded, liveChatEnded and the like: what to do next depends on it.
-    err.reason = json?.error?.errors?.[0]?.reason || '';
+    const reason = json?.error?.errors?.[0]?.reason || '';
+    if (/quota/i.test(reason)) {
+      outUntil = nextQuotaReset();
+      setStatus('quota', 'today\'s allowance is spent; it comes back at midnight in California');
+      throw refusal('youtube_quota', 'YouTube: today\'s allowance is spent');
+    }
+    const message = json?.error?.message || `HTTP ${res.status}`;
+    if (res.status === 400 || res.status === 403) setStatus('error', message);
+    const err = new Error(`YouTube ${res.status}: ${message}`);
+    err.status = res.status;
     throw err;
   }
+  setStatus('connected');
   return json;
 }
 
-export async function exchangeCode(code, redirectUri) {
-  if (!clientId() || !clientSecret()) {
-    throw new Error('YouTube: client id and secret are not set — add them on the Connections screen');
-  }
-  const res = await fetch(AUTH, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: redirectUri,
-      client_id: clientId(),
-      client_secret: clientSecret(),
-    }),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(`YouTube auth failed: ${json.error_description || json.error}`);
-  /*
-    Google returns a refresh token only on the first consent, and only when
-    asked for offline access. Without one this would work until the hour was
-    up and then quietly stop, so it is refused here instead.
-  */
-  if (!json.refresh_token) {
-    throw new Error('YouTube returned no refresh token — sign in again and allow offline access');
-  }
-  // Signed in afresh: whatever was wrong with the old sign-in is behind it.
-  authBroken = null;
-  tokens.set({
-    accessToken: json.access_token,
-    refreshToken: json.refresh_token,
-    expiresAt: Date.now() + (json.expires_in || 3600) * 1000,
-    // What was actually granted, which can be less than what was asked for.
-    scope: String(json.scope || ''),
-  });
-  log.info('authorised');
-  await start();
-  return true;
-}
-
-export function logout() {
-  authBroken = null;
-  stop();
-  channel = null;
-  health = { state: 'off' };
-  tokens.set({ accessToken: '', refreshToken: '', expiresAt: 0 });
-}
-
-/** The broadcast that is live now, if there is one. */
-async function findLiveChat() {
-  const live = await api('/liveBroadcasts?part=snippet,status&broadcastStatus=active&broadcastType=all&maxResults=1');
-  const item = (live?.items || [])[0];
-  if (!item) return null;
-  return { chatId: item.snippet?.liveChatId || null, videoId: item.id || null };
-}
-
-/*
-  Which start this is. Twitch going live can start YouTube while another
-  start is still waiting on Google; each is numbered, and stop() or a newer
-  start retires the older — whatever it was waiting for, it stops there —
-  so only one ever reads chat, and only once.
-*/
-let run = 0;
-
-export async function start() {
-  stop();
-  const mine = run;
+/** Whether the key works: one cheap call says so. */
+export async function checkKey() {
+  if (!hasKey()) { setStatus('disconnected'); return false; }
   try {
-    await startRun(mine);
+    await api('/videos', { part: 'id', id: 'jNQXAC9IVRw' });
+    return true;
   } catch (err) {
-    // A retired start's failure is nobody's business: the one that retired it carries on.
-    if (mine !== run) return;
-    throw err;
+    if (err.code !== 'youtube_quota') setStatus('error', err.message);
+    return false;
   }
 }
 
-async function startRun(mine) {
-  await accessToken();
-  if (mine !== run) return;
+// ------------------------------------------------------------------- channels and videos
 
-  /*
-    Decoration, so it must never be the reason chat does not start: a channel
-    whose name cannot be read is still a channel whose chat can be. Read once,
-    not on every look for a broadcast — it is identity, and it was a unit of
-    the day's allowance spent every minute to learn nothing new.
-  */
-  if (!channel) try {
-    const me = await api('/channels?part=snippet&mine=true&maxResults=1');
-    const item = (me?.items || [])[0];
-    if (item) {
-      channel = {
-        title: item.snippet?.title || '',
-        avatar: item.snippet?.thumbnails?.default?.url || '',
+const unescape = (s) => String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+/** A channel from what somebody typed: its id, a /channel/ link, or an @handle (one unit to look up). */
+export async function channelFrom(input) {
+  const s = String(input ?? '').trim();
+  const id = /(UC[A-Za-z0-9_-]{22})/.exec(s)?.[1];
+  const handle = /(?:youtube\.com\/)?@([A-Za-z0-9._-]{3,30})/.exec(s)?.[1];
+  if (!id && !handle) return null;
+  const data = await api('/channels', { part: 'snippet', ...(id ? { id } : { forHandle: `@${handle}` }) });
+  const c = data?.items?.[0];
+  return c ? { id: c.id, name: c.snippet?.title || '', avatar: c.snippet?.thumbnails?.default?.url || '', handle: c.snippet?.customUrl || '' } : null;
+}
+
+/** A channel's newest videos, from its public feed: no key, no allowance. */
+export async function feed(channelId, max = 5) {
+  const res = await fetcher(`${FEED}?channel_id=${encodeURIComponent(channelId)}`);
+  if (!res.ok) throw new Error(`YouTube feed ${res.status}`);
+  const xml = await res.text();
+  const ids = [...xml.matchAll(/<yt:videoId>([^<]+)<\/yt:videoId>/g)].map((m) => m[1]).slice(0, max);
+  const name = unescape(/<author>\s*<name>([^<]*)<\/name>/.exec(xml)?.[1] || '');
+  return { ids, name };
+}
+
+/**
+ * Which of these videos are live: { videoId → { channelId, channel, title,
+ * live, startedAt, thumbnail, url } }, fifty videos to a unit.
+ */
+export async function videos(ids) {
+  const out = {};
+  const all = [...new Set(ids.filter(Boolean))];
+  for (let i = 0; i < all.length; i += BATCH) {
+    const data = await api('/videos', { part: 'snippet,liveStreamingDetails', id: all.slice(i, i + BATCH).join(',') });
+    for (const v of data?.items ?? []) {
+      const sn = v.snippet || {};
+      const ld = v.liveStreamingDetails || {};
+      out[v.id] = {
+        channelId: sn.channelId || '',
+        channel: sn.channelTitle || '',
+        title: sn.title || '',
+        // Live: begun and not over. A scheduled premiere or stream that has not started is not.
+        live: sn.liveBroadcastContent === 'live' && Boolean(ld.actualStartTime) && !ld.actualEndTime,
+        startedAt: ld.actualStartTime ? Date.parse(ld.actualStartTime) : 0,
+        thumbnail: sn.thumbnails?.maxres?.url || sn.thumbnails?.high?.url || sn.thumbnails?.medium?.url || '',
+        url: `https://www.youtube.com/watch?v=${v.id}`,
       };
     }
-  } catch (err) {
-    log.warn('could not read the channel name:', err.message);
   }
-  if (mine !== run) return;
-
-  const found = await findLiveChat();
-  if (mine !== run) return;
-  if (!found?.chatId) {
-    /*
-      Authorised, but not streaming. Connected is the honest word: the account
-      is linked, and this looks again in a minute so that starting a broadcast
-      is all anybody has to do.
-    */
-    const wait = nextLook();
-    if (wait === null) { pause(); return; }
-    setStatus('connected');
-    if (health.state !== 'waiting') log.info('authorised — waiting for a live broadcast');
-    setHealth({ state: 'waiting', nextCheckAt: Date.now() + wait });
-    chatTimer = setTimeout(() => start().catch(onFailure), wait);
-    return;
-  }
-
-  liveChatId = found.chatId;
-  videoId = found.videoId;
-  pageToken = null;
-  seenFirstPage = false;
-  streamOff = false;
-  quickEnds = 0;
-  heardIds.clear();
-  setStatus('connected');
-  log.info('live chat found — reading');
-  setHealth({ state: 'reading', since: Date.now(), everyMs: MIN_POLL_MS, streaming: true });
-
-  // Streamed, not waited on: the connection stays open as long as the chat goes on.
-  streamChat(mine).catch((err) => { if (mine === run) onFailure(err); });
-  if (mine !== run) return;
-  viewerTimer = setInterval(() => pollViewers(mine).catch(() => {}), VIEWER_POLL_MS);
-  await pollViewers(mine).catch(() => {});
+  return out;
 }
 
-export function stop() {
-  run += 1;
-  streamAbort?.abort();
-  streamAbort = null;
-  clearTimeout(chatTimer);
-  clearInterval(viewerTimer);
-  chatTimer = null;
-  viewerTimer = null;
-  liveChatId = null;
-  videoId = null;
-  pageToken = null;
-  seenFirstPage = false;
-  // Not live any more, and nobody watching: the viewer counter drops YouTube's row.
-  bus.emit(EVENTS.STAT, { key: 'youtubeViewers', value: 0 });
-  bus.emit(EVENTS.STAT, { key: 'youtubeLive', value: false });
-  setStatus('disconnected');
+export function initYouTube() {
+  settings = collection('youtube_api', { apiKey: '' });
+  usage = collection('youtube_usage', { day: '', units: 0 });
+  if (config.autoStart && hasKey()) checkKey().catch(() => {});
 }
 
-function onFailure(err) {
-  stop();
-  /*
-    Out of allowance: nothing will work until the reset, and knocking every
-    minute until then only fills the log. Wait for it, say so once, and say
-    when it comes back.
-  */
-  if (isQuota(err)) {
-    const resetsAt = nextQuotaReset();
-    if (health.state !== 'quota') log.warn(`daily allowance used up — chat resumes after ${new Date(resetsAt).toISOString()}`);
-    setHealth({ state: 'quota', resetsAt });
-    chatTimer = setTimeout(() => start().catch(onFailure), Math.max(60_000, resetsAt - Date.now()));
-    return;
-  }
-  // Twitch not live: a chat ending is the stream ending, and there is nothing to try again for.
-  if (nextLook() === null) { pause(); return; }
-  log.warn(err.message);
-  setHealth({ state: 'error', message: String(err.message || '').slice(0, 200), nextCheckAt: Date.now() + RETRY_MS });
-  // Quietly, and keep trying: a broadcast ending is the ordinary case here.
-  chatTimer = setTimeout(() => start().catch(onFailure), RETRY_MS);
-}
-
-/** Back to looking every seven seconds, for the rest of this broadcast, and saying why. */
-function lookInstead(mine, why) {
-  streamOff = true;
-  log.info(`reading chat as it is sent did not work (${why}) — looking every ${MIN_POLL_MS / 1000} s instead`);
-  setHealth({ ...health, everyMs: MIN_POLL_MS, streaming: false });
-  return pollChat(mine);
-}
-
-/*
-  What a failed connection says about the stream. Refused for what it is —
-  not found, not allowed, not a stream — is for good: looking instead.
-  Anything else — the network, YouTube busy (429, 5xx), a sign-in to renew
-  (401), a connection gone quiet — is a moment's trouble: opened again.
-*/
-const TROUBLE_STATUSES = new Set([401, 408, 429]);
-const forGood = (err) => err?.reason === 'notAStream' || (err?.status >= 400 && err?.status < 500 && !TROUBLE_STATUSES.has(err.status));
-
-/** The ids heard on this broadcast's stream, so a reconnect that sends one again is not news twice. */
-const heardIds = new Set();
-const heard = (id) => {
-  if (!id) return false;
-  if (heardIds.has(id)) return true;
-  heardIds.add(id);
-  if (heardIds.size > 2000) heardIds.delete(heardIds.values().next().value);
-  return false;
-};
-
-/** One connection to the chat, kept open until YouTube closes it; then the next. */
-async function streamChat(mine = run) {
-  if (!liveChatId || mine !== run) return undefined;
-  if (streamOff) return pollChat(mine);
-  const token = await accessToken();
-  if (mine !== run) return undefined;
-  // One connection is one call: spent whether or not it works, as every call is.
-  spend(unitsFor('GET', STREAM_PATH));
-  announceUsage();
-  const controller = new AbortController();
-  streamAbort = controller;
-  const opened = Date.now();
-  // With no place to carry on from, YouTube starts with what was said before: none of it is news.
-  const fromStart = !pageToken;
-  let ended = false;
-  let quiet = false;
-  let lastHeard = opened;
-  const idle = setInterval(() => {
-    if (Date.now() - lastHeard < STREAM_TIMING.idleMs) return;
-    quiet = true;
-    controller.abort();
-  }, Math.min(10_000, STREAM_TIMING.idleMs));
-  idle.unref?.();
-  let failure = null;
-  try {
-    await readChatStream({
-      url: `${API}${STREAM_PATH}?liveChatId=${encodeURIComponent(liveChatId)}&part=snippet,authorDetails${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
-      token,
-      signal: controller.signal,
-      onResponse: (data) => {
-        if (mine !== run) return;
-        lastHeard = Date.now();
-        if (data?.nextPageToken) pageToken = data.nextPageToken;
-        for (const raw of data?.items || []) {
-          const item = asListed(raw);
-          // Before this connection opened, or arriving with the backlog in its first moments: not news.
-          if (fromStart && (Date.parse(item?.snippet?.publishedAt) < opened - 2000 || lastHeard - opened < STREAM_TIMING.settleMs)) { heard(item?.id); continue; }
-          if (heard(item?.id)) continue;
-          try { handleMessage(item); } catch (err) { log.warn(`a YouTube message could not be read: ${err.message}`); }
-        }
-        seenFirstPage = true;
-        if (data?.offlineAt) ended = true;
-      },
-    });
-  } catch (err) {
-    failure = err;
-  } finally {
-    clearInterval(idle);
-    controller.abort();
-    if (streamAbort === controller) streamAbort = null;
-  }
-  if (mine !== run) return undefined;
-  if (failure && !(quiet && failure.name === 'AbortError')) {
-    if (failure.name === 'AbortError') return undefined;
-    // The allowance spent, or the chat over: as when looking.
-    if (isQuota(failure) || ['liveChatEnded', 'liveChatNotFound', 'liveChatDisabled'].includes(failure.reason)) throw failure;
-    if (forGood(failure)) return lookInstead(mine, failure.message);
-  }
-  if (ended) {
-    const err = new Error('YouTube: the live chat has ended');
-    err.reason = 'liveChatEnded';
-    throw err;
-  }
-  /*
-    Opened again, from where it was. Trouble, or closed within moments, time
-    after time: something is wrong with it, and looking is surer. A quiet
-    connection closed here is not trouble.
-  */
-  const troubled = Boolean(failure && !quiet) || (!quiet && Date.now() - opened < STREAM_TIMING.quickMs);
-  quickEnds = troubled ? quickEnds + 1 : 0;
-  if (quickEnds >= QUICK_ENDS_ALLOWED) return lookInstead(mine, failure ? failure.message : `closed ${quickEnds} times within ${STREAM_TIMING.quickMs / 1000} s`);
-  if (failure && !quiet) log.debug(`YouTube chat connection dropped (${failure.message}) — opening it again`);
-  chatTimer = setTimeout(() => streamChat(mine).catch((e) => { if (mine === run) onFailure(e); }), quickEnds ? STREAM_TIMING.backoffMs * quickEnds : 250);
-  return undefined;
-}
-
-async function pollChat(mine = run) {
-  if (!liveChatId || mine !== run) return;
-
-  let data;
-  try {
-    data = await api(`/liveChat/messages?liveChatId=${encodeURIComponent(liveChatId)}`
-      + '&part=snippet,authorDetails&maxResults=200'
-      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''));
-  } catch (err) {
-    if (mine === run) onFailure(err);
-    return;
-  }
-  if (mine !== run) return;
-
-  pageToken = data?.nextPageToken || null;
-  const wait = Math.max(MIN_POLL_MS, Number(data?.pollingIntervalMillis) || MIN_POLL_MS);
-  announceUsage();
-
-  if (seenFirstPage) {
-    for (const item of data?.items || []) handleMessage(item);
-  }
-  seenFirstPage = true;
-
-  chatTimer = setTimeout(() => pollChat(mine).catch((err) => { if (mine === run) onFailure(err); }), wait);
-}
-
-/**
- * One live chat item, turned into whatever this app already understands.
- *
- * Exported so it can be driven with recorded shapes: the rest of this file
- * needs a live broadcast to say anything at all, and this is the part where
- * being wrong would be silent.
- */
-export function handleMessage(item) {
-  // Posted from here and shown when it was sent: this is the same message coming back.
-  if (item?.id && posted.delete(item.id)) return;
-  const snippet = item?.snippet || {};
-  const author = item?.authorDetails || {};
-  const user = author.displayName || 'someone';
-  const avatar = author.profileImageUrl || '';
-
-  /*
-    isChatSponsor is membership — money — so it is this app's isSub. There is
-    no field for a free subscriber, which is the whole reason there is no
-    YouTube follow event.
-  */
-  const common = {
-    platform: 'youtube',
-    id: item?.id || null,
-    user,
-    userId: author.channelId || null,
-    avatar,
-    isMod: Boolean(author.isChatModerator),
-    isSub: Boolean(author.isChatSponsor),
-    isBroadcaster: Boolean(author.isChatOwner),
-    // YouTube has no name colours: the one Twitch gives somebody who never chose, not white.
-    color: defaultNameColour(user),
-    // YouTube has no VIP. Said plainly rather than left out, so nothing
-    // downstream has to wonder whether the platform simply forgot to mention.
-    isVip: false,
-  };
-
-  switch (snippet.type) {
-    case 'textMessageEvent':
-      bus.emit(EVENTS.CHAT, normaliseChat({ ...common, msg: snippet.displayMessage || '' }));
-      return;
-
-    case 'superChatEvent':
-    case 'superStickerEvent': {
-      const details = snippet.superChatDetails || snippet.superStickerDetails || {};
-      const comment = details.userComment || '';
-      // The words go in chat as well as raising the event, the way a cheer does.
-      if (comment) bus.emit(EVENTS.CHAT, normaliseChat({ ...common, msg: comment, highlighted: true }));
-      bus.emit(EVENTS.EVENT, normaliseEvent({
-        type: 'youtube_cheer',
-        platform: 'youtube',
-        user,
-        avatar,
-        /*
-          `amount` is the money as YouTube shows it ("$5.00"), for a caption;
-          `value` is the same as a number in its own currency, for comparing.
-        */
-        data: {
-          amount: details.amountDisplayString || '',
-          value: Number(details.amountMicros || 0) / 1e6,
-          currency: details.currency || '',
-          message: comment,
-          userId: common.userId || '',
-        },
-      }));
-      return;
-    }
-
-    case 'newSponsorEvent':
-      bus.emit(EVENTS.EVENT, normaliseEvent({
-        type: 'youtube_sub',
-        platform: 'youtube',
-        user,
-        avatar,
-        data: { tier: snippet.newSponsorDetails?.memberLevelName || '', userId: common.userId || '' },
-      }));
-      return;
-
-    case 'memberMilestoneChatEvent':
-      bus.emit(EVENTS.EVENT, normaliseEvent({
-        type: 'youtube_sub',
-        platform: 'youtube',
-        user,
-        avatar,
-        data: {
-          months: snippet.memberMilestoneChatDetails?.memberMonth || 0,
-          tier: snippet.memberMilestoneChatDetails?.memberLevelName || '',
-          userId: common.userId || '',
-        },
-      }));
-      return;
-
-    case 'membershipGiftingEvent':
-      bus.emit(EVENTS.EVENT, normaliseEvent({
-        type: 'youtube_sub_gift_bulk',
-        platform: 'youtube',
-        user,
-        avatar,
-        data: {
-          count: snippet.membershipGiftingDetails?.giftMembershipsCount || 1,
-          tier: snippet.membershipGiftingDetails?.giftMembershipsLevelName || '',
-        },
-      }));
-      return;
-
-    default:
-      // Deletions, bans, sponsor-only mode, and whatever YouTube adds next.
-  }
-}
-
-async function pollViewers(mine = run) {
-  if (!videoId) return;
-  const data = await api(`/videos?part=liveStreamingDetails&id=${encodeURIComponent(videoId)}`);
-  // Stopped meanwhile: what it says is of a run that is over.
-  if (mine !== run) return;
-  const details = (data?.items || [])[0]?.liveStreamingDetails;
-  if (!details) return;
-  // Live until YouTube says the broadcast ended; one key at a time, the way TikTok reports its own.
-  const live = !details.actualEndTime;
-  bus.emit(EVENTS.STAT, { key: 'youtubeViewers', value: live ? Number(details.concurrentViewers) || 0 : 0 });
-  bus.emit(EVENTS.STAT, { key: 'youtubeLive', value: live });
-}
-
-/** The longest message YouTube chat takes. */
-export const YOUTUBE_CHAT_MAX = 200;
-
-/**
- * A YouTube channel by its id (UC…) or @handle, for linking somebody by hand
- * who has not chatted yet. One unit of the day's allowance. Null when it is
- * neither, YouTube is not signed in, or there is no such channel.
- */
-export async function findChannel(query) {
-  const q = String(query ?? '').trim();
-  const byId = /^UC[\w-]{22}$/.test(q);
-  const handle = /^@[\w.-]{3,30}$/.test(q) ? q : '';
-  if ((!byId && !handle) || !isAuthorised()) return null;
-  const data = await api(`/channels?part=snippet&${byId ? `id=${encodeURIComponent(q)}` : `forHandle=${encodeURIComponent(handle)}`}`);
-  const c = data?.items?.[0];
-  return c ? { id: c.id, name: c.snippet?.title || c.id, avatar: c.snippet?.thumbnails?.default?.url || '' } : null;
-}
-
-/**
- * Ban somebody from the live chat for good, or for `seconds`. Only while there
- * is a live chat, and it costs 200 units of the day's allowance.
- */
-export async function ban(channelId, { seconds = 0 } = {}) {
-  if (!isAuthorised()) throw refusal('youtube_offline', 'YouTube is not connected');
-  if (!canEdit()) throw refusal('youtube_sign_in_again', 'YouTube: sign in again on the Connections screen to allow posting in chat');
-  if (!liveChatId) throw refusal('youtube_not_live', 'YouTube: there is no live chat right now');
-  if (usageToday().left < 200) throw refusal('youtube_quota', "YouTube: today's allowance is used up");
-  try {
-    await api('/liveChat/bans?part=snippet', {
-      method: 'POST',
-      body: { snippet: { liveChatId, type: seconds ? 'temporary' : 'permanent', ...(seconds ? { banDurationSeconds: String(Math.round(seconds)) } : {}), bannedUserDetails: { channelId: String(channelId) } } },
-    });
-  } finally {
-    announceUsage(true);
-  }
-  return { ok: true };
-}
-
-/**
- * Post a message in the live chat being read, as the linked channel.
- *
- * Refused, with a code a screen can say, when there is no chat to post in,
- * when the sign-in cannot write, when it is too long, and when the day's
- * allowance would not cover it — a message costs 50 units, ten reads of
- * chat. Shown in chat at once rather than when the next read brings it
- * back. `sentToBoth` marks one that went to Twitch as well. `cut` is for a
- * bot's reply: trimmed to fit rather than refused, since nobody is there to
- * shorten it.
- */
-export async function say(text, { sentToBoth = false, cut = false, quiet = false } = {}) {
-  let line = String(text ?? '').replace(/\s+/g, ' ').trim();
-  if (cut && Array.from(line).length > YOUTUBE_CHAT_MAX) line = `${Array.from(line).slice(0, YOUTUBE_CHAT_MAX - 1).join('')}…`;
-  if (!line) return null;
-  if (!isAuthorised()) throw refusal('youtube_offline', 'YouTube is not connected');
-  if (!canEdit()) throw refusal('youtube_sign_in_again', 'YouTube: sign in again on the Connections screen to allow posting in chat');
-  if (!liveChatId) throw refusal('youtube_not_live', 'YouTube: there is no live chat to post in right now');
-  if (Array.from(line).length > YOUTUBE_CHAT_MAX) throw refusal('youtube_too_long', `YouTube chat takes ${YOUTUBE_CHAT_MAX} characters at most`, { max: YOUTUBE_CHAT_MAX });
-  if (usageToday().left < YOUTUBE_SEND_UNITS) throw refusal('youtube_quota', 'YouTube: today\'s allowance is used up');
-
-  let sent;
-  try {
-    sent = await api('/liveChat/messages?part=snippet', {
-      method: 'POST',
-      body: { snippet: { liveChatId, type: 'textMessageEvent', textMessageDetails: { messageText: line } } },
-    });
-  } catch (err) {
-    if (isQuota(err)) throw refusal('youtube_quota', 'YouTube: today\'s allowance is used up');
-    throw err;
-  } finally {
-    announceUsage(true);
-  }
-  if (sent?.id) {
-    posted.add(sent.id);
-    if (posted.size > 200) posted.delete(posted.values().next().value);
-  }
-  // A line the relay copied from Discord: already on screen as the Discord message it came from.
-  if (quiet) return sent;
-  const name = channel?.title || 'YouTube';
-  bus.emit(EVENTS.CHAT, normaliseChat({
-    platform: 'youtube',
-    id: sent?.id || null,
-    user: name,
-    avatar: channel?.avatar || '',
-    isBroadcaster: true,
-    color: defaultNameColour(name),
-    msg: line,
-    raw: sentToBoth ? { sentToBoth: true } : null,
-  }));
-  return sent;
-}
-
-/** What the rest of the app may ask of YouTube. */
-export const service = {
-  say: (text, opts) => say(text, opts),
-};
+export const _test = { reset: () => { outUntil = 0; status = { status: 'disconnected', error: null }; } };

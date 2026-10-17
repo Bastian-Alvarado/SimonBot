@@ -4,11 +4,12 @@
  *
  * Settings → Sign-in (server/api/auth.js).
  *
- * The streamer's: switch sign-in on or off, see and change the owner key, and
- * sign out. A moderator sees only who they are signed in
- * as, and signing out.
+ * The streamer's: switch sign-in on or off, choose which Discord role counts
+ * as a moderator (and, if the streamer is not the server's owner, which
+ * Discord account is theirs), see and change the owner key, and sign out. A
+ * moderator sees only who they are signed in as, and signing out.
  *
- * Switching on is offered only to somebody signed in — with Twitch or the
+ * Switching on is offered only to somebody signed in — with Discord or the
  * owner key — never merely because sign-in is off, so it can never lock out
  * the one who switched it on; the server refuses it the same way.
  */
@@ -17,15 +18,17 @@ import { ShieldCheck, LogIn, LogOut, KeyRound, Eye, EyeOff, Copy, RefreshCw } fr
 import { Button } from './Button';
 import { copyText } from '../utils';
 import { fill, refusalWords } from '../words';
-import { startTwitchSignIn, signInConfig, signOutHere, claimHere } from './SignInPage';
+import { startDiscordSignIn, signInConfig, signOutHere, claimHere } from './SignInPage';
 import type { Me } from '../hooks/useBackend';
 
 interface Props {
   auth: {
     me: Me | null;
-    state: { enabled: boolean; ownerKey: string } | null;
+    state: { enabled: boolean; ownerKey: string; modRoleId?: string; ownerDiscordId?: string } | null;
     control: (payload: any) => Promise<any>;
   };
+  /** The Discord server's roles, for choosing the moderators' one. */
+  roles?: any[];
   light: boolean;
   panelClass: string;
   t: any;
@@ -61,17 +64,19 @@ const KeyRow = ({ label, hint, value, onNew, t }: { label: string; hint: string;
   );
 };
 
-export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
+export const SignInPanel = ({ auth, roles = [], light, panelClass, t }: Props) => {
   const { me, state } = auth;
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const [twitchApp, setTwitchApp] = useState<{ clientId: string; scopes: string[] } | null>(null);
-  useEffect(() => { signInConfig().then(setTwitchApp).catch(() => setTwitchApp(null)); }, []);
+  const [discordApp, setDiscordApp] = useState<{ clientId: string; scopes: string[] } | null>(null);
+  useEffect(() => { signInConfig().then(setDiscordApp).catch(() => setDiscordApp(null)); }, []);
+  const [ownerId, setOwnerId] = useState(state?.ownerDiscordId || '');
+  useEffect(() => { setOwnerId(state?.ownerDiscordId || ''); }, [state?.ownerDiscordId]);
   if (!me) return null;
 
   const owner = me.role === 'owner';
   const signedIn = me.via !== 'open';
-  // A sign-in with the owner key has no Twitch name to say.
+  // A sign-in with the owner key has no Discord name to say.
   const who = me.name || me.login;
 
   const act = async (payload: any, done?: string) => {
@@ -89,7 +94,7 @@ export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
 
   const toggle = () => {
     if (!state) return;
-    if (!state.enabled && !window.confirm(t.signInEnableConfirm || 'Switch sign-in on?\n\nFrom then on only you and your Twitch moderators can open the dashboard. Everybody else signed in signs in again, and the owner key changes.')) return;
+    if (!state.enabled && !window.confirm(t.signInEnableConfirm || 'Switch sign-in on?\n\nFrom then on only you and your Discord server’s moderators can open the dashboard. Everybody else signed in signs in again, and the owner key changes.')) return;
     if (state.enabled && !window.confirm(t.signInDisableConfirm || 'Switch sign-in off?\n\nAnybody who can reach this app’s address will have all of it again.')) return;
     act({ op: 'enable', on: !state.enabled });
   };
@@ -119,8 +124,8 @@ export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
             <Button size="sm" variant="outline" onClick={() => signOutHere()} icon={<LogOut size={14} />} data-sign-in-out>{t.signInSignOut || 'Sign out'}</Button>
           ) : (
             <>
-              {twitchApp?.clientId && (
-                <Button size="sm" onClick={() => startTwitchSignIn(twitchApp)} icon={<LogIn size={14} />} data-sign-in-start>{t.signInTwitch || 'Sign in with Twitch'}</Button>
+              {discordApp?.clientId && (
+                <Button size="sm" onClick={() => startDiscordSignIn(discordApp)} icon={<LogIn size={14} />} data-sign-in-start>{t.signInDiscord || 'Sign in with Discord'}</Button>
               )}
               {owner && state && !state.enabled && (
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => { setBusy(true); claimHere().catch((err) => { setBusy(false); setNote(refusalWords(t, err) || String(err?.message || err)); }); }} icon={<KeyRound size={14} />} data-sign-in-claim>
@@ -142,7 +147,7 @@ export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
                   </p>
                   <p className="text-xs text-zinc-500 leading-relaxed mt-1">
                     {state.enabled
-                      ? (t.signInOnHint || 'Only you and your Twitch moderators can open the dashboard.')
+                      ? (t.signInOnHint || 'Only you and your Discord server’s moderators can open the dashboard.')
                       : (t.signInOffHint || 'Anybody who can reach this app’s address — on your network, or through a public address — has all of it.')}
                   </p>
                 </div>
@@ -151,15 +156,35 @@ export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
                 </Button>
               </div>
               {!state.enabled && !signedIn && (
-                <p className="text-[11px] text-amber-300/90 mt-3" data-sign-in-first>{t.signInFirstHint || 'Sign in first — with Twitch, or on this browser — so switching it on can’t lock you out.'}</p>
+                <p className="text-[11px] text-amber-300/90 mt-3" data-sign-in-first>{t.signInFirstHint || 'Sign in first — with Discord, or on this browser — so switching it on can’t lock you out.'}</p>
               )}
+            </div>
+
+            {/* Who may sign in as what (server/api/auth.js setRoles). */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" data-sign-in-roles>
+              <label className="space-y-1.5 block">
+                <span className="text-xs font-black uppercase tracking-widest text-zinc-400">{t.signInModRole || 'Moderators are'}</span>
+                <select value={state.modRoleId || ''} disabled={!signedIn || busy} onChange={(e) => act({ op: 'roles', modRoleId: e.target.value })}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white" data-sign-in-mod-role>
+                  <option value="">{t.signInModRoleAny || 'Anybody whose role can moderate the server'}</option>
+                  {roles.filter((r: any) => r.name !== '@everyone' && !r.managed).map((r: any) => <option key={r.id} value={r.id}>@{r.name}</option>)}
+                </select>
+                <p className="text-[11px] text-zinc-500 leading-relaxed">{t.signInModRoleHint || 'Who can sign in as a moderator: people with this role, as well as anybody whose role can time out or manage messages.'}</p>
+              </label>
+              <label className="space-y-1.5 block">
+                <span className="text-xs font-black uppercase tracking-widest text-zinc-400">{t.signInOwnerId || 'Your Discord account'}</span>
+                <input value={ownerId} disabled={!signedIn || busy} onChange={(e) => setOwnerId(e.target.value.replace(/\D/g, ''))}
+                  onBlur={() => { if (ownerId !== (state.ownerDiscordId || '')) act({ op: 'roles', ownerDiscordId: ownerId }); }}
+                  placeholder={t.signInOwnerIdPlaceholder || 'The server’s owner'} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono" data-sign-in-owner-id />
+                <p className="text-[11px] text-zinc-500 leading-relaxed">{t.signInOwnerIdHint || 'Empty: whoever owns the Discord server signs in as you. Otherwise, the user ID of your own account (Discord: Settings → Advanced → Developer Mode, then right-click yourself → Copy User ID).'}</p>
+              </label>
             </div>
 
             {/* Only to a sign-in of your own: with sign-in off, everybody would see it (server/api/auth.js authState). */}
             {state.ownerKey && (
               <KeyRow
                 label={t.signInOwnerKey || 'Owner key'}
-                hint={t.signInOwnerKeyHint || 'Your way in when Twitch isn’t: type it on the sign-in page. Keep it to yourself.'}
+                hint={t.signInOwnerKeyHint || 'Your way in when Discord isn’t: type it on the sign-in page. Keep it to yourself.'}
                 value={state.ownerKey}
                 onNew={newKey}
                 t={t}

@@ -60,21 +60,6 @@ export const parseMessageWithEmotes = (msg: string, emotes: { [id: string]: stri
     : React.createElement(React.Fragment, { key: `t${idx}` }, withDiscordText(part.text, `${size}px`, names))));
 };
 
-/**
- * The redirect URI to register with Google, and to send on the YouTube login.
- *
- * Google takes no raw addresses for a desktop sign-in but loopback ones, and
- * returns to exactly the address registered, character for character — so
- * localhost is written as 127.0.0.1, and the screen shows the address and the
- * login sends it, both from here. Twitch and Discord accept localhost, so
- * they use the page's own address as it is.
- */
-export const youtubeRedirectUri = () => {
-  const url = new URL(window.location.origin + window.location.pathname);
-  if (url.hostname === 'localhost') url.hostname = '127.0.0.1';
-  return url.toString();
-};
-
 export const generateRandomString = (length: number) => {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   let text = '';

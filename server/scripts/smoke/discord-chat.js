@@ -5,7 +5,7 @@
  * Smoke tests: Discord as a chat — which messages are the stream's and which
  * only count for levels, who is a moderator there, how its markup reads on
  * other platforms, its emoji in small print, one-role menus moving the
- * reaction with the role, and the chat relay both ways.
+ * reaction with the role.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After discord.js, which
@@ -17,8 +17,6 @@ import { SCRIPT_URL, assert, bus, collection, EVENTS, fs, normaliseChat, test } 
 const discord = await import('../../platforms/discord.js');
 const roles = await import('../../engine/discord-roles.js');
 const leveling = await import('../../leveling/index.js');
-const relay = await import('../../engine/relay.js');
-const twitch = await import('../../platforms/twitch.js');
 const { config } = await import('../../config.js');
 
 const read = (path) => fs.readFileSync(new URL(path, SCRIPT_URL), 'utf8');
@@ -75,7 +73,7 @@ test('somebody whose role can moderate the server is a mod for commands', () => 
   assert.ok(src.includes('guildOwners.set(d.id, d.owner_id)') && src.includes("case 'GUILD_ROLE_UPDATE':"));
 });
 
-test('Discord\'s markup reads as names on other platforms', () => {
+test('Discord\'s markup reads as names in plain text', () => {
   assert.equal(marked.chat.raw.plain, '@Bob mira #general :Wow: @Mods ¡hola!');
   assert.equal(marked.chat.msg.startsWith('<@7>'), true, 'the Discord copy itself was changed');
 });
@@ -89,7 +87,7 @@ test('a server emoji in a footer or author line becomes its picture instead of s
   assert.deepEqual(discord.smallPrint('Hola 👋', 'text', 2048), { text: 'Hola 👋' });
 });
 
-test('a relayed chat line keeps up to Twitch\'s 500 characters; a name stays short', () => {
+test('a long line keeps up to 500 characters; a name stays short', () => {
   assert.equal(discord.sanitise('a'.repeat(450), 500).length, 450);
   assert.equal(discord.sanitise('b'.repeat(300)).length, 200);
   // Cut before escaping, so a line never ends on half an escape.
@@ -140,84 +138,4 @@ leveling.setConfig(levelCfg);
 test('talking anywhere in the server earns XP, except in the channels set to be left out', () => {
   assert.deepEqual(talkers, [['Talker1', true]]);
   assert.ok(read('../leveling/index.js').includes("bus.on('discord:message_elsewhere', onMessage);"));
-});
-
-// ---------------------------------------------------------------- the relay
-
-const relayCfg = collection('relay_config', {});
-const relayBefore = relayCfg.get();
-const posts = [];
-const toTwitch = [];
-const toYoutube = [];
-let youtubeLeft = 5000;
-relay.initRelay({
-  channel: () => 'c-stream',
-  post: async (channelId, text) => { posts.push([channelId, text]); },
-  sayTwitch: async (text) => { toTwitch.push(text); },
-  sayYoutube: async (text) => { toYoutube.push(text); },
-  youtubeLeft: () => youtubeLeft,
-  wait: async () => {},
-});
-const chat = (platform, user, text, extra = {}) => bus.emit(EVENTS.CHAT, normaliseChat({ platform, user, msg: text, ...extra }));
-
-// Everything off: nothing goes anywhere.
-relayCfg.set({});
-chat('twitch', 'Viewer', 'hola');
-chat('discord', 'Ana', 'hola');
-relay.flush();
-await wait(20);
-const whileOff = posts.length + toTwitch.length + toYoutube.length;
-
-relayCfg.set({ twitchToDiscord: true, youtubeToDiscord: true, tiktokToDiscord: false, discordToTwitch: true, discordToYoutube: true });
-chat('twitch', 'Viewer', 'uno');
-chat('twitch', 'Viewer', 'dos *negrita*');
-chat('youtube', 'Fan', 'tres');
-chat('tiktok', 'Tok', 'not relayed');
-chat('discord', 'Ana', '<@7> hola', { raw: { plain: '@Bob hola' } });
-relay.flush();
-const batched = posts.slice();
-posts.length = 0;
-for (let i = 0; i < 30; i += 1) chat('twitch', `Viewer${i}`, 'x'.repeat(100));
-relay.flush();
-const split = posts.slice();
-youtubeLeft = 900;
-chat('discord', 'Ana', 'otra vez');
-await wait(50);
-relay.stopRelay();
-relayCfg.set(relayBefore);
-
-test('chat goes into Discord a few lines to a post, not a post a line', () => {
-  assert.equal(whileOff, 0, 'something was relayed with every switch off');
-  assert.equal(batched.length, 1);
-  assert.equal(batched[0][1], '**[twitch] Viewer:** uno\n**[twitch] Viewer:** dos \\*negrita\\*\n**[youtube] Fan:** tres');
-  assert.ok(split.length >= 2 && split.every(([, text]) => text.length <= 1900), 'a post went past Discord\'s length');
-  assert.equal(split.map(([, text]) => text.split('\n').length).reduce((a, b) => a + b, 0), 30, 'lines were lost between posts');
-});
-
-test('Discord chat goes out to Twitch and YouTube as plain words, and YouTube stops before the day runs out', () => {
-  assert.deepEqual(toTwitch, ['[Discord] Ana: @Bob hola', '[Discord] Ana: otra vez']);
-  assert.deepEqual(toYoutube, ['[Discord] Ana: @Bob hola'], 'YouTube was sent a message with under 1,000 units left');
-  assert.ok(!posts.some(([, text]) => text.includes('[discord]')), 'Discord was relayed into itself');
-});
-
-// The bot's copy on Twitch, coming back: dropped once, and only when it is ours.
-await twitch.sayRelayed('[Discord] Ana: eco');
-const echoFromViewer = twitch.isRelayEcho('[Discord] Ana: eco', false);
-const echoFromUs = twitch.isRelayEcho('[Discord] Ana: eco', true);
-const echoAgain = twitch.isRelayEcho('[Discord] Ana: eco', true);
-
-test('the relay\'s own line on Twitch is not shown again or sent back to Discord', () => {
-  assert.equal(echoFromViewer, false, 'a viewer typing the same words was dropped');
-  assert.equal(echoFromUs, true);
-  assert.equal(echoAgain, false, 'the same words from us were dropped twice');
-  assert.ok(read('../platforms/twitch.js').includes('if (isRelayEcho(message, self || byBot)) return;'));
-  assert.ok(read('../platforms/youtube.js').includes('if (quiet) return sent;'));
-  assert.ok(read('../index.js').includes('initRelay();') && !read('../index.js').includes('function initRelays'));
-});
-
-test('the Connections screen has the new relay switches', () => {
-  const view = read('../../web/components/views/ConnectionsView.tsx');
-  for (const key of ['youtubeToDiscord', 'discordToTwitch', 'discordToYoutube']) assert.ok(view.includes(`data-relay="${key}"`), key);
-  const strings = read('../../web/constants.ts');
-  for (const key of ['relayDiscordToTwitchHint', 'relayDiscordToYoutubeHint']) assert.equal(strings.split(`    ${key}: '`).length - 1, 2, `${key} is not in both languages`);
 });

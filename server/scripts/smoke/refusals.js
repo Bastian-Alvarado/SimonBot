@@ -73,7 +73,7 @@ test('the socket carries the code and what fills it, and the app keeps both', ()
 });
 
 test('the screens that show a refusal look its words up, and keep the raw text only for errors with no code', () => {
-  const files = ['views/QuestionsView.tsx', 'views/GoLiveView.tsx', 'views/DiscordButtonsView.tsx', 'views/RoleManagementView.tsx', 'views/SettingsView.tsx', 'views/LevelsView.tsx', 'WelcomeCardEditor.tsx', 'WelcomeCardLayers.tsx'];
+  const files = ['views/QuestionsView.tsx', 'views/GoLiveView.tsx', 'views/DiscordButtonsView.tsx', 'views/ModeratorsView.tsx', 'views/SettingsView.tsx', 'views/LevelsView.tsx', 'WelcomeCardEditor.tsx', 'WelcomeCardLayers.tsx'];
   for (const f of files) {
     const src = read(`../../web/components/${f}`);
     assert.ok(/import \{[^}]*\brefusalWords\b[^}]*\} from '\.\.\/(\.\.\/)?words';/.test(src), `${f} does not import refusalWords`);

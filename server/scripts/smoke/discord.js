@@ -91,105 +91,15 @@ test('signing in with Discord sends the real client id and secret', () => {
   assert.equal(signedIn.user.username, 'someone');
 });
 
-// ---------------------------------------------------------------- roles that follow stream status
+// ---------------------------------------------------------------- shared by the tests below
 
 const { config } = await import('../../config.js');
 const { bus, EVENTS, normaliseChat } = await import('../../core/bus.js');
 const leveling = await import('../../leveling/index.js');
-const roleSync = await import('../../engine/role-sync.js');
 
 leveling.initLeveling();
 roles.initDiscordRoles();
-roleSync.initRoleSync();
-roles.store.setRoleMappings({ subscriberTier1: 'r-t1', subscriberTier3: 'r-t3', vip: 'r-vip', follower: 'r-fol', bits1k: 'r-1k' });
-
-const badgeTier = (v) => roleSync.readBadges({ raw: { badges: { subscriber: v } } }).tier;
-const tiers = [badgeTier('0'), badgeTier('12'), badgeTier('2006'), badgeTier('3024')];
-const founder = roleSync.readBadges({ isSub: true, raw: { badges: { founder: '0' } } });
-
-// Every call to Discord is caught: the member holds VIP and tier 1 to begin with.
-const calls = [];
-let held = ['r-vip', 'r-t1'];
-const realFetch2 = globalThis.fetch;
-globalThis.fetch = async (url, init = {}) => {
-  const u = String(url);
-  const method = init.method || 'GET';
-  calls.push(`${method} ${u.replace(/^.*\/api\/v10/, '')}`);
-  const role = /\/roles\/([\w-]+)$/.exec(u)?.[1];
-  if (method === 'PUT' && role) held = [...new Set([...held, role])];
-  if (method === 'DELETE' && role) held = held.filter((r) => r !== role);
-  if (method === 'GET' && /\/members\/\d+$/.test(u)) return new Response(JSON.stringify({ roles: held }), { status: 200 });
-  return new Response(null, { status: 204 });
-};
 const realToken = config.discord.botToken;
-config.discord.botToken = 'test-token';
-
-const twitchChat = (badges) => bus.emit(EVENTS.CHAT, normaliseChat({
-  platform: 'twitch', user: 'Viewer', userId: '555', msg: 'hi', isSub: 'subscriber' in badges, isVip: 'vip' in badges, raw: { badges },
-}));
-
-// A tier 3 subscriber, not a VIP, chats before anybody has linked them: nothing to do yet.
-twitchChat({ subscriber: '3006' });
-const beforeLink = calls.length;
-const linked = await roleSync.link({ platform: 'twitch', platformId: '555', platformName: 'Viewer', discordId: '123456789012', discordName: 'ViewerD' });
-const afterLink = [...held];
-const listed = roleSync.linkedUsers();
-
-// Now they turn up with a VIP badge.
-twitchChat({ subscriber: '3006', vip: '1' });
-await new Promise((r) => setTimeout(r, 900));
-const afterVip = [...held];
-// And chatting again with nothing new costs Discord nothing.
-const callsBeforeRepeat = calls.length;
-twitchChat({ subscriber: '3006', vip: '1' });
-await new Promise((r) => setTimeout(r, 200));
-const callsAfterRepeat = calls.length;
-
-// A cheer from them over chat adds up towards the bits roles.
-bus.emit(EVENTS.EVENT, { type: 'twitch_cheer', user: 'Viewer', data: { bits: 600, userId: '555' } });
-bus.emit(EVENTS.EVENT, { type: 'twitch_cheer', user: 'Viewer', data: { bits: 500, userId: '555' } });
-await new Promise((r) => setTimeout(r, 900));
-const afterBits = [...held];
-
-roleSync.unlink('twitch:555');
-const afterUnlink = roleSync.linkedUsers();
-config.discord.botToken = realToken;
-globalThis.fetch = realFetch2;
-
-test('a Twitch badge says which tier somebody subscribes at, and founders are subscribers', () => {
-  assert.deepEqual(tiers, [1, 1, 2, 3]);
-  assert.equal(founder.sub, true);
-  assert.equal(founder.founder, true);
-  assert.equal(founder.tier, undefined, 'a founder badge was read as a tier');
-});
-
-test('linking somebody gives them the roles their status earns and takes away the ones it rules out', () => {
-  assert.equal(beforeLink, 0, 'Discord was asked about somebody not linked');
-  assert.ok(linked.changed >= 3, JSON.stringify(linked));
-  // Tier 3 given; tier 1 and VIP taken, since their badges say neither.
-  assert.deepEqual(afterLink.sort(), ['r-t3']);
-  assert.equal(listed['twitch:555'].username, 'ViewerD');
-  assert.equal(listed['twitch:555'].platformName, 'Viewer');
-});
-
-test('a new badge in chat brings the role with it, and the same badges again cost nothing', () => {
-  assert.deepEqual(afterVip.sort(), ['r-t3', 'r-vip']);
-  assert.equal(callsAfterRepeat, callsBeforeRepeat, 'an unchanged chatter was re-checked with Discord');
-});
-
-test('bits add up across cheers, and a role that only ever gives is never taken away', () => {
-  assert.ok(afterBits.includes('r-1k'), `bits role missing after 1100 bits: ${afterBits}`);
-  // Nobody has seen them follow, and not seeing it is not the same as them not following.
-  assert.ok(!calls.some((c) => c.includes('DELETE') && c.includes('r-fol')), 'a follower role was taken away without cause');
-});
-
-test('unlinking takes them off the list, and the screen is in both languages', () => {
-  assert.equal(afterUnlink['twitch:555'], undefined);
-  const strings = fs.readFileSync(new URL('../../web/constants.ts', SCRIPT_URL), 'utf8');
-  assert.equal(strings.split('roleSyncNow:').length - 1, 2);
-  const screen = fs.readFileSync(new URL('../../web/components/views/RoleManagementView.tsx', SCRIPT_URL), 'utf8');
-  assert.ok(screen.includes('await linkDiscord({') && !screen.includes('manualLinkUser('), 'the screen still links the old way');
-});
 
 // ---------------------------------------------------------------- button role menus reach Discord
 
@@ -252,46 +162,6 @@ test('a saved menu is posted with its buttons, then edited in place, and posted 
   for (const key of ['buttonMenuPosted', 'buttonMenuNotPosted', 'buttonMenuPost', 'buttonMenuUpdate']) assert.equal(strings.split(key + ':').length - 1, 2, key);
 });
 
-// ---------------------------------------------------------------- viewers linking themselves
-
-const linkCalls = [];
-const realFetch4 = globalThis.fetch;
-globalThis.fetch = async (url, init = {}) => {
-  const method = init.method || 'GET';
-  const path = String(url).replace(/^.*\/api\/v10/, '');
-  linkCalls.push({ method, path, body: init.body ? JSON.parse(init.body) : null });
-  if (method === 'GET' && /\/members\/222222222222$/.test(path)) return new Response(JSON.stringify({ roles: [], nick: null, user: { username: 'poncho_real', global_name: 'PonchoD' } }), { status: 200 });
-  if (method === 'GET' && /\/members\/\d+$/.test(path)) return new Response(JSON.stringify({ roles: [], user: { username: 'someone_else' } }), { status: 200 });
-  return new Response(JSON.stringify({ id: 'x' }), { status: 200 });
-};
-config.discord.botToken = 'test-token';
-
-bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'twitch', user: 'Poncho', userId: '888', msg: '!linkdiscord @PonchoD', raw: { badges: {} } }));
-const askedFor = roleSync.snapshot().pendingLinks;
-// Somebody else confirms: nothing is linked to them.
-bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'discord', user: 'Mallory', userId: '333333333333', msg: '!linktwitch', raw: { channelId: 'c1' } }));
-await new Promise((r) => setTimeout(r, 400));
-const afterStranger = roleSync.linkedUsers()['twitch:888'];
-// The account that was named confirms.
-bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'discord', user: 'PonchoD', userId: '222222222222', msg: '!linktwitch', raw: { channelId: 'c1' } }));
-await new Promise((r) => setTimeout(r, 900));
-const afterConfirm = roleSync.linkedUsers()['twitch:888'];
-const stillPending = roleSync.snapshot().pendingLinks;
-roleSync.unlink('twitch:888');
-config.discord.botToken = realToken;
-globalThis.fetch = realFetch4;
-
-test('a viewer links themselves: asked from Twitch, confirmed in Discord by the account named, and nobody else', () => {
-  assert.equal(Object.values(askedFor).find((p) => p.discordName === 'PonchoD' && p.want === 'discord')?.twitchUser, 'Poncho', JSON.stringify(askedFor));
-  assert.equal(afterStranger, undefined, 'a Discord account that was not named confirmed the link');
-  assert.equal(afterConfirm?.id, '222222222222');
-  assert.equal(afterConfirm?.platformName, 'Poncho');
-  assert.deepEqual(stillPending, {}, 'the request stayed pending after it was confirmed');
-  const replies = linkCalls.filter((c) => c.method === 'POST' && c.path === '/channels/c1/messages').map((c) => c.body.content);
-  assert.ok(replies.some((r) => r.startsWith('✅ <@222222222222>')), `no confirmation: ${JSON.stringify(replies)}`);
-  assert.ok(replies.some((r) => r.startsWith('<@333333333333> ❔')), 'the stranger was not told what to do');
-});
-
 // ---------------------------------------------------------------- the activity log says who, by name
 
 const logCalls = [];
@@ -326,33 +196,22 @@ test('the role activity log names people rather than showing their Discord id', 
   assert.ok(!logCalls.some((c) => c.startsWith('GET') && c.endsWith('/members/5555555555')), 'a known name was looked up again');
 });
 
-// ---------------------------------------------------------------- the streamer is not a top chatter
+// ---------------------------------------------------------------- the bot is not a top chatter
 
 {
-  const { collection } = await import('../../core/store.js');
-  // As the server always has it by now: the Twitch connection's own accounts known (nothing connects).
-  (await import('../../platforms/twitch.js')).initTwitch();
-  const twitchCreds = collection('twitch_credentials', {});
-  const before = twitchCreds.get();
-  twitchCreds.set({ ...before, userId: '9001', login: 'mistreamer', botLogin: 'mibot' });
-  const say = (over) => bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'twitch', msg: 'hola', ...over }));
-  say({ user: 'MiStreamer', userId: '9001' });
-  say({ user: 'MiBot', userId: '9002', isBot: true });
-  say({ user: 'Owner', userId: 'UCowner', platform: 'youtube', isBroadcaster: true });
+  const say = (over) => bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'discord', msg: 'hola', raw: { channelId: 'c1' }, ...over }));
+  say({ user: 'SimonBot', userId: '9002', isBot: true });
   say({ user: 'Fan', userId: '7777' });
   await new Promise((r) => setTimeout(r, 50));
   const board = leveling.leaderboard().map((u) => u.username);
   const everyone = Object.values(leveling.getUsers()).map((u) => u.username);
-  twitchCreds.set(before);
 
-  test('the streamer and their bot keep their XP, but are not ranked among the chatters', () => {
-    assert.ok(board.includes('Fan'), 'a viewer is missing from the board');
-    for (const own of ['MiStreamer', 'MiBot', 'Owner']) {
-      assert.ok(!board.includes(own), `${own} is ranked as a chatter`);
-      assert.ok(everyone.includes(own), `${own} lost their XP`);
-    }
-    assert.equal(normaliseChat({ platform: 'twitch', user: 'x', isBot: true }).isBot, true, 'a chat message forgets it came from the bot');
-    const twitchSrc = fs.readFileSync(new URL('../platforms/twitch.js', SCRIPT_URL), 'utf8');
-    assert.ok(twitchSrc.includes('const byBot = Boolean(c.botLogin) &&') && twitchSrc.includes('isBot: byBot,'), 'Twitch does not say which messages are the bot\'s');
+  test('the bot keeps its XP, but is not ranked among the people talking; nor is the server\'s owner', () => {
+    assert.ok(board.includes('Fan'), 'a member is missing from the board');
+    assert.ok(!board.includes('SimonBot'), 'the bot is ranked');
+    assert.ok(everyone.includes('SimonBot'), 'the bot lost its XP');
+    assert.equal(normaliseChat({ platform: 'discord', user: 'x', isBot: true }).isBot, true, 'a chat message forgets it came from the bot');
+    const src = fs.readFileSync(new URL('../leveling/index.js', SCRIPT_URL), 'utf8');
+    assert.ok(src.includes('discord.ownerOf(status.guildId)'), 'the server owner is not left off the board');
   });
 }

@@ -38,8 +38,6 @@ export const engine = await import('../../engine/index.js');
 
 // ---------------------------------------------------------------- harness
 
-/** Every line the bot was asked to say in Twitch chat. */
-export const said = [];
 /** Every message the bot was asked to send: [channelId, content, embed, components, files, extra]. */
 export const discordSent = [];
 let passed = 0;
@@ -77,9 +75,6 @@ export const doubles = {};
 initStore();
 
 engine.initEngine({
-  twitch: {
-    say: async (text) => { said.push(text); },
-  },
   discord: {
     sendMessage: async (...args) => { discordSent.push(args); return { id: '1' }; },
     // Commands in the rest of the server, as Connections sets them: on unless a test says otherwise.
@@ -88,8 +83,9 @@ engine.initEngine({
   },
 });
 
+/** Somebody talking in the Discord channel the bot reads. */
 export const chat = (msg, over = {}) => bus.emit(EVENTS.CHAT, normaliseChat({
-  platform: 'twitch', user: 'Viewer', msg, ...over,
+  platform: 'discord', user: 'Viewer', msg, raw: { channelId: 'c-stream' }, ...over,
 }));
 
 export { assert, fs };

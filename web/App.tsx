@@ -24,8 +24,8 @@ type GuidesModule = typeof import('../shared/guides.js');
 /** The streamer's own screens, which a moderator does not see: their connections, the moderators, and the Guides, which are for setting the bot up. */
 const MOD_HIDDEN_VIEWS = new Set<AppView>(['gallery', 'guides', 'moderators']);
 
-/** Back from Twitch's sign-in page with a token for signing in (components/SignInPage.tsx), read once as the page loads. */
-const FINISHING_SIGN_IN = typeof window !== 'undefined' && /(?:^|&)state=signin/.test(`${window.location.hash.slice(1)}&${window.location.search.slice(1)}`);
+/** Back from Discord's sign-in page with a code for signing in (components/SignInPage.tsx), read once as the page loads. */
+const FINISHING_SIGN_IN = typeof window !== 'undefined' && /(?:^|&)state=signin/.test(window.location.search.slice(1));
 
 /*
   The dashboard's screens, loaded when the dashboard opens one rather than
@@ -58,7 +58,6 @@ const PointsView = screen(() => import('./components/views/PointsView'), 'Points
 const RequestsView = screen(() => import('./components/views/RequestsView'), 'RequestsView');
 const VoiceView = screen(() => import('./components/views/VoiceView'), 'VoiceView');
 const GoLiveView = screen(() => import('./components/views/GoLiveView'), 'GoLiveView');
-const RoleManagementViewConnected = screen(() => import('./components/views/RoleManagementView'), 'RoleManagementViewConnected');
 const ReactionRolesView = screen(() => import('./components/views/ReactionRolesView'), 'ReactionRolesView');
 const WelcomeGoodbyeView = screen(() => import('./components/views/WelcomeGoodbyeView'), 'WelcomeGoodbyeView');
 const DiscordButtonsView = screen(() => import('./components/views/DiscordButtonsView'), 'DiscordButtonsView');
@@ -74,9 +73,6 @@ const Logo = ({ className = "" }: { className?: string }) => (
 );
 const TwitchIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} width={size} height={size}><path d="M21 2H3v16h5v4l4-4h5l4-4V2zm-10 9V7m5 4V7" /></svg>
-);
-const TikTokIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg"><path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-5.201 1.743l-.002-.001.002.001a2.895 2.895 0 0 1 3.183-4.51v-3.5a6.329 6.329 0 0 0-5.394 10.692 6.33 6.33 0 0 0 10.857-4.424V8.687a8.182 8.182 0 0 0 4.773 1.526V6.79a4.831 4.831 0 0 1-1.003-.104z" /></svg>
 );
 const DiscordIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -134,7 +130,6 @@ export default function App() {
     settings: t.settings,
     voice: t.voiceNav || 'Voice call',
     'go-live': t.goLiveNav || 'Go live',
-    'role-management': t.roleManagement,
     'reaction-roles': t.reactionRoles,
     'discord-buttons': t.discordButtons || 'Discord Buttons',
     'welcome-goodbye': t.welcomeGoodbye || 'Welcome & Goodbye',
@@ -238,11 +233,10 @@ export default function App() {
   }, [view, (system.data as any).gameRequests]);
   const newRequests = view === 'requests' ? 0 : gameRequestList.filter((r) => r.status === 'open' && Number(r.at) > requestsSeen).length;
   /*
-    A connection that dropped: on earlier in this visit, off now. TikTok is
-    left out — it is meant to go when the stream does. Seen on the
+    A connection that dropped: on earlier in this visit, off now. Seen on the
     Connections screen, what is off is taken as meant.
   */
-  const WATCHED: [keyof typeof system.status, string][] = [['twitch', 'Twitch'], ['twitchBot', 'Twitch Bot'], ['discord', 'Discord'], ['youtube', 'YouTube']];
+  const WATCHED: [keyof typeof system.status, string][] = [['discord', 'Discord'], ['twitch', 'Twitch'], ['youtube', 'YouTube']];
   const wasOn = useRef<Set<string>>(new Set());
   const [dropped, setDropped] = useState<string[]>([]);
   const statusKey = WATCHED.map(([k]) => system.status[k]).join('|');
@@ -256,13 +250,12 @@ export default function App() {
   // An address with no page behind it.
   if (notFound) return <>{accentStyles}<NotFoundPage asked={unknownPath ? window.location.pathname : `?mode=${mode}`} t={t} /></>;
 
-  // Signing in (server/api/auth.js): back from Twitch with a sign-in to finish, or a server that wants to know who this is first.
+  // Signing in (server/api/auth.js): back from Discord with a sign-in to finish, or a server that wants to know who this is first.
   if (FINISHING_SIGN_IN || system.auth.signIn) {
     return <>{accentStyles}<SignInPage t={t} refused={!FINISHING_SIGN_IN && system.auth.signIn === 'refused'} optional={!system.auth.signIn} /></>;
   }
 
   const goTo = (next: AppView) => { setView(next); setIsMobileMenuOpen(false); };
-  const pollOpen = (system.data as any).poll?.mode === 'open';
   const giveawayOpen = (system.data as any).giveaway?.mode === 'open';
   // A newer version out (server/engine/updater.js), unless it is the one that would not start.
   const updates = (system.data as any).updates;
@@ -278,16 +271,15 @@ export default function App() {
       { view: 'bot-home', label: system.settings.language === 'es' ? 'Inicio' : 'Home', icon: <Bot size={I} />, keywords: 'simonbot bot home inicio slash commands comandos' },
       { view: 'welcome-goodbye', label: t.welcomeGoodbye || 'Welcome & Goodbye', icon: <DoorOpen size={I} /> },
       { view: 'discord-pages', label: t.discordPagesNav || 'Discord pages', icon: <Newspaper size={I} /> },
-      { view: 'role-management', label: t.roleManagement, icon: <Shield size={I} />, keywords: 'link accounts loyalty mod log' },
       { view: lastOfPair.roleMenus || 'reaction-roles', also: ['reaction-roles', 'discord-buttons'], label: t.navRoleMenus || 'Role menus', icon: <MousePointerClick size={I} />, keywords: `${t.reactionRoles || 'Reaction Roles'} ${t.discordButtons || 'Discord Buttons'}` },
       { view: 'voice', label: t.voiceNav || 'Voice call', icon: <Headphones size={I} /> },
-      { view: 'go-live', label: t.goLiveNav || 'Go live', icon: <Megaphone size={I} />, keywords: 'announce highlights dms anuncio' },
+      { view: 'go-live', label: t.goLiveNav || 'Go live', icon: <Megaphone size={I} />, keywords: 'announce alerts dms anuncio' },
     ] },
     { id: 'community', label: t.navCommunity || 'Community', items: [
       { view: 'levels', label: t.levels || 'Levels & XP', icon: <Trophy size={I} />, keywords: 'xp ranks niveles' },
       { view: 'points', label: t.pointsNav || 'Points', icon: <Coins size={I} />, keywords: 'puntos' },
       { view: 'giveaway', label: t.giveawayNav || 'Giveaways', icon: <Gift size={I} />, dot: giveawayOpen ? 'on' : undefined, hint: giveawayOpen ? (t.navRunning || 'Running now') : undefined },
-      { view: 'polls', label: t.pollsNav || 'Polls', icon: <BarChart3 size={I} />, dot: pollOpen ? 'on' : undefined, hint: pollOpen ? (t.navRunning || 'Running now') : undefined },
+      { view: 'polls', label: t.pollsNav || 'Polls', icon: <BarChart3 size={I} /> },
       { view: 'questions', label: t.questionsNav || 'Questions', icon: <MessageCircleQuestion size={I} />, number: waitingQuestions || undefined },
       { view: 'requests', label: t.requestsNav || 'Game requests', icon: <Inbox size={I} />, number: newRequests || undefined, hint: newRequests ? fill(t.navNewRequests || '{count} new since you last looked', { count: newRequests }) : undefined },
     ] },
@@ -323,10 +315,8 @@ export default function App() {
     })),
   ];
   const statusMarks = [
-    { id: 'twitch', name: 'Twitch', icon: <TwitchIcon size={13} />, ok: system.status.twitch === 'connected' },
-    { id: 'twitchBot', name: 'Twitch Bot', icon: <Bot size={13} />, ok: system.status.twitchBot === 'connected' },
-    { id: 'tiktok', name: 'TikTok', icon: <TikTokIcon size={13} />, ok: system.status.tiktok === 'connected' },
     { id: 'discord', name: 'Discord', icon: <DiscordIcon size={13} />, ok: system.status.discord === 'connected' },
+    { id: 'twitch', name: 'Twitch', icon: <TwitchIcon size={13} />, ok: system.status.twitch === 'connected' },
     { id: 'youtube', name: 'YouTube', icon: <Youtube size={13} />, ok: system.status.youtube === 'connected' },
   ];
   // The phone's bar: the bot's home, going live, and what wants answering.
@@ -427,6 +417,7 @@ export default function App() {
                updates={(system.data as any).updates}
                updatesAct={system.actions.updates}
                auth={system.auth}
+               discordRoles={(system.data as any).discordRoles}
                t={t}
              />
            )}
@@ -436,6 +427,12 @@ export default function App() {
                language={system.settings.language}
                light={activeTheme.id === 'light'}
                openSettings={() => goTo('settings')}
+               modLog={{
+                 settings: (system.data as any).moderation,
+                 entries: (system.data as any).moderationLog || [],
+                 channels: system.connections.discordChannels,
+                 save: (system.actions as any).moderation,
+               }}
                t={t}
              />
            )}
@@ -457,20 +454,13 @@ export default function App() {
 
            {view === 'go-live' && (
              <GoLiveView
-               settings={(system.data as any).announce}
+               watch={(system.data as any).watch}
+               control={system.actions.watch}
                channels={system.connections.discordChannels}
                roles={(system.data as any).discordRoles}
-               save={(system.actions as any).setAnnounce}
-               test={(system.actions as any).testAnnounce}
-               scheduleEvents={(system.data as any).scheduleEvents}
-               saveScheduleEvents={(system.actions as any).setScheduleEvents}
-               syncScheduleEvents={(system.actions as any).syncScheduleEvents}
-               streamsOnSchedule={((system.data as any).twitchSchedule?.segments || []).length}
-               listAssets={system.actions.listAssets}
-               uploadAsset={system.actions.uploadAsset}
+               keys={{ twitch: Boolean(system.connections.twitchClientId && system.connections.twitchHasSecret), youtube: system.connections.youtubeHasKey }}
+               openConnections={() => goTo('gallery')}
                botConnected={system.status.discord === 'connected'}
-               highlights={(system.data as any).highlights}
-               highlightsControl={(system.actions as any).highlights}
                liveDms={(system.data as any).liveDms}
                liveDmsControl={(system.actions as any).liveDms}
                t={t}
@@ -487,7 +477,6 @@ export default function App() {
              />
            )}
 
-           {view === 'role-management' && <RoleManagementViewConnected activeTheme={activeTheme} t={t} system={system} />}
            {view === 'reaction-roles' && <ReactionRolesView activeTheme={activeTheme} t={t} system={system} />}
            {view === 'discord-buttons' && <DiscordButtonsView activeTheme={activeTheme} t={t} system={system} />}
            {view === 'welcome-goodbye' && <WelcomeGoodbyeView activeTheme={activeTheme} t={t} system={system} />}
@@ -513,29 +502,6 @@ export default function App() {
 
            {view === 'gallery' && (
               <ConnectionsView
-                youtube={(system as any).youtube}
-                youtubeStatus={(system.status as any).youtube}
-                youtubeClientId={(system.connections as any).youtubeClientId}
-                youtubeHasSecret={(system.connections as any).youtubeHasSecret}
-                youtubeAuthorised={(system.connections as any).youtubeAuthorised}
-                youtubeCanEdit={(system.connections as any).youtubeCanEdit}
-                youtubeHealth={(system.connections as any).youtubeHealth}
-                youtubeChannel={(system.connections as any).youtubeChannel}
-                twitchUser={system.connections.twitchUser}
-                twitchStatus={system.status.twitch}
-                handleTwitchLogin={system.actions.handleTwitchLogin}
-                handleTwitchConnect={system.actions.handleTwitchConnect}
-                handleTwitchLogout={system.actions.handleTwitchLogout}
-                twitchBotUser={system.connections.twitchBotUser}
-                twitchBotStatus={system.status.twitchBot}
-                handleTwitchBotConnect={system.actions.handleTwitchBotConnect}
-                handleTwitchBotLogout={system.actions.handleTwitchBotLogout}
-                tiktokUrl={system.connections.tiktokUrl}
-                setTiktokUrl={system.actions.setTiktokUrl}
-                tiktokStatus={system.status.tiktok}
-                handleTikTokConnect={system.actions.handleTikTokConnect}
-                tiktokError={system.status.tiktokError}
-                tiktokWatch={(system.status as any).tiktokWatch}
                 discordToken={system.connections.discordToken}
                 setDiscordToken={system.actions.setDiscordToken}
                 discordChannelId={system.connections.discordChannelId}
@@ -552,16 +518,22 @@ export default function App() {
                 setDiscordCommandsEverywhere={(system.actions as any).setDiscordCommandsEverywhere}
                 discordGuildId={system.connections.discordGuildId}
                 setDiscordGuildId={system.actions.setDiscordGuildId}
-                relayConfig={system.settings.relayConfig}
-                setRelayConfig={system.settings.setRelayConfig}
                 discordBotToken={system.connections.discordBotToken} setDiscordBotToken={system.actions.setDiscordBotToken}
                 discordHasBotToken={system.connections.discordHasBotToken}
                 discordClientSecret={system.connections.discordClientSecret} setDiscordClientSecret={system.actions.setDiscordClientSecret}
                 discordHasClientSecret={system.connections.discordHasClientSecret}
-                tiktokSignKey={system.connections.tiktokSignKey} setTiktokSignKey={system.actions.setTiktokSignKey}
-                tiktokHasSignKey={system.connections.tiktokHasSignKey}
                 twitchClientId={system.connections.twitchClientId}
                 setTwitchClientId={system.actions.setTwitchClientId}
+                twitchClientSecret={system.connections.twitchClientSecret}
+                setTwitchClientSecret={system.actions.setTwitchClientSecret}
+                twitchHasSecret={system.connections.twitchHasSecret}
+                twitchStatus={system.status.twitch}
+                twitchError={system.status.twitchError}
+                youtubeApiKey={system.connections.youtubeApiKey}
+                setYoutubeApiKey={system.actions.setYoutubeApiKey}
+                youtubeHasKey={system.connections.youtubeHasKey}
+                youtubeStatus={system.status.youtube}
+                youtubeError={system.status.youtubeError}
                 activeTheme={activeTheme}
                 t={t}
               />
@@ -583,14 +555,7 @@ export default function App() {
             )}
 
            {view === 'polls' && (
-              <PollsView
-                settings={(system.data as any).pollSettings}
-                history={(system.data as any).pollHistory}
-                language={system.settings.language}
-                poll={(system.data as any).poll}
-                control={(system.actions as any).poll}
-                t={t}
-              />
+              <PollsView t={t} />
             )}
 
            {view === 'requests' && (

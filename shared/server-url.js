@@ -38,8 +38,8 @@ export const DEFAULT_API_PORT = '8081';
  *        one, and which port the server is on then.
  *
  * Deliberately no second stored key. This used to fall back to `server_url`,
- * which the TikTok proxy setting writes — so setting a proxy pointed the whole
- * app at it and the next load reached nothing at all.
+ * which a proxy setting once wrote — so setting a proxy pointed the whole app
+ * at it and the next load reached nothing at all.
  */
 export function resolveServerUrl(where, known = {}) {
   const asked = new URLSearchParams(where.search || '').get('server');

@@ -5,7 +5,7 @@
  * Serial, rate-limited task queue for outbound API calls.
  *
  * One global queue shared by every Discord call meant a slow role-assignment
- * blocked chat relays behind it. Queues are named, so independent workloads
+ * held up every message behind it. Queues are named, so independent workloads
  * drain independently.
  */
 

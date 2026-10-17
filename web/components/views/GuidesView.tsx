@@ -32,12 +32,10 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
 };
 
 /**
- * Where to sign in to the platforms, and the addresses each one comes back
- * to. Twitch takes a plain http:// address only for the computer itself,
- * and Google only as 127.0.0.1 — so the addresses are written for
+ * Where to sign in to Discord, and the address it comes back to: written for
  * the app opened at localhost, on the computer it runs on, whatever address
- * this page was opened at. The same ones the Connections screen sends from
- * there (utils youtubeRedirectUri: localhost becomes 127.0.0.1).
+ * this page was opened at — the same one the Connections screen sends from
+ * there.
  */
 export const signInPlaces = () => {
   const here = `${window.location.origin}${window.location.pathname}`;
@@ -182,7 +180,7 @@ export const GuidesView: React.FC<GuidesViewProps> = ({ t, system, go, screens, 
     <div className="glass-panel rounded-3xl border border-zinc-800 p-5 space-y-3" data-guides-platforms>
       <div className="space-y-1">
         <div className="flex items-center gap-2"><Plug size={14} className="text-current-accent" /><span className="text-[11px] font-black uppercase tracking-widest text-zinc-300">{t.guidesPlatformsTitle || 'Connect your platforms'}</span></div>
-        <p className="text-[12px] text-zinc-400 leading-relaxed">{t.guidesPlatformsIntro || 'Twitch, YouTube and Discord each want you to make a free “app” on their developer site before this app may sign in. It sounds technical, but it is a form: a name, an address copied from here, and a code or two to paste back. Open a platform for its steps.'}</p>
+        <p className="text-[12px] text-zinc-400 leading-relaxed">{t.guidesPlatformsIntro || 'Discord, Twitch and YouTube each want you to make a free “app” or key on their developer site first. It sounds technical, but it is a form: a name, sometimes an address copied from here, and a code or two to paste back. Open a platform for its steps.'}</p>
       </div>
       <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 flex gap-2" data-guides-secrets>
         <KeyRound size={14} className="text-amber-400 shrink-0 mt-0.5" />

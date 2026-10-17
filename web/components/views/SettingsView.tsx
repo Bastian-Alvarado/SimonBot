@@ -28,6 +28,8 @@ interface SettingsViewProps {
   updatesAct?: (op: 'check' | 'apply') => Promise<any>;
   /** Who this is, and the sign-in settings (hooks/useStreamSystem.ts auth). */
   auth?: any;
+  /** The Discord server's roles, for choosing which one moderators have. */
+  discordRoles?: any[];
   t: any;
 }
 
@@ -43,7 +45,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   updates,
   updatesAct,
   auth,
-  t
+  discordRoles = [],
+  t,
 }) => {
   // Backups and updates are the streamer's; the rest of a moderator's Settings is their own screen's.
   const owner = !auth?.me || auth.me.role === 'owner';
@@ -178,7 +181,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </section>
 
-      {auth && <SignInPanel auth={auth} light={activeTheme.id === 'light'} panelClass={`${activeTheme.borderClass} ${activeTheme.panelClass}`} t={t} />}
+      {auth && <SignInPanel auth={auth} roles={discordRoles} light={activeTheme.id === 'light'} panelClass={`${activeTheme.borderClass} ${activeTheme.panelClass}`} t={t} />}
 
       {/* NEW: Data Management Section */}
       {owner && <section className={`glass-panel p-6 sm:p-8 rounded-[40px] border ${activeTheme.borderClass} ${activeTheme.panelClass}`}>

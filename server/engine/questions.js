@@ -10,14 +10,12 @@
  * an unmoderated question box on stream is a dare.
  *
  * Around the queue:
- *   - "!pregunta" is answered out of the box — each person once a minute, with
- *     a word back in chat;
+ *   - "!pregunta" in Discord is answered out of the box — each person once a
+ *     minute, with a reply to their message;
  *   - the same person asking the same thing again while it is still waiting is
  *     the one question;
  *   - a question can be edited before it goes up, and added by hand;
  *   - "Next question" marks the one up as answered and puts up the next;
- *   - a waiting question goes when a moderator deletes the message it came in,
- *     or times out the person who asked it;
  *   - and what is left when the stream ends can be kept, or cleared.
  */
 
@@ -229,28 +227,9 @@ export function next() {
 
 // ------------------------------------------------------------ chat
 
-/**
- * A moderator deleted a message, or timed out or banned somebody: their
- * question goes too while it is still waiting. One already approved was
- * chosen by the streamer, and stays for them to decide.
- */
-function onDelete({ platform, msgIds = [], userIds = [] } = {}) {
-  const msgs = new Set(msgIds.map(String));
-  const users = new Set(userIds.map(String));
-  if (!msgs.size && !users.size) return;
-  const current = getQuestions();
-  const gone = (q) => q.status === 'pending'
-    && (!platform || !q.platform || q.platform === platform)
-    && ((q.msgId && msgs.has(q.msgId)) || (q.userId && users.has(q.userId)));
-  const items = current.items.filter((q) => !gone(q));
-  if (items.length === current.items.length) return;
-  log.info(`${current.items.length - items.length} waiting question(s) went with a deleted message or a timeout`);
-  write({ ...current, items });
-}
-
 function onChat(chat) {
   const { ask } = getSettings();
-  if (!ask.enabled || chat?.isBot) return;
+  if (!ask.enabled || chat?.isBot || chat?.platform !== 'discord') return;
   const said = String(chat?.msg ?? '').trim();
   const word = said.split(/\s+/)[0].toLowerCase();
   if (word !== ask.trigger) return;
@@ -265,21 +244,16 @@ function onChat(chat) {
   if (added && ask.reply && ask.replyText) answer(chat, ask);
 }
 
-/**
- * "¡Pregunta recibida!": in Discord, a reply to the message it was asked in,
- * in that channel; from anywhere else, in Twitch chat, as it always was.
- */
+/** "¡Pregunta recibida!": a reply to the message it was asked in, in that channel. */
 function answer(chat, ask) {
-  const discordChat = chat.platform === 'discord' && chat.raw?.channelId;
-  const name = discordChat && deps.discord?.sanitise ? deps.discord.sanitise(chat.user) : chat.user;
+  if (!chat.raw?.channelId) return;
+  const name = deps.discord?.sanitise ? deps.discord.sanitise(chat.user) : chat.user;
   // One of the replies written, when there are several (shared/pick-line.js).
   const text = fill(pickLine(ask.replyText), { user: name });
-  const sent = discordChat
-    ? deps.discord?.sendMessage?.(chat.raw.channelId, text, null, null, undefined, {
-      allowed_mentions: { parse: [] },
-      ...(chat.raw.messageId ? { message_reference: { message_id: chat.raw.messageId, fail_if_not_exists: false } } : {}),
-    })
-    : deps.twitch?.say?.(text, { useBot: true });
+  const sent = deps.discord?.sendMessage?.(chat.raw.channelId, text, null, null, undefined, {
+    allowed_mentions: { parse: [] },
+    ...(chat.raw.messageId ? { message_reference: { message_id: chat.raw.messageId, fail_if_not_exists: false } } : {}),
+  });
   Promise.resolve(sent).catch((err) => log.warn(`could not answer ${ask.trigger}: ${err.message}`));
 }
 
@@ -315,8 +289,8 @@ export function control(payload = {}) {
 // ------------------------------------------------------------------ wiring
 
 /**
- * `d.twitch.say` and `d.discord.sendMessage` answer "!pregunta". Passed in, so
- * the tests can listen.
+ * `d.discord.sendMessage` answers "!pregunta". Passed in, so the tests can
+ * listen.
  */
 export function initQuestions(d = {}) {
   store = collection('questions', DEFAULT_QUESTIONS);
@@ -333,7 +307,6 @@ export function initQuestions(d = {}) {
     if (deps.discord?.commandsEverywhere?.() === false) return;
     onChat(chat);
   });
-  bus.on(EVENTS.CHAT_DELETE, onDelete);
   bus.on('stream:off', () => streamEnded());
 }
 

@@ -43,8 +43,8 @@ const STRING = 3, USER = 6;
 
 /** The commands, as Discord registers them. Spanish first, English for an English Discord. */
 export const COMMANDS = [
-  { name: 'perfil', description: 'Tu nivel, puntos, racha y cuentas unidas',
-    description_localizations: { 'en-US': 'Your level, points, streak and linked accounts', 'en-GB': 'Your level, points, streak and linked accounts' },
+  { name: 'perfil', description: 'Tu nivel, puntos, directos y racha',
+    description_localizations: { 'en-US': 'Your level, points, streams and streak', 'en-GB': 'Your level, points, streams and streak' },
     options: [{ type: USER, name: 'persona', description: 'Ver el perfil de otra persona', required: false }] },
   { name: 'rango', description: 'En qué nivel y puesto vas',
     description_localizations: { 'en-US': 'Your level and place', 'en-GB': 'Your level and place' },
@@ -58,7 +58,7 @@ export const COMMANDS = [
   { name: 'avisame', description: 'Un mensaje privado cuando Simon empiece',
     description_localizations: { 'en-US': 'A private message when Simon goes live', 'en-GB': 'A private message when Simon goes live' },
     options: [{ type: STRING, name: 'donde', description: 'Dónde lo ves (o "ya no")', required: true, choices: [
-      { name: 'Twitch', value: 'twitch' }, { name: 'YouTube', value: 'youtube' }, { name: 'TikTok', value: 'tiktok' },
+      { name: 'Twitch', value: 'twitch' }, { name: 'YouTube', value: 'youtube' },
       { name: 'Ya no, gracias', value: 'stop' }] }] },
   { name: 'pregunta', description: 'Manda una pregunta para el directo',
     description_localizations: { 'en-US': 'Send a question for the stream', 'en-GB': 'Send a question for the stream' },

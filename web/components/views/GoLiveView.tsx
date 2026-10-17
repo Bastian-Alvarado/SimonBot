@@ -2,18 +2,24 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Going live, announced in Discord (server/engine/announce.js): where, who to
- * ping, what it says, and what happens to the post when the stream ends.
+ * Going live, announced in Discord (server/engine/watch.js, announce.js).
+ *
+ * The watch list first: the Twitch and YouTube channels the bot keeps an eye
+ * on, with no sign-in. Each has its own post — where, who to ping, what it
+ * says, what happens when the stream ends — and a setup can be copied from
+ * one channel to another, or to all of them. Channels marked "mine" are the
+ * streamer's own: while one of them is live, the stream is on.
+ *
+ * Then live DMs: viewers who asked are told privately instead.
  * Settings save as they change; the tests post for real, now.
  */
 import { useEffect, useState } from 'react';
-import { Megaphone, Send, Loader2, CalendarDays, RefreshCw, Upload, Images, Trash2, Flame, BellRing } from 'lucide-react';
+import { Megaphone, Send, Loader2, BellRing, Plus, Trash2, Copy, ChevronDown, ChevronUp, Star, RefreshCw } from 'lucide-react';
 import { Button } from '../Button';
 import { textChannels, pingableRoles } from '../DiscordPicks';
 import { refusalWords, fill as fillWords } from '../../words';
-import { StillImg } from '../StillPicture';
 
-export interface AnnounceSettings {
+export interface AlertSettings {
   enabled: boolean;
   channelId: string;
   roleId: string;
@@ -23,40 +29,29 @@ export interface AnnounceSettings {
   delaySeconds: number;
   whenOver: 'edit' | 'delete' | 'keep';
   overMessage: string;
-  youtubeUrl: string;
-  tiktokUrl: string;
-  last?: { channelId: string; messageId: string; at: number; test?: boolean } | null;
 }
 
-export interface HighlightsSettings {
-  enabled: boolean; factor: number; minMessages: number; cooldownMin: number; channelId: string; quotes: number;
-}
-
-export interface ScheduleEventsSettings {
-  enabled: boolean;
-  count: number;
-  description: string;
-  cover?: 'none' | 'twitch' | 'picture';
-  coverPicture?: string;
-  events?: number;
-  lastSync?: { at: number; created: number; updated: number; removed: number } | null;
+export interface WatchedChannel {
+  id: string;
+  platform: 'twitch' | 'youtube';
+  handle: string;
+  name: string;
+  avatar: string;
+  mine: boolean;
+  alert: AlertSettings;
+  live: { on: boolean; since: number; title: string; game: string; url: string } | null;
+  last: { channelId: string; messageId: string; at: number; test?: boolean } | null;
 }
 
 interface Props {
-  settings?: AnnounceSettings;
+  watch?: { channels: WatchedChannel[]; lastEdited: string };
+  control: (op: string, payload?: Record<string, any>) => Promise<any>;
   channels: any[];
   roles: any[];
-  save: (patch: Partial<AnnounceSettings>) => void;
-  test: () => Promise<any>;
-  scheduleEvents?: ScheduleEventsSettings;
-  saveScheduleEvents: (patch: Partial<ScheduleEventsSettings>) => void;
-  syncScheduleEvents: () => Promise<any>;
-  streamsOnSchedule: number;
-  listAssets: () => Promise<any[]>;
-  uploadAsset: (file: File) => Promise<any>;
   botConnected: boolean;
-  highlights?: HighlightsSettings;
-  highlightsControl?: (op: string, payload?: Record<string, any>) => Promise<any>;
+  /** Whether the keys for each platform are in (the Connections screen). */
+  keys: { twitch: boolean; youtube: boolean };
+  openConnections: () => void;
   liveDms?: any;
   liveDmsControl?: (op: string, payload?: Record<string, any>) => Promise<any>;
   t: any;
@@ -64,51 +59,129 @@ interface Props {
 
 const box = 'w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-current-accent';
 const tag = 'text-[9px] font-black uppercase tracking-widest text-zinc-500';
+const PLATFORM_NAME = { twitch: 'Twitch', youtube: 'YouTube' };
+const PLATFORM_COLOUR = { twitch: 'bg-[#9146ff]/20 text-[#c4a4ff]', youtube: 'bg-red-500/15 text-red-300' };
 
-/*
-  The moments chat goes wild: every platform's chat counted together, and a
-  minute at several times the stream's usual pace is (if a channel is chosen)
-  a post in Discord. Off until turned on.
-*/
-const HighlightsPanel = ({ settings, control, channels, botConnected, t }: { settings?: HighlightsSettings; control: (op: string, payload?: any) => Promise<any>; channels: any[]; botConnected: boolean; t: any }) => {
-  const h: HighlightsSettings = { enabled: false, factor: 3, minMessages: 15, cooldownMin: 5, channelId: '', quotes: 4, ...(settings || {}) };
+const Toggle = ({ on, onClick, ...rest }: { on: boolean; onClick: () => void; [k: string]: any }) => (
+  <div onClick={onClick} className={`w-12 h-7 rounded-full p-1 cursor-pointer transition-colors shrink-0 ${on ? 'bg-current-accent' : 'bg-zinc-700'}`} {...rest}>
+    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${on ? 'translate-x-5' : ''}`} />
+  </div>
+);
+
+/** One channel's post: the old single go-live form, now per channel, with copying. */
+const AlertEditor = ({ entry, all, control, channels, roles, botConnected, t }: {
+  entry: WatchedChannel; all: WatchedChannel[]; control: Props['control']; channels: any[]; roles: any[]; botConnected: boolean; t: any;
+}) => {
+  const s = entry.alert;
+  const [draft, setDraft] = useState({ message: s.message, overMessage: s.overMessage });
+  useEffect(() => { setDraft({ message: s.message, overMessage: s.overMessage }); }, [entry.id, s.message, s.overMessage]);
   const [said, setSaid] = useState('');
-  const save = (patch: Partial<HighlightsSettings>) => control('settings', { settings: patch }).catch((err: any) => setSaid(refusalWords(t, err) || String(err)));
-  const test = async () => {
+  const [testing, setTesting] = useState(false);
+  const fail = (err: any) => setSaid(refusalWords(t, err) || String(err?.message || err));
+  const save = (patch: Partial<AlertSettings>) => control('update', { id: entry.id, alert: patch }).catch(fail);
+  const commit = (key: keyof typeof draft) => { if (draft[key] !== s[key]) save({ [key]: draft[key] } as any); };
+  const others = all.filter((c) => c.id !== entry.id);
+
+  const copyFrom = async (from: string) => {
+    if (!from) return;
     setSaid('');
-    try { await control('test'); setSaid(t.goLiveTestSent || 'Posted — have a look in Discord.'); } catch (err: any) { setSaid(refusalWords(t, err) || String(err)); }
+    try { await control('copy', { from, to: [entry.id] }); setSaid(t.watchCopied || 'Copied.'); } catch (err) { fail(err); }
   };
+  const applyToAll = async () => {
+    if (!window.confirm(t.watchApplyAllConfirm || 'Give every other channel on the list this same post setup?')) return;
+    setSaid('');
+    try {
+      const r = await control('copy', { from: entry.id, to: 'all' });
+      setSaid(fillWords(t.watchAppliedAll || 'Copied to {count} channels.', { count: String(r?.copied ?? 0) }));
+    } catch (err) { fail(err); }
+  };
+  const runTest = async () => {
+    setTesting(true);
+    setSaid('');
+    try { await control('test', { id: entry.id }); setSaid(t.goLiveTestSent || 'Posted — have a look in Discord.'); } catch (err) { fail(err); }
+    finally { setTesting(false); }
+  };
+
   return (
-    <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-4" data-highlights>
-      <div className="flex items-center gap-3">
-        <Flame size={16} className="text-current-accent" />
-        <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300 flex-1">{t.highlightsTitle || 'Highlights'}</span>
-        <div onClick={() => save({ enabled: !h.enabled })} className={`w-12 h-7 rounded-full p-1 cursor-pointer transition-colors ${h.enabled ? 'bg-current-accent' : 'bg-zinc-700'}`} data-highlights-toggle>
-          <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${h.enabled ? 'translate-x-5' : ''}`} />
-        </div>
+    <div className="space-y-5 pt-4 mt-3 border-t border-zinc-800/60" data-watch-alert={entry.id}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Copy size={12} className="text-zinc-500" />
+        <select value="" onChange={(e) => copyFrom(e.target.value)} disabled={!others.length} className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-[11px] text-zinc-300 max-w-[240px]" data-watch-copy-from>
+          <option value="">{t.watchCopyFrom || 'Copy setup from…'}</option>
+          {others.map((c) => <option key={c.id} value={c.id}>{c.name} · {PLATFORM_NAME[c.platform]}</option>)}
+        </select>
+        <button onClick={applyToAll} disabled={!others.length} className="px-2.5 py-1.5 rounded-lg border border-zinc-800 text-[10px] font-bold text-zinc-400 hover:text-white disabled:opacity-40" data-watch-apply-all>
+          {t.watchApplyAll || 'Use this setup for all'}
+        </button>
       </div>
-      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.highlightsHint || 'Every platform\'s chat counted together. When a minute runs at several times the stream\'s usual pace, that is a moment: a post in Discord with what chat was saying, and a link to it in the VOD.'}</p>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <label className="space-y-1 block"><span className={tag}>{t.highlightsFactor || 'Times the usual pace'}</span>
-          <select value={h.factor} onChange={(e) => save({ factor: Number(e.target.value) })} className={box}>
-            {[2, 2.5, 3, 4, 5].map((f) => <option key={f} value={f}>×{f}</option>)}
-          </select></label>
-        <label className="space-y-1 block"><span className={tag}>{t.highlightsMin || 'At least, per minute'}</span>
-          <input type="number" min={3} value={h.minMessages} onChange={(e) => save({ minMessages: Number(e.target.value) })} className={box} /></label>
-        <label className="space-y-1 block"><span className={tag}>{t.highlightsCooldown || 'Minutes between'}</span>
-          <input type="number" min={1} value={h.cooldownMin} onChange={(e) => save({ cooldownMin: Number(e.target.value) })} className={box} /></label>
-        <label className="space-y-1 block"><span className={tag}>{t.highlightsQuotes || 'Messages quoted'}</span>
-          <input type="number" min={0} max={8} value={h.quotes} onChange={(e) => save({ quotes: Number(e.target.value) })} className={box} /></label>
-      </div>
-      <div className="flex flex-wrap items-center gap-4">
-        <label className="flex items-center gap-2"><span className="text-[11px] text-zinc-400">{t.highlightsPostIn || 'Post in'}</span>
-          <select value={h.channelId} onChange={(e) => save({ channelId: e.target.value })} className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-[11px] text-zinc-200 max-w-[200px]" data-highlights-channel>
-            <option value="">{t.highlightsNowhere || 'Nowhere'}</option>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <label className="space-y-1 block">
+          <span className={tag}>{t.goLiveChannel || 'Announce in'}</span>
+          <select value={s.channelId} onChange={(e) => save({ channelId: e.target.value })} className={box} data-watch-field="channelId">
+            <option value="">{t.discordSendPickChannel || 'Choose a channel'}</option>
             {textChannels(channels).map((c: any) => <option key={c.id} value={c.id}>#{c.name}</option>)}
-          </select></label>
-        <Button size="sm" icon={<Send size={14} />} onClick={test} disabled={!botConnected} data-highlights-test>{t.highlightsTest || 'Test post'}</Button>
+          </select>
+        </label>
+        <label className="space-y-1 block">
+          <span className={tag}>{t.goLivePing || 'Ping'}</span>
+          <select value={s.roleId} onChange={(e) => save({ roleId: e.target.value })} className={box}>
+            <option value="">{t.goLiveNoPing || 'Nobody'}</option>
+            <option value="everyone">@everyone</option>
+            {pingableRoles(roles).map((r: any) => <option key={r.id} value={r.id}>@{r.name}</option>)}
+          </select>
+        </label>
       </div>
-      {said && <p className="text-[11px] text-zinc-400">{said}</p>}
+
+      <label className="space-y-1 block">
+        <span className={tag}>{t.goLiveMessage || 'Message'}</span>
+        <textarea value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} onBlur={() => commit('message')} className={`${box} h-20 resize-none`} />
+        <span className="block text-[10px] text-zinc-600">{t.goLiveVars || '{role} is the ping, {streamer} the channel\'s name, {title} and {game} what the stream says, {link} where to watch.'}</span>
+      </label>
+
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={s.card} onChange={(e) => save({ card: e.target.checked })} className="accent-current-accent" />
+          <span className="text-[11px] text-zinc-300">{t.goLiveCard || 'Card with the title, game and live picture'}</span>
+        </label>
+        {s.card && (
+          <label className="flex items-center gap-2">
+            <input type="color" value={s.cardColor} onChange={(e) => save({ cardColor: e.target.value })} className="w-7 h-7 bg-transparent border border-zinc-800 rounded cursor-pointer" />
+            <span className="text-[10px] text-zinc-500">{t.discordSendCardColour || 'Card colour'}</span>
+          </label>
+        )}
+        <label className="flex items-center gap-2 ml-auto">
+          <span className="text-[10px] text-zinc-500">{t.goLiveDelay || 'Wait after going live (s)'}</span>
+          <input type="number" min={0} max={600} value={s.delaySeconds} onChange={(e) => save({ delaySeconds: Number(e.target.value) })} className="w-20 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-200" />
+        </label>
+      </div>
+
+      <div className="space-y-2">
+        <span className={tag}>{t.goLiveWhenOver || 'When the stream ends'}</span>
+        <div className="flex flex-wrap gap-2">
+          {([
+            ['edit', t.goLiveOverEdit || 'Mark the post as over'],
+            ['delete', t.goLiveOverDelete || 'Delete the post'],
+            ['keep', t.goLiveOverKeep || 'Leave it'],
+          ] as const).map(([value, text]) => (
+            <button key={value} onClick={() => save({ whenOver: value })} className={`px-3 py-1.5 rounded-lg border text-[10px] font-bold ${s.whenOver === value ? 'border-current-accent text-current-accent' : 'border-zinc-800 text-zinc-400 hover:text-white'}`}>{text}</button>
+          ))}
+        </div>
+        {s.whenOver === 'edit' && (
+          <>
+            <textarea value={draft.overMessage} onChange={(e) => setDraft({ ...draft, overMessage: e.target.value })} onBlur={() => commit('overMessage')} placeholder={t.goLiveOverPlaceholder || 'The stream is over — thanks for watching!'} className={`${box} resize-y min-h-[52px]`} data-random-lines="go-live-over" />
+            <p className="text-[10px] text-zinc-600">{t.oneLinePerOption || 'One per line: a different one is picked at random each time.'}</p>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-zinc-800/60">
+        <Button size="sm" icon={testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} onClick={runTest} disabled={testing || !s.channelId || !botConnected} data-watch-test>
+          {t.goLiveTest || 'Post a test now'}
+        </Button>
+        <span className="text-[10px] text-zinc-500">{said || (entry.last ? `${t.goLiveLast || 'Last post'}: ${new Date(entry.last.at).toLocaleString()}${entry.last.test ? ` (${t.goLiveTestWord || 'test'})` : ''}` : '')}</span>
+      </div>
+      <p className="text-[10px] text-zinc-600">{t.goLiveTestHint || 'The test posts for real, with a ping if one is chosen — pick a quiet channel or take the ping off while you try it.'}</p>
     </div>
   );
 };
@@ -139,11 +212,9 @@ const LiveDmsPanel = ({ state, control, channels, botConnected, t }: { state?: a
         <BellRing size={16} className="text-current-accent" />
         <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300 flex-1">{t.liveDmsTitle || 'Told privately'}</span>
         <span className="text-[10px] text-zinc-500" data-live-dms-count>{fillWords(t.liveDmsCount || '{count} signed up', { count: String(s.count || 0) })}</span>
-        <div onClick={() => save({ enabled: !s.enabled })} className={`w-12 h-7 rounded-full p-1 cursor-pointer transition-colors ${s.enabled ? 'bg-current-accent' : 'bg-zinc-700'}`} data-live-dms-toggle>
-          <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${s.enabled ? 'translate-x-5' : ''}`} />
-        </div>
+        <Toggle on={s.enabled} onClick={() => save({ enabled: !s.enabled })} data-live-dms-toggle />
       </div>
-      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.liveDmsHint || 'Viewers press a button on a sign-up post in Discord, choosing where they watch, and get a direct message with that link when you go live — no ping for the whole server. Each message has a button to stop.'}</p>
+      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.liveDmsHint || 'Viewers press a button on a sign-up post in Discord, choosing where they watch, and get a direct message with that link when you go live — no ping for the whole server. Each message has a button to stop. The links are your own channels on the watch list.'}</p>
       <label className="space-y-1 block"><span className={tag}>{t.liveDmsMessage || 'The message'}</span>
         <textarea value={message} onChange={(e) => setMessage(e.target.value)} onBlur={() => message !== s.message && save({ message })} className={`${box} resize-y min-h-[52px]`} data-random-lines="live-dm" />
         <span className="block text-[10px] text-zinc-600">{t.liveDmsVars || '{streamer}, {title}, {game} and {platform} — the link is a button under it.'} {t.oneLinePerOption || 'One per line: a different one is picked at random each time.'}</span></label>
@@ -165,232 +236,115 @@ const LiveDmsPanel = ({ state, control, channels, botConnected, t }: { state?: a
   );
 };
 
-export const GoLiveView = ({ settings, channels, roles, save, test, scheduleEvents, saveScheduleEvents, syncScheduleEvents, streamsOnSchedule, listAssets, uploadAsset, botConnected, highlights, highlightsControl, liveDms, liveDmsControl, t }: Props) => {
-  const s: AnnounceSettings = settings || {
-    enabled: false, channelId: '', roleId: '', message: '', card: true, cardColor: '#9146ff', delaySeconds: 45, whenOver: 'edit', overMessage: '', youtubeUrl: '', tiktokUrl: '',
-  };
-  // Typed fields keep their own text until they lose focus, so a keystroke is not a save.
-  const [draft, setDraft] = useState({ message: s.message, overMessage: s.overMessage, youtubeUrl: s.youtubeUrl, tiktokUrl: s.tiktokUrl });
-  useEffect(() => { setDraft({ message: s.message, overMessage: s.overMessage, youtubeUrl: s.youtubeUrl, tiktokUrl: s.tiktokUrl }); }, [s.message, s.overMessage, s.youtubeUrl, s.tiktokUrl]);
-  const [testing, setTesting] = useState(false);
-  const [result, setResult] = useState('');
-  const events: ScheduleEventsSettings = { enabled: false, count: 3, description: '', ...(scheduleEvents || {}) };
-  const saveEvents = (patch: Partial<ScheduleEventsSettings>) => saveScheduleEvents(patch);
-  const [eventsText, setEventsText] = useState(events.description);
-  useEffect(() => { setEventsText(events.description); }, [events.description]);
-  const [syncing, setSyncing] = useState(false);
-  // The cover: choosing from earlier uploads, or uploading one.
-  const [pickingCover, setPickingCover] = useState(false);
-  const [uploads, setUploads] = useState<any[]>([]);
-  useEffect(() => {
-    if (pickingCover) listAssets().then((all) => setUploads((all || []).filter((a: any) => a.kind === 'image'))).catch(() => setUploads([]));
-  }, [pickingCover]);
-  const uploadCover = async (file?: File | null) => {
-    if (!file) return;
+export const GoLiveView = ({ watch, control, channels, roles, botConnected, keys, openConnections, liveDms, liveDmsControl, t }: Props) => {
+  const list = watch?.channels || [];
+  const [platform, setPlatform] = useState<'twitch' | 'youtube'>('twitch');
+  const [input, setInput] = useState('');
+  const [mine, setMine] = useState(list.length === 0);
+  const [adding, setAdding] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [said, setSaid] = useState('');
+  const [open, setOpen] = useState<string>('');
+  const fail = (err: any) => setSaid(refusalWords(t, err) || String(err?.message || err));
+
+  const add = async () => {
+    if (!input.trim()) return;
+    setAdding(true);
+    setSaid('');
     try {
-      const saved = await uploadAsset(file);
-      if (saved?.url) saveEvents({ cover: 'picture', coverPicture: saved.url });
-    } catch (err: any) {
-      setSyncResult(refusalWords(t, err) || String(err?.message || err));
-    }
+      const entry = await control('add', { platform, input: input.trim(), mine });
+      setInput('');
+      setMine(false);
+      if (entry?.id) setOpen(entry.id);
+    } catch (err) { fail(err); }
+    finally { setAdding(false); }
   };
-  const [syncResult, setSyncResult] = useState('');
-  const runSync = async () => {
-    setSyncing(true);
-    setSyncResult('');
-    try {
-      const r = await syncScheduleEvents();
-      setSyncResult(fillWords(t.scheduleEventsSynced || 'Done: {created} made, {updated} changed, {removed} taken off.', { created: String(r?.created ?? 0), updated: String(r?.updated ?? 0), removed: String(r?.removed ?? 0) }));
-    } catch (err: any) {
-      setSyncResult(refusalWords(t, err) || String(err));
-    } finally {
-      setSyncing(false);
-    }
+  const checkNow = async () => {
+    setChecking(true);
+    try { await control('check'); } catch (err) { fail(err); } finally { setChecking(false); }
   };
-  const commit = (key: keyof typeof draft) => { if (draft[key] !== (s as any)[key]) save({ [key]: draft[key] } as any); };
-  const runTest = async () => {
-    setTesting(true);
-    setResult('');
-    try {
-      await test();
-      setResult(t.goLiveTestSent || 'Posted — have a look in Discord.');
-    } catch (err: any) {
-      setResult(refusalWords(t, err) || String(err));
-    } finally {
-      setTesting(false);
-    }
+  const remove = (c: WatchedChannel) => {
+    if (!window.confirm(fillWords(t.watchRemoveConfirm || 'Stop watching {name}? Its post setup goes too.', { name: c.name }))) return;
+    control('remove', { id: c.id }).catch(fail);
   };
 
   return (
     <div className="animate-fade-in space-y-6 pb-20">
-      <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-5">
+      <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-5" data-watch>
         <div className="flex items-center gap-3">
           <Megaphone size={16} className="text-current-accent" />
           <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300 flex-1">{t.goLiveNav || 'Go live'}</span>
-          <div onClick={() => save({ enabled: !s.enabled })} className={`w-12 h-7 rounded-full p-1 cursor-pointer transition-colors ${s.enabled ? 'bg-current-accent' : 'bg-zinc-700'}`} data-go-live-toggle>
-            <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${s.enabled ? 'translate-x-5' : ''}`} />
-          </div>
+          <button onClick={checkNow} disabled={checking || !list.length} className="p-1.5 rounded-lg border border-zinc-800 text-zinc-400 hover:text-white disabled:opacity-40" title={t.watchCheckNow || 'Check now'} data-watch-check>
+            {checking ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+          </button>
         </div>
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.goLiveHint || 'When Twitch shows you live, the bot posts here — your message, a card with the title, game and live picture, and buttons to watch. When the stream stops, the post is marked as over.'}
+          {t.watchHint || 'The Twitch and YouTube channels the bot watches. When one goes live, the bot posts in Discord — every channel with its own post. Mark your own channels with the star: while one of them is live, you are live (live DMs, points for coming, your pages).'}
         </p>
         {!botConnected && <p className="text-[11px] text-amber-400">{t.voiceNoBot || 'The Discord bot is not connected. Connect it on the Connections screen first.'}</p>}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <label className="space-y-1 block">
-            <span className={tag}>{t.goLiveChannel || 'Announce in'}</span>
-            <select value={s.channelId} onChange={(e) => save({ channelId: e.target.value })} className={box}>
-              <option value="">{t.discordSendPickChannel || 'Choose a channel'}</option>
-              {textChannels(channels).map((c: any) => <option key={c.id} value={c.id}>#{c.name}</option>)}
-            </select>
+        <div className="flex flex-wrap items-center gap-2" data-watch-add>
+          <select value={platform} onChange={(e) => setPlatform(e.target.value as any)} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white" data-watch-platform>
+            <option value="twitch">Twitch</option>
+            <option value="youtube">YouTube</option>
+          </select>
+          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
+            placeholder={platform === 'twitch' ? (t.watchTwitchPlaceholder || 'Twitch name or link') : (t.watchYoutubePlaceholder || '@handle, channel link or channel id')}
+            className="flex-1 min-w-[12rem] bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-current-accent" data-watch-input />
+          <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-zinc-300">
+            <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} className="accent-current-accent" data-watch-mine-new />
+            {t.watchMine || 'Mine'}
           </label>
-          <label className="space-y-1 block">
-            <span className={tag}>{t.goLivePing || 'Ping'}</span>
-            <select value={s.roleId} onChange={(e) => save({ roleId: e.target.value })} className={box}>
-              <option value="">{t.goLiveNoPing || 'Nobody'}</option>
-              <option value="everyone">@everyone</option>
-              {pingableRoles(roles).map((r: any) => <option key={r.id} value={r.id}>@{r.name}</option>)}
-            </select>
-          </label>
-        </div>
-
-        <label className="space-y-1 block">
-          <span className={tag}>{t.goLiveMessage || 'Message'}</span>
-          <textarea value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} onBlur={() => commit('message')} className={`${box} h-20 resize-none`} />
-          <span className="block text-[10px] text-zinc-600">{t.goLiveVars || '{role} is the ping, {streamer} your name, {title} and {game} what Twitch says, {link} where to watch. {next} is the next stream on your Twitch schedule (in each reader’s own time), {nextTitle} and {nextGame} its title and game — with nothing scheduled, the sentence naming it is left out.'}</span>
-        </label>
-
-        <div className="flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={s.card} onChange={(e) => save({ card: e.target.checked })} className="accent-current-accent" />
-            <span className="text-[11px] text-zinc-300">{t.goLiveCard || 'Card with the title, game and live picture'}</span>
-          </label>
-          {s.card && (
-            <label className="flex items-center gap-2">
-              <input type="color" value={s.cardColor} onChange={(e) => save({ cardColor: e.target.value })} className="w-7 h-7 bg-transparent border border-zinc-800 rounded cursor-pointer" />
-              <span className="text-[10px] text-zinc-500">{t.discordSendCardColour || 'Card colour'}</span>
-            </label>
-          )}
-          <label className="flex items-center gap-2 ml-auto">
-            <span className="text-[10px] text-zinc-500">{t.goLiveDelay || 'Wait after going live (s)'}</span>
-            <input type="number" min={0} max={600} value={s.delaySeconds} onChange={(e) => save({ delaySeconds: Number(e.target.value) })} className="w-20 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-200" />
-          </label>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <label className="space-y-1 block">
-            <span className={tag}>{t.goLiveYouTube || 'YouTube link (optional)'}</span>
-            <input value={draft.youtubeUrl} onChange={(e) => setDraft({ ...draft, youtubeUrl: e.target.value })} onBlur={() => commit('youtubeUrl')} placeholder="https://youtube.com/@…/live" className={box} />
-          </label>
-          <label className="space-y-1 block">
-            <span className={tag}>{t.goLiveTikTok || 'TikTok link (optional)'}</span>
-            <input value={draft.tiktokUrl} onChange={(e) => setDraft({ ...draft, tiktokUrl: e.target.value })} onBlur={() => commit('tiktokUrl')} placeholder="https://tiktok.com/@…/live" className={box} />
-          </label>
-        </div>
-
-        <div className="space-y-2">
-          <span className={tag}>{t.goLiveWhenOver || 'When the stream ends'}</span>
-          <div className="flex flex-wrap gap-2">
-            {([
-              ['edit', t.goLiveOverEdit || 'Mark the post as over'],
-              ['delete', t.goLiveOverDelete || 'Delete the post'],
-              ['keep', t.goLiveOverKeep || 'Leave it'],
-            ] as const).map(([value, text]) => (
-              <button key={value} onClick={() => save({ whenOver: value })} className={`px-3 py-1.5 rounded-lg border text-[10px] font-bold ${s.whenOver === value ? 'border-current-accent text-current-accent' : 'border-zinc-800 text-zinc-400 hover:text-white'}`}>{text}</button>
-            ))}
-          </div>
-          {s.whenOver === 'edit' && (
-            <>
-              <textarea value={draft.overMessage} onChange={(e) => setDraft({ ...draft, overMessage: e.target.value })} onBlur={() => commit('overMessage')} placeholder={t.goLiveOverPlaceholder || 'The stream is over — thanks for watching!'} className={`${box} resize-y min-h-[52px]`} data-random-lines="go-live-over" />
-              <p className="text-[10px] text-zinc-600">{t.oneLinePerOption || 'One per line: a different one is picked at random each time.'}</p>
-            </>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-zinc-800/60">
-          <Button size="sm" icon={testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} onClick={runTest} disabled={testing || !s.channelId || !botConnected}>
-            {t.goLiveTest || 'Post a test now'}
+          <Button size="sm" icon={adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} onClick={add} disabled={adding || !input.trim() || !keys[platform]} data-watch-add-button>
+            {t.watchAdd || 'Watch'}
           </Button>
-          <span className="text-[10px] text-zinc-500">{result || (s.last ? `${t.goLiveLast || 'Last post'}: ${new Date(s.last.at).toLocaleString()}${s.last.test ? ` (${t.goLiveTestWord || 'test'})` : ''}` : '')}</span>
         </div>
-        <p className="text-[10px] text-zinc-600">{t.goLiveTestHint || 'The test posts for real, with a ping if one is chosen — pick a quiet channel or take the ping off while you try it.'}</p>
-      </div>
+        {!keys[platform] && (
+          <p className="text-[11px] text-amber-400">
+            {platform === 'twitch' ? (t.watchNeedsTwitchKeys || 'Add your Twitch Client ID and Client Secret on the Connections screen first.') : (t.watchNeedsYoutubeKey || 'Add a YouTube API key on the Connections screen first.')}
+            {' '}<button onClick={openConnections} className="underline hover:text-white">{t.watchOpenConnections || 'Open Connections'}</button>
+          </p>
+        )}
+        {said && <p className="text-[11px] text-rose-400" data-watch-said>{said}</p>}
 
-      {/* The Twitch schedule as Discord events (server/engine/schedule-events.js). */}
-      <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-5" data-schedule-events>
-        <div className="flex items-center gap-3">
-          <CalendarDays size={16} className="text-current-accent" />
-          <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300 flex-1">{t.scheduleEventsTitle || 'Schedule as Discord events'}</span>
-          <div onClick={() => saveEvents({ enabled: !events.enabled })} className={`w-12 h-7 rounded-full p-1 cursor-pointer transition-colors ${events.enabled ? 'bg-current-accent' : 'bg-zinc-700'}`} data-schedule-events-toggle>
-            <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${events.enabled ? 'translate-x-5' : ''}`} />
-          </div>
-        </div>
-        <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.scheduleEventsHint || 'The next streams on your Twitch schedule become events in your Discord server, with the Twitch link. Anyone who presses "Interested" is told by Discord when the stream starts — the event starts when your Twitch stream does. A stream moved or cancelled on Twitch moves or goes here too; an event you delete in Discord stays deleted. Everybody in the server can see them.'}
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-4">
-          <label className="space-y-1 block">
-            <span className={tag}>{t.scheduleEventsCount || 'Next streams'}</span>
-            <input type="number" min={1} max={5} value={events.count} onChange={(e) => saveEvents({ count: Number(e.target.value) })} className={box} data-schedule-events-count />
-          </label>
-          <label className="space-y-1 block">
-            <span className={tag}>{t.scheduleEventsDescription || 'What the event says'}</span>
-            <textarea value={eventsText} onChange={(e) => setEventsText(e.target.value)} onBlur={() => { if (eventsText !== events.description) saveEvents({ description: eventsText }); }} className={`${box} h-16 resize-none`} />
-            <span className="block text-[10px] text-zinc-600">{t.scheduleEventsVars || '{title} and {game} from the schedule, {link} your Twitch.'}</span>
-          </label>
-        </div>
-
-        <div className="space-y-2" data-schedule-events-cover>
-          <span className={tag}>{t.scheduleEventsCover || 'Cover'}</span>
-          <div className="flex flex-wrap items-center gap-2">
-            {([
-              ['twitch', t.scheduleEventsCoverTwitch || 'Your Twitch offline image'],
-              ['picture', t.scheduleEventsCoverPicture || 'A picture'],
-              ['none', t.scheduleEventsCoverNone || 'None'],
-            ] as const).map(([value, text]) => (
-              <button key={value} onClick={() => saveEvents({ cover: value })} className={`px-3 py-1.5 rounded-lg border text-[10px] font-bold ${(events.cover || 'twitch') === value ? 'border-current-accent text-current-accent' : 'border-zinc-800 text-zinc-400 hover:text-white'}`} data-schedule-events-cover-choice={value}>{text}</button>
+        {!list.length ? (
+          <p className="text-xs text-zinc-500" data-watch-empty>{t.watchEmpty || 'Nothing watched yet. Add your own channel first, then any others you want posts for.'}</p>
+        ) : (
+          <ul className="space-y-2" data-watch-list>
+            {list.map((c) => (
+              <li key={c.id} className="rounded-2xl border border-zinc-800 bg-zinc-950/50 px-4 py-3" data-watch-entry={c.id}>
+                <div className="flex flex-wrap items-center gap-3">
+                  {c.avatar ? <img src={c.avatar} alt="" className="w-8 h-8 rounded-full" /> : <div className="w-8 h-8 rounded-full bg-zinc-800" />}
+                  <div className="flex-1 min-w-[8rem]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-white">{c.name}</span>
+                      <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${PLATFORM_COLOUR[c.platform]}`}>{PLATFORM_NAME[c.platform]}</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 truncate">
+                      {c.live?.on
+                        ? <><span className="text-rose-400 font-black">● LIVE</span>{c.live.title ? ` · ${c.live.title}` : ''}</>
+                        : (t.watchOffline || 'Offline')}
+                    </p>
+                  </div>
+                  <button onClick={() => control('update', { id: c.id, mine: !c.mine }).catch(fail)} title={t.watchMineHint || 'Your own channel'}
+                    className={`p-1.5 rounded-lg border ${c.mine ? 'border-amber-400/50 text-amber-300' : 'border-zinc-800 text-zinc-600 hover:text-zinc-300'}`} data-watch-mine={c.id}>
+                    <Star size={13} fill={c.mine ? 'currentColor' : 'none'} />
+                  </button>
+                  <Toggle on={c.alert.enabled} onClick={() => control('update', { id: c.id, alert: { enabled: !c.alert.enabled } }).catch(fail)} data-watch-enabled={c.id} />
+                  <button onClick={() => setOpen(open === c.id ? '' : c.id)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-800 text-[10px] font-bold text-zinc-300 hover:text-white" data-watch-open={c.id}>
+                    {t.watchPost || 'Post'} {open === c.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  </button>
+                  <button onClick={() => remove(c)} className="p-1.5 rounded-lg border border-zinc-800 text-zinc-500 hover:text-rose-400" title={t.watchRemove || 'Stop watching'} data-watch-remove={c.id}><Trash2 size={13} /></button>
+                </div>
+                {!c.alert.channelId && c.alert.enabled && <p className="mt-2 text-[10px] text-amber-400">{t.watchNoChannel || 'No Discord channel chosen yet: open its post to pick one.'}</p>}
+                {open === c.id && <AlertEditor entry={c} all={list} control={control} channels={channels} roles={roles} botConnected={botConnected} t={t} />}
+              </li>
             ))}
-            {events.cover === 'picture' && (
-              <>
-                {events.coverPicture && <StillImg src={events.coverPicture} width={90} alt="" className="h-9 w-[90px] object-cover rounded border border-zinc-800" />}
-                <label className="p-1.5 rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white cursor-pointer" title={t.voicePicUpload || 'Upload'}>
-                  <Upload size={12} />
-                  <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={(e) => { uploadCover(e.target.files?.[0]); e.currentTarget.value = ''; }} />
-                </label>
-                <button onClick={() => setPickingCover(!pickingCover)} className="p-1.5 rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white" title={t.voicePicChoose || 'Choose an upload'}><Images size={12} /></button>
-                {events.coverPicture && <button onClick={() => saveEvents({ coverPicture: '' })} className="p-1.5 rounded-md border border-zinc-800 bg-zinc-900 text-zinc-500 hover:text-rose-400"><Trash2 size={12} /></button>}
-              </>
-            )}
-          </div>
-          {events.cover === 'picture' && pickingCover && (
-            <div className="grid grid-cols-6 gap-1.5 max-h-32 overflow-y-auto">
-              {uploads.length === 0 && <span className="col-span-6 text-[10px] text-zinc-600">{t.voicePicNoUploads || 'Nothing uploaded yet. Use the upload button.'}</span>}
-              {uploads.map((a) => (
-                <button key={a.url} onClick={() => { saveEvents({ coverPicture: a.url }); setPickingCover(false); }} className="aspect-video rounded border border-zinc-800 hover:border-current-accent overflow-hidden">
-                  <StillImg src={a.url} width={96} alt="" className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
-          <p className="text-[10px] text-zinc-600">{t.scheduleEventsCoverHint || 'Across the top of each event in Discord. Wide pictures fit best; PNG, JPEG, GIF or WebP.'}</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-zinc-800/60">
-          <Button size="sm" icon={syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} onClick={runSync} disabled={syncing || !events.enabled || !botConnected} data-schedule-events-sync>
-            {t.scheduleEventsSync || 'Follow the schedule now'}
-          </Button>
-          <span className="text-[10px] text-zinc-500" data-schedule-events-status>
-            {syncResult || (events.lastSync
-              ? fillWords(t.scheduleEventsLast || '{events} events in Discord · last checked {when}', { events: String(events.events ?? 0), when: new Date(events.lastSync.at).toLocaleString() })
-              : `${streamsOnSchedule} ${t.scheduleEventsOnSchedule || 'streams on your Twitch schedule'}`)}
-          </span>
-        </div>
+          </ul>
+        )}
       </div>
 
       {liveDmsControl && <LiveDmsPanel state={liveDms} control={liveDmsControl} channels={channels} botConnected={botConnected} t={t} />}
-
-      {highlightsControl && <HighlightsPanel settings={highlights} control={highlightsControl} channels={channels} botConnected={botConnected} t={t} />}
     </div>
   );
 };

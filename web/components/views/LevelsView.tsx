@@ -74,12 +74,12 @@ const HistoryPanel = ({ settings, history, t, panelClass }: { settings: any; his
 };
 
 /*
-  "!perfil": a person's level, points, streams and accounts — a picture in
-  Discord, a line in the other chats. The preview is the person at the top of
-  the board, drawn by the server as Discord will get it.
+  "!perfil": a person's level, points, streams and streak, as a picture in
+  Discord. The preview is the person at the top of the board, drawn by the
+  server as Discord will get it.
 */
 const ProfilePanel = ({ settings, profileCard, t, panelClass }: { settings: any; profileCard: (op: string, payload?: any) => Promise<any>; t: any; panelClass: string }) => {
-  const s = { enabled: true, word: '!perfil', accent: '#9146ff', youtube: true, ...(settings || {}) };
+  const s = { enabled: true, word: '!perfil', accent: '#9146ff', ...(settings || {}) };
   const [word, setWord] = useState(s.word);
   const [preview, setPreview] = useState<{ image: string; name: string; line?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -98,12 +98,11 @@ const ProfilePanel = ({ settings, profileCard, t, panelClass }: { settings: any;
           <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${s.enabled ? 'translate-x-5' : ''}`} />
         </div>
       </div>
-      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.profileHint || 'Anybody can ask for their profile — or somebody else\'s by name — in any chat: level, place, points, streams, streak and every account they have linked. In Discord it is a picture; Twitch, YouTube and TikTok get a line. The shop in Discord has a "Mi perfil" button too.'}</p>
+      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.profileHint || 'Anybody can ask for their profile — or somebody else\'s by name — in Discord: level, place, points, streams and streak, as a picture. The shop in Discord has a "Mi perfil" button too.'}</p>
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2"><span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{t.profileWord || 'Word'}</span>
           <input value={word} onChange={(e) => setWord(e.target.value)} onBlur={() => word !== s.word && save({ word })} className="w-28 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-white font-mono" /></label>
         <label className="flex items-center gap-2"><input type="color" value={s.accent} onChange={(e) => save({ accent: e.target.value })} className="w-7 h-7 bg-transparent border border-zinc-800 rounded cursor-pointer" /><span className="text-[10px] text-zinc-500">{t.profileAccent || 'Colour'}</span></label>
-        <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={s.youtube} onChange={(e) => save({ youtube: e.target.checked })} className="accent-current-accent" /><span className="text-[11px] text-zinc-400">{t.profileYoutube || 'Answer on YouTube too'}</span></label>
         <button onClick={show} disabled={busy} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-[10px] font-bold text-zinc-300 hover:text-white" data-profile-preview-button>{busy ? '…' : (t.profilePreview || 'Preview')}</button>
       </div>
       {preview?.image && (
@@ -152,7 +151,7 @@ export const LevelsView: React.FC<LevelsViewProps> = ({ activeTheme, t, system }
   }, [discordStatus, discordGuildId, discordRoles, discordChannels, fetchDiscordRoles, fetchDiscordChannels]);
 
   // "!rank" and "!top": filled in for a config saved before they existed (the server's own defaults).
-  const levelChat = { enabled: true, rankWord: '!rank', topWord: '!top', rankText: '', topText: '', topCount: 5, youtube: true, ...(configForm.chat || {}) };
+  const levelChat = { enabled: true, rankWord: '!rank', topWord: '!top', rankText: '', topText: '', topCount: 5, ...(configForm.chat || {}) };
 
   const handleConfigChange = (key: keyof LevelSystemConfig, value: any) => {
       setConfigForm(prev => ({ ...prev, [key]: value }));
@@ -381,7 +380,7 @@ export const LevelsView: React.FC<LevelsViewProps> = ({ activeTheme, t, system }
                                 {levelChat.enabled ? (t.switchOn || 'On') : (t.switchOff || 'Off')}
                             </button>
                         </div>
-                        <p className="text-[10px] text-zinc-500 leading-relaxed">{t.levelChatHint || 'Answered where it is asked: Twitch (as your bot), YouTube, or the Discord channel it was typed in. "!rank Ana" asks about someone else.'}</p>
+                        <p className="text-[10px] text-zinc-500 leading-relaxed">{t.levelChatHint || 'Answered in the Discord channel it was typed in. "!rank Ana" asks about someone else.'}</p>
                         <div className="grid grid-cols-[110px_1fr] gap-2 items-center">
                             <input value={levelChat.rankWord} onChange={(e) => handleConfigChange('chat', { ...levelChat, rankWord: e.target.value })} className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none" data-level-chat-field="rankWord" />
                             <input value={levelChat.rankText} onChange={(e) => handleConfigChange('chat', { ...levelChat, rankText: e.target.value })} className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none" data-level-chat-field="rankText" />
@@ -396,10 +395,6 @@ export const LevelsView: React.FC<LevelsViewProps> = ({ activeTheme, t, system }
                         <label className="flex items-center justify-between gap-3 text-[10px] font-bold uppercase text-zinc-500">
                             <span>{t.levelChatTopCount || 'How many names !top says'}</span>
                             <input type="number" min={1} max={10} value={levelChat.topCount} onChange={(e) => handleConfigChange('chat', { ...levelChat, topCount: Number(e.target.value) })} className="w-16 bg-zinc-900 border border-zinc-800 rounded-xl px-2 py-1.5 text-xs font-bold text-white text-center" />
-                        </label>
-                        <label className="flex items-start gap-2 cursor-pointer">
-                            <input type="checkbox" checked={levelChat.youtube} onChange={(e) => handleConfigChange('chat', { ...levelChat, youtube: e.target.checked })} className="mt-0.5 accent-current-accent" data-level-chat-youtube />
-                            <span className="text-[10px] text-zinc-400 leading-relaxed">{t.levelChatYoutube || "Answer on YouTube too. Each answer uses 50 of YouTube's 10,000 daily units."}</span>
                         </label>
                     </div>
 

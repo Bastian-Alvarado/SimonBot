@@ -4,22 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-export type AppView = 'bot-home' | 'questions' | 'polls' | 'giveaway' | 'points' | 'requests' | 'voice' | 'go-live' | 'gallery' | 'settings' | 'role-management' | 'reaction-roles' | 'discord-buttons' | 'welcome-goodbye' | 'discord-pages' | 'levels' | 'guides' | 'moderators';
+export type AppView = 'bot-home' | 'questions' | 'polls' | 'giveaway' | 'points' | 'requests' | 'voice' | 'go-live' | 'gallery' | 'settings' | 'reaction-roles' | 'discord-buttons' | 'welcome-goodbye' | 'discord-pages' | 'levels' | 'guides' | 'moderators';
 
 export interface LoadingState {
   isLoading: boolean;
   message: string;
-}
-
-// --- Connection / Relay Types ---
-
-export interface RelayConfig {
-  twitchToDiscord: boolean;
-  tiktokToDiscord: boolean;
-  youtubeToDiscord?: boolean;
-  /** Out of the Discord channel the app reads (engine/relay.js). */
-  discordToTwitch?: boolean;
-  discordToYoutube?: boolean;
 }
 
 // --- Reaction Roles Types ---
@@ -210,44 +199,6 @@ export interface WelcomeGoodbyeConfig {
 
 /** The kinds of greeting post, in the order the screen shows them. */
 export type GreetingKind = 'welcome' | 'goodbye' | 'boost' | 'ban';
-
-// --- Role Management Types ---
-
-export interface RoleMappingConfig {
-  subscriberTier1: string | null;
-  subscriberTier2: string | null;
-  subscriberTier3: string | null;
-  vip: string | null;
-  moderator: string | null;
-  // New Expanded Types
-  follower: string | null;
-  founder: string | null;
-  bits1k: string | null;
-  bits5k: string | null;
-  bits10k: string | null;
-  bits25k: string | null;
-  // TikTok Specific
-  tiktokFollower: string | null;
-  tiktokSubscriber: string | null;
-  tiktokModerator: string | null;
-  tiktokGifter: string | null;
-}
-
-export interface LinkedUserData {
-  id: string;
-  username: string;
-  avatar?: string;
-  linkedAt: number;
-}
-
-export interface SyncLogEntry {
-  id: string;
-  timestamp: number;
-  twitchUser: string;
-  platform?: 'twitch' | 'tiktok'; // Added platform field
-  roleName: string;
-  source: 'Auto' | 'Manual';
-}
 
 // --- Leveling System Types ---
 

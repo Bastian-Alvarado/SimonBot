@@ -9,10 +9,11 @@
  * request — the live connection and the HTTP API — is asked who it comes
  * from, and gets one of these:
  *
- *   owner   the streamer: signed in with the Twitch account the app streams
- *           from, or with the owner key
- *   mod     a moderator of the streamer's Twitch channel, signed in with
- *           their own Twitch account
+ *   owner   the streamer: signed in with Discord as the owner of the bot's
+ *           server (or the account named as the owner), or with the owner key
+ *   mod     a moderator of the bot's Discord server — the moderator role
+ *           chosen here, or a role that can moderate — signed in with their
+ *           own Discord account
  *
  * Or nothing, and is turned away. What each may do is decided where each
  * request is handled; this decides only who it is.
@@ -22,14 +23,13 @@
  * anybody who is only "owner" because sign-in is off. While off, everyone is
  * the owner, exactly as before.
  *
- * Signing in with Twitch is the browser-side flow the Connections screen
- * already uses — the page gets a token back from Twitch and hands it here.
- * Here it is asked of Twitch whose it is and which app it was given to: a
- * token issued to some other app is refused, or anybody holding one for a
- * streamer's account from anywhere could sign in as them. A moderator is
- * one Twitch lists as moderating the channel, asked with their own token;
- * that is checked again when they come back after a while, so somebody no
- * longer a moderator is no longer let in.
+ * Signing in with Discord: the sign-in page sends the browser to Discord,
+ * which comes back with a code; the code is handed here and exchanged with
+ * the Discord app's id and secret, so only a code made for this app works.
+ * Only who the account is ("identify") is asked for, and its token is used
+ * once and not kept. Whether somebody is a moderator is asked of the bot's
+ * server with the bot's own token, and asked again when they come back after
+ * a while, so somebody who left or lost the role is no longer let in.
  *
  * Never "local" as a reason. The Cloudflare tunnel runs on the same machine
  * as the server, so every visitor from the internet arrives from here.
@@ -39,23 +39,21 @@ import crypto from 'node:crypto';
 import { collection } from '../core/store.js';
 import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
-import * as twitch from '../platforms/twitch.js';
+import * as discord from '../platforms/discord.js';
 
 const log = createLogger('auth');
 
 export const COOKIE = 'ss_session';
 /** How long a sign-in lasts without being used: the streamer's a month, a moderator's a week. */
 export const SESSION_DAYS = { owner: 30, mod: 7 };
-/** How long a moderator is taken at their word before Twitch is asked again. */
+/** How long a moderator is taken at their word before the Discord server is asked again. */
 export const MOD_RECHECK_MS = 6 * 3_600_000;
-/** What a sign-in asks of Twitch: only which channels they moderate. */
-export const SIGN_IN_SCOPES = ['user:read:moderated_channels'];
+/** What a sign-in asks of Discord: only who the account is. */
+export const SIGN_IN_SCOPES = ['identify'];
 
 let settings = null;
 let secrets = null;
 let sessions = null;
-let tokens = null;
-let fetchImpl = (...a) => fetch(...a);
 
 const newKey = () => crypto.randomBytes(24).toString('base64url');
 
@@ -64,17 +62,40 @@ export function initAuth() {
   // Keys and sessions are secrets: never in a backup, never in a profile (backup.js EXCLUDED).
   secrets = collection('auth_secrets', {});
   sessions = collection('auth_sessions', {});
-  tokens = collection('auth_tokens', {});
   const s = secrets.get();
   if (!s.ownerKey) {
     secrets.set({ ownerKey: newKey() });
     secrets.flush();
   }
+  migrateToDiscord();
   prune();
   log.info(isEnabled() ? 'sign-in is on' : 'sign-in is off: everyone who reaches the server is the owner');
 }
 
 export const isEnabled = () => settings?.get().enabled === true;
+
+/**
+ * Before 0.1.0 people signed in with Twitch. Those sign-ins, the moderators
+ * turned away and what moderators did were all by Twitch account, which
+ * means nothing to a Discord sign-in: let go once. The owner key stays, so
+ * the streamer keeps a way in.
+ */
+function migrateToDiscord() {
+  if (settings.get().signInWith === 'discord') return;
+  const had = Object.values(sessions.get()).some((x) => x?.userId);
+  sessions.set(Object.fromEntries(Object.entries(sessions.get()).filter(([, x]) => x && !x.userId)));
+  collection('auth_tokens', {}).set({});
+  collection('mod_activity', { entries: [] }).set({ entries: [] });
+  settings.set({ ...settings.get(), blocked: [], signInWith: 'discord' });
+  settings.flush();
+  if (had) log.info('signing in is with Discord now: the Twitch sign-ins were let go');
+}
+
+/** Who may sign in as what: the moderator role, and an owner other than the server's. */
+const roles = () => ({
+  modRoleId: settings.get().modRoleId || '',
+  ownerDiscordId: settings.get().ownerDiscordId || '',
+});
 
 /**
  * The settings screen's view of it: whether it is on, and the owner key —
@@ -85,6 +106,7 @@ export const isEnabled = () => settings?.get().enabled === true;
 export const authState = (identity) => ({
   enabled: isEnabled(),
   ownerKey: identity && identity.role === 'owner' && identity.via !== 'open' ? secrets.get().ownerKey : '',
+  ...roles(),
 });
 
 /*
@@ -101,10 +123,6 @@ function dropSessions(drop) {
   if (!gone.length) return [];
   sessions.set(Object.fromEntries(Object.entries(all).filter(([id]) => !gone.includes(id))));
   sessions.flush();
-  // A moderator with no sign-in left has no use for their kept Twitch token.
-  const still = new Set(Object.values(sessions.get()).map((s) => s.userId).filter(Boolean));
-  const leftovers = Object.keys(tokens.get()).filter((uid) => !still.has(uid));
-  if (leftovers.length) { tokens.set(Object.fromEntries(Object.entries(tokens.get()).filter(([uid]) => still.has(uid)))); tokens.flush(); }
   for (const fn of endedListeners) { try { fn(gone); } catch (err) { log.warn('a sign-in listener failed:', err.message); } }
   return gone;
 }
@@ -199,57 +217,56 @@ export function originAllowed(req) {
   return (o.hostname === 'localhost' || o.hostname === '127.0.0.1') && /^(localhost|127\.0\.0\.1):\d+$/.test(host);
 }
 
-/** Ask Twitch whose a token is and what it may do. */
-async function validate(token) {
-  const res = await fetchImpl('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: `OAuth ${token}` } });
-  if (!res.ok) throw refusal('signin_token_bad', 'Twitch did not accept that sign-in; try again');
-  return res.json();
+/** The owner: the account named on the Settings screen, or else the owner of the bot's server. */
+async function ownerId(guildId) {
+  const named = roles().ownerDiscordId;
+  if (named) return named;
+  return discord.guildOwner(guildId).catch(() => null);
 }
 
-/** Whether a Twitch account moderates the streamer's channel, asked with that account's own token. */
-async function moderates(userId, token, channelId) {
-  let cursor = '';
-  for (let page = 0; page < 20; page++) {
-    const url = new URL('https://api.twitch.tv/helix/moderation/channels');
-    url.searchParams.set('user_id', userId);
-    url.searchParams.set('first', '100');
-    if (cursor) url.searchParams.set('after', cursor);
-    const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}`, 'Client-Id': twitch.getCredentials().clientId } });
-    if (!res.ok) throw refusal('signin_mod_check', 'Twitch would not say which channels you moderate; try again');
-    const body = await res.json();
-    if ((body.data || []).some((c) => String(c.broadcaster_id) === String(channelId))) return true;
-    cursor = body.pagination?.cursor || '';
-    if (!cursor) return false;
-  }
-  return false;
+/** Whether a member of the server is one of its moderators: the role chosen, or a role that can moderate. */
+function isMod(guildId, userId, member) {
+  const { modRoleId } = roles();
+  if (modRoleId && (member?.roles || []).includes(modRoleId)) return true;
+  return discord.isModerator(guildId, userId, member);
 }
 
 /**
- * Sign in with a token the Twitch sign-in page handed back. Answers the new
- * session, or refuses with a code the page says in its own words.
+ * Sign in with the code Discord handed the sign-in page back. Answers the
+ * new session, or refuses with a code the page says in its own words.
  */
-export async function signInWithTwitch(token) {
-  const creds = twitch.getCredentials();
-  if (!creds.clientId || !creds.userId) throw refusal('signin_no_twitch', 'the streamer\'s Twitch account is not connected yet');
-  const v = await validate(String(token || '').trim());
-  if (String(v.client_id) !== String(creds.clientId)) throw refusal('signin_other_app', 'that sign-in was made for another app');
-  const user = { userId: String(v.user_id), login: String(v.login || ''), name: String(v.login || '') };
-  if (user.userId === String(creds.userId)) {
+export async function signInWithDiscord(code, redirectUri) {
+  const d = discord.getStatus();
+  if (!d.clientId || !d.hasClientSecret || !d.guildId) throw refusal('signin_no_discord', 'the bot\'s Discord app and server are not set up yet');
+  let account;
+  try {
+    account = await discord.userFromCode(String(code || '').trim(), String(redirectUri || ''));
+  } catch (err) {
+    log.debug(`a Discord sign-in failed: ${err.message}`);
+    throw refusal('signin_code_bad', 'Discord did not accept that sign-in; try again');
+  }
+  if (!account?.id) throw refusal('signin_code_bad', 'Discord did not accept that sign-in; try again');
+  const user = { userId: String(account.id), login: String(account.username || ''), name: String(account.global_name || account.username || '') };
+  if (user.userId === String(await ownerId(d.guildId) || '')) {
     log.info(`${user.login} signed in as the owner`);
     return { ...startSession(user, 'owner'), role: 'owner', login: user.login };
   }
-  // Turned away by the streamer (the Moderators screen): a moderator of the channel, but not let in here.
-  if (isBlocked(user.userId)) throw refusal('signin_blocked', 'the streamer has turned this account away from the dashboard', { channel: creds.login });
-  if (!(v.scopes || []).includes('user:read:moderated_channels')) throw refusal('signin_scope', 'that sign-in did not allow reading which channels you moderate');
-  if (!(await moderates(user.userId, token, creds.userId))) throw refusal('signin_not_mod', 'only moderators of this channel can sign in', { channel: creds.login });
-  // Kept for asking again later, and for chatting as themselves.
-  tokens.update((all) => ({ ...all, [user.userId]: { token, scopes: v.scopes || [], login: user.login, savedAt: Date.now() } }));
-  tokens.flush();
+  // Turned away by the streamer (the Moderators screen): a moderator of the server, but not let in here.
+  if (isBlocked(user.userId)) throw refusal('signin_blocked', 'the streamer has turned this account away from the dashboard');
+  let member;
+  try {
+    member = await discord.getMemberOf(d.guildId, user.userId);
+  } catch {
+    throw refusal('signin_mod_check', 'Discord would not say who moderates the server; try again');
+  }
+  if (!member) throw refusal('signin_not_member', 'only members of the bot\'s Discord server can sign in');
+  if (!isMod(d.guildId, user.userId, member)) throw refusal('signin_not_mod', 'only moderators of the Discord server can sign in');
+  if (member.nick) user.name = String(member.nick);
   log.info(`${user.login} signed in as a moderator`);
   return { ...startSession(user, 'mod'), role: 'mod', login: user.login };
 }
 
-/** Sign in with the owner key: the way back in when Twitch cannot be. */
+/** Sign in with the owner key: the way back in when Discord cannot be. */
 export function signInWithOwnerKey(key) {
   if (!same(key, secrets.get().ownerKey)) throw refusal('signin_key_wrong', 'that is not the owner key');
   log.info('signed in with the owner key');
@@ -264,8 +281,8 @@ export function signOut(sessionId) {
 
 /**
  * This browser signed in as the owner, while sign-in is off — which is what
- * anybody reaching the app is anyway. It is how a streamer with no Twitch
- * connected yet gets a sign-in to switch it on with; switching on then ends
+ * anybody reaching the app is anyway. It is how a streamer with no Discord
+ * set up yet gets a sign-in to switch it on with; switching on then ends
  * every other sign-in (setEnabled), so one taken meanwhile does not last.
  */
 export function claimOwner(identity) {
@@ -275,9 +292,9 @@ export function claimOwner(identity) {
 }
 
 /**
- * A moderator coming back after a while is asked about again: somebody no
- * longer a moderator, or whose Twitch sign-in has run out, is signed out.
- * Answers whether they may stay.
+ * A moderator coming back after a while is asked about again: somebody who
+ * left the server, or no longer moderates it, is signed out. Answers
+ * whether they may stay.
  */
 export async function recheckMod(identity, { now = Date.now() } = {}) {
   if (identity?.role !== 'mod') return true;
@@ -287,26 +304,21 @@ export async function recheckMod(identity, { now = Date.now() } = {}) {
   // Turned away by the streamer: not let back in by a sign-in from before.
   if (isBlocked(identity.userId)) { signOut(identity.sessionId); return false; }
   if (now - (session.checkedAt || 0) < MOD_RECHECK_MS) return true;
-  const saved = tokens.get()[identity.userId];
   /*
-    Let go only on Twitch's word: the token refused (401 — run out, or taken
-    back) or the channel no longer among theirs. Twitch not answering is not
-    a reason to sign a moderator out mid-stream; they are asked again later.
+    Let go only on Discord's word: not in the server any more, or no longer a
+    moderator there. Discord not answering is not a reason to sign a
+    moderator out mid-stream; they are asked again later.
   */
-  let verdict = 'out';
-  if (saved?.token) {
-    try {
-      const res = await fetchImpl('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: `OAuth ${saved.token}` } });
-      if (res.status === 401) verdict = 'out';
-      else if (!res.ok) verdict = 'later';
-      else if (String((await res.json()).user_id) !== String(identity.userId)) verdict = 'out';
-      else verdict = (await moderates(identity.userId, saved.token, twitch.getCredentials().userId)) ? 'in' : 'out';
-    } catch { verdict = 'later'; }
-  }
+  const guildId = discord.getStatus().guildId;
+  let verdict;
+  try {
+    const member = guildId ? await discord.getMemberOf(guildId, identity.userId) : null;
+    verdict = member && isMod(guildId, identity.userId, member) ? 'in' : 'out';
+  } catch { verdict = 'later'; }
   if (verdict === 'later') return true;
   if (verdict === 'out') {
     signOut(identity.sessionId);
-    log.info(`${identity.login} is no longer let in: not a moderator any more, or their Twitch sign-in ran out`);
+    log.info(`${identity.login} is no longer let in: not in the server, or not a moderator any more`);
     return false;
   }
   sessions.update((all) => (all[identity.sessionId] ? { ...all, [identity.sessionId]: { ...all[identity.sessionId], checkedAt: now } } : all));
@@ -315,11 +327,11 @@ export async function recheckMod(identity, { now = Date.now() } = {}) {
 
 // ------------------------------------------------------------ the moderators
 
-/** Moderators the streamer has turned away: [{ userId, login, at }]. A moderator of the channel all the same, just not let in here. */
+/** Moderators the streamer has turned away: [{ userId, login, at }]. A moderator of the server all the same, just not let in here. */
 const blockedList = () => settings.get().blocked || [];
 export const isBlocked = (userId) => blockedList().some((b) => b.userId === String(userId));
 
-/** Every moderator who has signed in, by their Twitch account: how many sign-ins, since when, last seen. */
+/** Every moderator who has signed in, by their Discord account: how many sign-ins, since when, last seen. */
 export function moderators() {
   const byUser = new Map();
   for (const s of Object.values(sessions.get())) {
@@ -380,22 +392,35 @@ export function setEnabled(enabled, identity) {
   return authState(identity);
 }
 
+/**
+ * Who may sign in as what: the moderator role ('' for any role that can
+ * moderate), and the owner's Discord account ('' for the server's owner).
+ */
+export function setRoles(patch, identity) {
+  if (identity?.role !== 'owner' || identity.via === 'open') throw refusal('signin_owner_only', 'only the streamer can change sign-in');
+  const snowflake = (v) => (/^\d{5,25}$/.test(String(v ?? '')) ? String(v) : '');
+  const next = { ...settings.get() };
+  if ('modRoleId' in (patch || {})) next.modRoleId = snowflake(patch.modRoleId);
+  if ('ownerDiscordId' in (patch || {})) next.ownerDiscordId = snowflake(patch.ownerDiscordId);
+  settings.set(next);
+  settings.flush();
+  return authState(identity);
+}
+
 /** A new owner key: the old one stops working, and so does every sign-in made with it. */
 export function newSecret(which, identity) {
   if (identity?.role !== 'owner' || identity.via === 'open') throw refusal('signin_owner_only', 'only the streamer can change sign-in');
   if (which !== 'ownerKey') throw refusal('unknown_request', `no key called ${which}`);
   secrets.set({ ...secrets.get(), [which]: newKey() });
   secrets.flush();
-  // A sign-in made with the owner key has no Twitch account to it; with a new key, those end — but not the one asking.
+  // A sign-in made with the owner key has no Discord account to it; with a new key, those end — but not the one asking.
   if (which === 'ownerKey') dropSessions((s, id) => s.role === 'owner' && !s.userId && id !== identity.sessionId);
   return authState(identity);
 }
 
-/** For tests: a Twitch that answers what the test says. */
+/** For tests. */
 export const _test = {
-  setFetch: (fn) => { fetchImpl = fn; },
   sessions: () => sessions.get(),
-  tokens: () => tokens.get(),
   /** Make a sign-in look as if it was last asked about long ago. */
   age: (sessionId, ms) => sessions.update((all) => (all[sessionId] ? { ...all, [sessionId]: { ...all[sessionId], checkedAt: all[sessionId].checkedAt - ms } } : all)),
 };

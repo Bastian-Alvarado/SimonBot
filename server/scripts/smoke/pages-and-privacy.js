@@ -124,7 +124,8 @@ test('only the development page looks for the server on the API port, and an add
 test('PRIVACY.md names every service the code reaches out to, and the forgetting the app really offers', () => {
   const note = read('../../PRIVACY.md');
   for (const gone of ['Spotify', 'VDO.Ninja', 'Gemini', 'OBS', 'DroidCam']) assert.ok(!note.includes(gone), `the privacy note still names ${gone}, which the app no longer reaches`);
-  for (const service of ['Twitch', 'YouTube', 'Discord', 'TikTok', 'Euler Stream', 'jsDelivr']) {
+  for (const gone of ['TikTok', 'Euler Stream']) assert.ok(!note.includes(gone), `the privacy note still names ${gone}, which the app no longer reaches`);
+  for (const service of ['Twitch', 'YouTube', 'Discord', 'jsDelivr']) {
     assert.ok(note.includes(service), `${service} is not in the privacy note`);
   }
   const months = FORGET_CHOICES.filter(Boolean);

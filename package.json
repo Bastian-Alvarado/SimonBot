@@ -1,7 +1,7 @@
 {
   "name": "simonbot",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.1.0",
   "type": "module",
   "description": "Headless multi-platform stream automation. The server runs the show; the web UI only configures it.",
   "scripts": {

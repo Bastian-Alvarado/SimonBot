@@ -13,8 +13,6 @@ import { SCRIPT_URL, assert, fs, test } from './harness.js';
 // -------------------------------------------------- the backup manifest
 
 export const { MANIFEST, EXCLUDED, buildBundle, applyBundle } = await import('../../engine/backup.js');
-export const { says, has, platformsWith } = await import('../../../shared/platforms.js');
-export const youtubeModule = await import('../../platforms/youtube.js');
 export const busModule = await import('../../core/bus.js');
 export const { getCollection } = await import('../../core/store.js');
 

@@ -39,29 +39,22 @@ export const BACKUP_VERSION = 2;
  * Naming what was stripped lets the UI say which connections need attention.
  */
 export const MANIFEST = [
-  // Questions are what viewers typed, not configuration — see EXCLUDED.
-  // The same goes for a poll's votes and past results, but not for what
-  // happens around a poll: its announcements, its command, how long a result stays.
-  { name: 'poll_settings' },
+  // Questions are what people typed, not configuration — see EXCLUDED.
   // How they ask, though, is: the word, its cooldown, and the reply.
   { name: 'questions_settings' },
-  { name: 'relay_config' },
   { name: 'reaction_roles' },
   { name: 'discord_buttons' },
   // Which voice channel the bot follows, and whether it joins it.
   { name: 'discord_voice' },
-  // Where and how going live is announced, the schedule as Discord events, and the channel pages.
-  { name: 'discord_announce' }, { name: 'discord_events' }, { name: 'discord_pages' },
+  // The channels watched for going live, each with its post; and the channel pages.
+  { name: 'watch_list' }, { name: 'discord_pages' },
   // How giveaways are told and posted; the giveaway itself is tonight's.
   { name: 'giveaway_settings' },
   { name: 'welcome_goodbye' },
-  { name: 'role_mappings' },
-  // Roles for showing up: so many streams, a streak, platforms, messages.
-  { name: 'loyalty_roles' },
   { name: 'xp_config' },
-  // Viewer levels and the platform accounts linked to them. The whole point of
-  // levels is that they accumulate, so a migration that dropped them would be
-  // worse than no migration.
+  // People's levels, and the Discord accounts they belong to. The whole point
+  // of levels is that they accumulate, so a migration that dropped them would
+  // be worse than no migration.
   { name: 'users' },
   { name: 'accounts' },
   // What each person has done across streams, and the streams themselves: they
@@ -69,7 +62,6 @@ export const MANIFEST = [
   { name: 'viewer_history' },
   { name: 'points' },
   { name: 'profile_card' },
-  { name: 'highlights' },
   // Who asked to be told privately when the stream starts, and where they watch.
   { name: 'live_dms' },
   // Which Discord channels feed the Questions screen.
@@ -79,36 +71,29 @@ export const MANIFEST = [
   // Where the mod log goes, and what it said.
   { name: 'moderation' },
   { name: 'stream_sessions' },
-  // Accumulated subscriber tenure. Learned from badge-info as people talk, so
-  // it cannot be rebuilt on demand — the same reason levels travel.
-  { name: 'subscribers' },
   { name: 'discord_settings', strip: ['botToken', 'clientSecret'] },
-  { name: 'tiktok_credentials', strip: ['signApiKey'] },
-  { name: 'twitch_credentials', strip: ['accessToken', 'botToken'] },
-  { name: 'youtube_settings', strip: ['clientSecret'] },
+  { name: 'twitch_credentials', strip: ['clientSecret'] },
 ];
 
 /**
  * Left out on purpose:
  *   discord_cache, role_activity_log — rebuilt from the source at runtime
- *   youtube_tokens              — nothing but secrets
- *   youtube_usage               — today's count of YouTube's allowance, by this app
  *   stream_live                 — the stream on now, until it is kept with the rest
  *   banner_text                 — which drawn banner each page block has: drawn again when missing
  *   giveaway                    — who entered tonight's giveaway: tonight's, not setup
  *   xp_data                     — the pre-migration shape, already converted
- *   poll                        — who voted for what: tonight's, not setup
- *   poll_history                — the last few polls' results, the same
- *   role_sync                   — what each viewer is (sub, VIP, bits), learned
- *                                 from chat and events and learned again
  *   questions                   — what viewers typed during a segment, not
  *                                 configuration, and stale the moment it ends
  *   auth_*                      — the sign-in: whether it is on, the owner
- *                                 key, who is signed in and moderators'
- *                                 Twitch tokens; secrets, and this install's own
+ *                                 key, who is signed in; secrets, and this
+ *                                 install's own
  *   mod_activity                — what moderators did, this install's record
+ *   youtube_api                 — nothing but the YouTube API key, a secret
+ *   youtube_usage               — today's count of YouTube's allowance, by this app
+ *   discord_announce            — the one go-live post before 0.1.0, moved
+ *                                 onto the watch list (engine/watch.js)
  */
-export const EXCLUDED = ['updates', 'discord_cache', 'role_activity_log', 'youtube_tokens', 'xp_data', 'questions', 'poll', 'poll_history', 'role_sync', 'youtube_usage', 'stream_live', 'giveaway', 'banner_text', 'auth_settings', 'auth_secrets', 'auth_sessions', 'auth_tokens', 'mod_activity'];
+export const EXCLUDED = ['updates', 'discord_cache', 'role_activity_log', 'xp_data', 'questions', 'stream_live', 'giveaway', 'banner_text', 'auth_settings', 'auth_secrets', 'auth_sessions', 'auth_tokens', 'mod_activity', 'youtube_api', 'youtube_usage', 'discord_announce'];
 
 /** Everything needed to stand this install up somewhere else. */
 export function buildBundle() {

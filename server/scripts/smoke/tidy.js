@@ -49,7 +49,7 @@ const built = (k) => [...prefixes].some((p) => k.startsWith(p) && k.length > p.l
   || [...suffixes].some((s) => k.endsWith(s) && k.length > s.length && named(k.slice(0, -s.length)));
 
 test('every translation key is read somewhere', () => {
-  assert.ok(en.length > 1000, `only ${en.length} keys found — has the way they are written changed?`);
+  assert.ok(en.length > 800, `only ${en.length} keys found — has the way they are written changed?`);
   assert.ok(prefixes.has('refuse'), 'the built keys are no longer recognised');
   const unread = en.filter((k) => !named(k) && !built(k));
   assert.deepEqual(unread, [], `keys nothing reads: ${unread.join(' ')}`);

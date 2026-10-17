@@ -43,11 +43,11 @@ test('the search reaches every screen, the paired ones each by its own name too'
 
 test('badges for what wants doing; the platforms as one row; the phone\'s bar never covering a screen', () => {
   assert.ok(sections.includes('number: waitingQuestions || undefined') && sections.includes('number: newRequests || undefined'));
-  assert.ok(sections.includes("dot: pollOpen ? 'on'") && sections.includes("dot: giveawayOpen ? 'on'") && sections.includes("dot: dropped.length ? 'alert'"));
+  assert.ok(sections.includes("dot: giveawayOpen ? 'on'") && sections.includes("dot: dropped.length ? 'alert'"));
   assert.ok(!/view: 'studio'[^}]*number/.test(sections) && !/view: 'actions'[^}]*number/.test(sections), 'commands and actions still count themselves');
-  assert.ok(app.includes("wasOn.current.has(String(k))") && !app.slice(app.indexOf('const WATCHED'), app.indexOf('const wasOn')).includes('tiktok'), 'TikTok going with the stream would count as dropped');
-  for (const id of ['twitch', 'twitchBot', 'tiktok', 'discord', 'youtube']) assert.ok(app.includes(`{ id: '${id}', name:`), `${id} is not in the row of platforms`);
-  for (const id of ['obs', 'spotify', 'droidcam']) assert.ok(!app.includes(`{ id: '${id}', name:`), `${id} is still in the row of platforms`);
+  assert.ok(app.includes("wasOn.current.has(String(k))"));
+  for (const id of ['discord', 'twitch', 'youtube']) assert.ok(app.includes(`{ id: '${id}', name:`), `${id} is not in the row of platforms`);
+  for (const id of ['obs', 'spotify', 'droidcam', 'tiktok', 'twitchBot']) assert.ok(!app.includes(`{ id: '${id}', name:`), `${id} is still in the row of platforms`);
   // Picked by screen, not by where they happen to sit in the menu.
   assert.ok(app.includes("const phoneItems = (['bot-home', 'go-live', 'giveaway', 'questions'] as AppView[])"));
   assert.ok(app.includes('<PhoneBar items={phoneItems}') && app.includes('data-phone-bar-room'), 'the phone has no bar, or it covers the end of a screen');

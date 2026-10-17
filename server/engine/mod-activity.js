@@ -4,7 +4,7 @@
  *
  * What the moderators did, for the
  * streamer's Moderators screen: a line for each change a moderator made
- * through the dashboard — a poll opened, a question approved, a role menu
+ * through the dashboard — a giveaway opened, a question approved, a role menu
  * saved — with who, when, and what it was.
  *
  * Written by api/ws.js when a moderator's request has been carried out, so a

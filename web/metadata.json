@@ -1,5 +1,5 @@
 {
   "name": "SimonBot",
-  "description": "The ultimate command center for creators. Unify your stream chats from Twitch and TikTok into a single, highly customizable real-time interface.",
+  "description": "A Discord bot you run yourself: welcomes, roles, levels, points, giveaways and questions for your server, and posts when you go live on Twitch or YouTube.",
   "requestFramePermissions": []
 }

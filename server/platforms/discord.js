@@ -5,11 +5,11 @@
  * Discord: gateway (chat, joins/leaves, reactions, button interactions),
  * REST helper with rate-limit handling, and OAuth code exchange.
  *
- * The substantive changes from the earlier relay are:
- *   - 429 responses now honour `retry_after` instead of a fixed backoff
+ * How it keeps going:
+ *   - 429 responses honour `retry_after` instead of a fixed backoff
  *   - the gateway resumes with its session id rather than always re-identifying
  *   - all outbound calls go through a named queue, so a slow role assignment
- *     no longer blocks chat relays behind it
+ *     does not hold up messages behind it
  */
 
 import WebSocket from 'ws';
@@ -137,6 +137,8 @@ export const getStatus = () => {
   };
 };
 export const getCache = () => cache.get();
+/** Who owns a server, by its id, once its GUILD_CREATE has been seen. */
+export const ownerOf = (guildId) => guildOwners.get(String(guildId)) || null;
 
 /**
  * Settings plus the cached metadata, so any client can render Discord fully.
@@ -541,7 +543,7 @@ function handleDispatch(type, d) {
 
 /**
  * A message from the gateway, as chat: `where` is 'stream' for the channel
- * the app reads — the stream's chat, its commands, the relay —
+ * the app reads — its commands, questions and giveaways —
  * and 'elsewhere' for any other channel of the same server, which only
  * levels listen to. Null for a bot, another server, or nothing to go on.
  */
@@ -562,8 +564,8 @@ export function messageFromGateway(d, cfg = settings?.get() || {}) {
     color: '#5865F2',
     avatar,
     isMod: isModerator(d.guild_id, d.author.id, d.member),
-    // `plain`: the words with Discord's markup turned into names, for chats that cannot read it.
-    // Their roles too, for what asks for one (a giveaway's subscribers or role).
+    // `plain`: the words with Discord's markup turned into names, for what cannot read it.
+    // Their roles too, for what asks for one (a giveaway's role).
     raw: { guildId: d.guild_id, channelId: d.channel_id, messageId: d.id, plain: plainText(d), roles: d.member?.roles || [] },
     // Who and what its mentions are, for a screen to show them by name.
     names: mentionNames(d),
@@ -642,7 +644,7 @@ function rolesChanged(d) {
 
 /**
  * Escape Discord markdown and mention syntax in untrusted text, cut to `max`
- * characters: a name is short, a relayed chat line up to Twitch's 500.
+ * characters: a name is short, a longer line up to 500.
  */
 export function sanitise(text, max = 200) {
   if (text === undefined || text === null) return '';
@@ -875,7 +877,8 @@ export function toEmbed(e) {
 
 // -------------------------------------------------------------------- OAuth
 
-export async function exchangeCode(code, redirectUri) {
+/** A Discord user access token for an authorisation code, with the app's id and secret. */
+async function tokenFor(code, redirectUri) {
   // The values, not the getters: sending the functions themselves put their
   // source code where the id and secret belong, so every sign-in failed.
   const [appId, appSecret] = [clientId(), clientSecret()];
@@ -895,9 +898,42 @@ export async function exchangeCode(code, redirectUri) {
 
   const json = await res.json();
   if (!res.ok) throw new Error(`Discord auth failed: ${json.error_description || json.error}`);
+  return json.access_token;
+}
 
-  const user = await request('GET', '/users/@me', { token: `Bearer ${json.access_token}` });
-  const guilds = await request('GET', '/users/@me/guilds', { token: `Bearer ${json.access_token}` });
+/**
+ * Who an authorisation code belongs to, and nothing else: for signing in to
+ * the dashboard (api/auth.js). The user's token is used once and not kept,
+ * and the Connections identity is left as it is.
+ */
+export async function userFromCode(code, redirectUri) {
+  const token = await tokenFor(code, redirectUri);
+  return request('GET', '/users/@me', { token: `Bearer ${token}` });
+}
+
+/** Somebody in a server, asked with the bot's token; null when they are not in it. */
+export async function getMemberOf(guildId, userId) {
+  try {
+    return await request('GET', `/guilds/${guildId}/members/${userId}`, { retries: 1 });
+  } catch (err) {
+    if (err.status === 404 || err.code === 10007 || err.code === 10013) return null;
+    throw err;
+  }
+}
+
+/** A server's owner: as the gateway said, or else asked once with the bot's token. */
+export async function guildOwner(guildId) {
+  const known = ownerOf(guildId);
+  if (known || !guildId) return known;
+  const g = await request('GET', `/guilds/${guildId}`, { retries: 1 });
+  if (g?.owner_id) guildOwners.set(String(guildId), String(g.owner_id));
+  return g?.owner_id ? String(g.owner_id) : null;
+}
+
+export async function exchangeCode(code, redirectUri) {
+  const access = await tokenFor(code, redirectUri);
+  const user = await request('GET', '/users/@me', { token: `Bearer ${access}` });
+  const guilds = await request('GET', '/users/@me/guilds', { token: `Bearer ${access}` });
 
   // Persist so other devices see who is signed in without repeating OAuth.
   cache.set({ ...cache.get(), user, guilds });

@@ -10,7 +10,7 @@
  *     Discord, automation, setup — each folding away, remembered by this
  *     browser; the one holding the screen being shown opens on its own.
  *   - badges for what wants doing: questions waiting, new game requests, a
- *     poll or giveaway running, a connection that dropped.
+ *     giveaway running, a connection that dropped.
  *   - the platforms as one row of marks at the bottom, a press away from
  *     Connections, instead of a box of seven lines.
  *   - a search (Ctrl+K) that goes to any screen by its name.

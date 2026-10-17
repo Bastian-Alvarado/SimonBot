@@ -23,9 +23,8 @@ import { queueDepths } from '../core/queue.js';
 import * as engine from '../engine/index.js';
 import * as leveling from '../leveling/index.js';
 import * as twitch from '../platforms/twitch.js';
-import * as tiktok from '../platforms/tiktok.js';
-import * as discord from '../platforms/discord.js';
 import * as youtube from '../platforms/youtube.js';
+import * as discord from '../platforms/discord.js';
 import { VERSION } from '../../shared/version.js';
 import * as auth from './auth.js';
 
@@ -168,9 +167,12 @@ async function handleAuth(req, res, url) {
   // Signing in or out only from a page on this address: another site cannot sign somebody out, or in as itself.
   if (req.method === 'POST' && !auth.originAllowed(req)) return json(res, 403, { error: 'not from this address', code: 'signin_origin' });
   switch (route) {
-    // What the sign-in page needs before anyone is signed in: whether it is on, and which Twitch app to ask.
-    case 'GET /auth/config':
-      return json(res, 200, { enabled: auth.isEnabled(), clientId: twitch.getCredentials().clientId || '', scopes: auth.SIGN_IN_SCOPES, channel: twitch.getCredentials().login || '' });
+    // What the sign-in page needs before anyone is signed in: whether it is on, which Discord app to ask, and the server's name.
+    case 'GET /auth/config': {
+      const d = discord.getSettings();
+      const server = (d.guilds || []).find((g) => g.id === d.guildId)?.name || '';
+      return json(res, 200, { enabled: auth.isEnabled(), clientId: d.clientId || '', scopes: auth.SIGN_IN_SCOPES, server });
+    }
 
     case 'GET /auth/me': {
       const me = auth.identify(req);
@@ -186,9 +188,9 @@ async function handleAuth(req, res, url) {
       return json(res, 200, { ok: true, role: s.role });
     }
 
-    case 'POST /auth/twitch': {
-      const { token } = await readJson(req);
-      const s = await auth.signInWithTwitch(token);
+    case 'POST /auth/discord': {
+      const { code, redirectUri } = await readJson(req);
+      const s = await auth.signInWithDiscord(code, redirectUri);
       res.setHeader('Set-Cookie', auth.sessionCookie(req, s.id, s.days));
       return json(res, 200, { ok: true, role: s.role, login: s.login });
     }
@@ -236,9 +238,8 @@ async function handleApi(req, res, url) {
         // The app's version (shared/version.js).
         version: VERSION,
         platforms: {
-          twitch: twitch.getStatus(),
-          tiktok: tiktok.getStatus(),
           discord: discord.getStatus(),
+          twitch: twitch.getStatus(),
           youtube: youtube.getStatus(),
         },
         queues: queueDepths(),
@@ -259,22 +260,15 @@ async function handleApi(req, res, url) {
     case 'POST /api/test/chat': {
       requireLocal(req);
       const b = await readJson(req);
+      // As if said in the Discord channel the bot reads (or the one named).
       bus.emit(EVENTS.CHAT, normaliseChat({
-        platform: b.platform || 'twitch',
+        platform: 'discord',
         user: b.user || 'TestViewer',
         userId: b.userId || 'test-1',
         msg: b.msg ?? 'Hello from the test endpoint!',
-        color: b.color || '#9146FF',
-        // Twitch's emote tag, as id → ["start-end"], to lay out emotes too.
-        emotes: b.emotes && typeof b.emotes === 'object' ? b.emotes : undefined,
         avatar: b.avatar,
         isMod: Boolean(b.isMod),
-        highlighted: Boolean(b.highlighted),
-        // Tags the chat line as a channel-point reward's text (see platforms/twitch.js).
-        rewardId: b.rewardId || null,
-        isSub: Boolean(b.isSub),
-        isVip: Boolean(b.isVip),
-        isBroadcaster: Boolean(b.isBroadcaster),
+        raw: { channelId: b.channelId || discord.getStatus().channelId || '' },
       }));
       return json(res, 200, { ok: true });
     }
@@ -282,7 +276,7 @@ async function handleApi(req, res, url) {
     case 'POST /api/test/event': {
       requireLocal(req);
       const b = await readJson(req);
-      if (!b.type) return json(res, 400, { error: '`type` is required (e.g. twitch_follow)' });
+      if (!b.type) return json(res, 400, { error: '`type` is required (e.g. giveaway_winner)' });
       bus.emit(EVENTS.EVENT, normaliseEvent({
         type: b.type,
         platform: b.platform || String(b.type).split('_')[0],

@@ -31,7 +31,6 @@ test('and the picture chosen is a still too, in every picker', () => {
   const chosen = {
     'WelcomeCardLayers.tsx': '<StillImg src={l.src} width={48}',
     'PicturePick.tsx': '<StillImg src={pictureSrc(value)}',
-    'views/GoLiveView.tsx': '<StillImg src={events.coverPicture} width={90}',
   };
   for (const [file, still] of Object.entries(chosen)) assert.ok(read(`../../web/components/${file}`).includes(still), `${file} shows the picture chosen moving`);
 });

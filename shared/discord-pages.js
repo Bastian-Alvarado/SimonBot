@@ -32,8 +32,8 @@ import { LIVE_VARS, fillTemplate } from './live-vars.js';
 export const PAGE_BLOCK_TYPES = ['banner', 'card', 'text', 'gap', 'links'];
 
 /**
- * A page's own words, beside the live values ({pollQuestion}, {voiceCount},
- * {nextStream}…, shared/live-vars.js): what only a Discord page says — the
+ * A page's own words, beside the live values ({voiceCount}, {voiceTalking},
+ * {time}…, shared/live-vars.js): what only a Discord page says — the
  * times as Discord shows them, in each reader's own time zone, and counting
  * by themselves.
  */
@@ -42,9 +42,8 @@ export const PAGE_VARS = [
   { name: 'liveSince', label: 'How long it has been on (Discord counts it up)' },
   { name: 'streamTitle', label: "The stream's title, while live" },
   { name: 'streamGame', label: "The stream's game, while live" },
-  { name: 'nextStreamAt', label: "Next stream, in each reader's own time" },
-  { name: 'nextStreamRelative', label: 'Next stream, as "in 2 days"' },
   { name: 'twitchLink', label: 'Your Twitch link' },
+  { name: 'youtubeLink', label: 'Your YouTube link' },
 ];
 /** Every {name} a page fills in. */
 export const PAGE_VAR_NAMES = new Set([...LIVE_VARS.map((v) => v.name), ...PAGE_VARS.map((v) => v.name)]);
@@ -88,11 +87,11 @@ export function fillPage(page, state, values) {
   };
 }
 
-/** A card ready to show the stream as it is: live or not, title, game, the next stream. */
+/** A card ready to show the stream as it is: live or not, title, game. */
 export const LIVE_STATUS_CARD = {
   type: 'card',
   title: '{live}',
-  description: '**{streamTitle}**\n🎮 {streamGame}\n⏱️ En directo desde {liveSince}\n\n📅 Próximo directo: {nextStreamAt} ({nextStreamRelative})',
+  description: '**{streamTitle}**\n🎮 {streamGame}\n⏱️ En directo desde {liveSince}',
   footer: 'Se actualiza solo',
 };
 export const PAGE_STYLES = ['classic', 'single'];

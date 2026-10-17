@@ -8,16 +8,16 @@
  * Everything the bot does runs on the server, whether or not a dashboard is
  * open. What lives here:
  *   - display preferences (theme, language) — per device
- *   - OAuth redirects — inherently a browser flow; the token is handed to the
- *     server immediately and never used from here
+ *   - the Discord OAuth redirect — inherently a browser flow; the code is
+ *     handed to the server immediately and never used from here
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  ThemeId, Language, RelayConfig, ReactionRoleMessage, DiscordButtonMessage,
+  ThemeId, Language, ReactionRoleMessage, DiscordButtonMessage,
 } from '../types';
 import { ASSET_KINDS, assetKindOf } from '../../shared/asset-kinds.js';
-import { safeJSONParse, youtubeRedirectUri } from '../utils';
+import { safeJSONParse } from '../utils';
 import { useBackend, apiFetch, C2S } from './useBackend';
 import { rememberDiscordNames, rememberDiscordLists } from '../discordEmoji';
 
@@ -53,19 +53,13 @@ export const useStreamSystem = () => {
   // are blank on load; held locally only for the life of the keystroke.
   const [discordBotTokenDraft, setDiscordBotTokenDraft] = useState('');
   const [discordClientSecretDraft, setDiscordClientSecretDraft] = useState('');
-  const [tiktokSignKeyDraft, setTiktokSignKeyDraft] = useState('');
+  const [twitchClientSecretDraft, setTwitchClientSecretDraft] = useState('');
+  const [youtubeApiKeyDraft, setYoutubeApiKeyDraft] = useState('');
   const [twitchClientId, setTwitchClientIdState] = useState(() => localStorage.getItem('twitch_client_id') || '');
 
   // Adopt the server's Twitch Client ID into this origin's storage. Opening the
-  // UI on a different port (Vite's :5173 vs the server's :8081) starts with an
-  // empty localStorage, and without this the id stayed server-only on that
-  // origin. Tracked in a ref so the OAuth callback (a mount-time effect) can
-  // compare the returning account against the one already connected.
-  const mainLoginRef = useRef<string>('');
-  useEffect(() => {
-    mainLoginRef.current = (snapshot.connections as any)?.twitch?.login || '';
-  }, [snapshot.connections]);
-
+  // UI on a different port (Vite's :5173 vs the server's) starts with an empty
+  // localStorage, and without this the id stayed server-only on that origin.
   const serverTwitchClientId = (snapshot.connections as any)?.twitch?.clientId;
   useEffect(() => {
     if (!serverTwitchClientId) return;
@@ -94,82 +88,12 @@ export const useStreamSystem = () => {
   }, [backend.me?.via]);
   const isMod = backend.me?.role === 'mod';
 
-  // ------------------------------------------------------- OAuth callbacks
+  // ------------------------------------------------------- OAuth callback
 
-  useEffect(() => {
-    // Twitch implicit flow returns the token in the URL fragment. Hand it to
-    // the server and scrub it from the address bar immediately.
-    const hash = new URLSearchParams(window.location.hash.slice(1));
-    const token = hash.get('access_token');
-    if (!token) return;
-    // A token for signing in to the dashboard is the sign-in page's (web/components/SignInPage.tsx), not a connection.
-    if ((hash.get('state') || '').startsWith('signin')) return;
-
-    (async () => {
-      try {
-        const isBot = localStorage.getItem('twitch_pending_role') === 'bot';
-
-        // Validate first: this is what tells us the login and user id that
-        // the token actually belongs to, rather than trusting anything typed.
-        const res = await fetch('https://id.twitch.tv/oauth2/validate', {
-          headers: { Authorization: `OAuth ${token}` },
-        });
-        if (!res.ok) {
-          throw new Error(`Twitch rejected the token (HTTP ${res.status}). `
-            + 'This usually means the login was cancelled or the token expired.');
-        }
-        const validated = await res.json();
-
-        // Twitch authorises whichever account the browser is signed into. If
-        // that turns out to be the account already connected as main, the user
-        // almost certainly meant to switch accounts and did not notice.
-        if (isBot && mainLoginRef.current
-          && String(validated.login).toLowerCase() === mainLoginRef.current.toLowerCase()) {
-          const proceed = window.confirm(
-            `You just authorised "${validated.login}", which is already connected as your main account.\n\n`
-            + 'To use a different account for the bot, sign out of Twitch first, or open this page in a '
-            + 'private/incognito window and connect the bot from there.\n\n'
-            + 'Connect it as the bot anyway?',
-          );
-          if (!proceed) {
-            localStorage.removeItem('twitch_pending_role');
-            window.history.replaceState({}, '', window.location.pathname + window.location.search);
-            return;
-          }
-        }
-
-        send(C2S.SET_CREDENTIALS, isBot
-          ? { platform: 'twitch', botToken: token, botLogin: validated.login }
-          : {
-            platform: 'twitch',
-            accessToken: token,
-            login: validated.login,
-            userId: validated.user_id,
-            channel: validated.login,
-            clientId: validated.client_id,
-          });
-
-        localStorage.removeItem('twitch_pending_role');
-        // Connect immediately so the user does not have to click again.
-        send(C2S.PLATFORM_CONNECT, { platform: 'twitch' });
-
-        // Only scrub the token from the address bar once it has actually been
-        // handed over: clearing it unconditionally destroyed the credential
-        // whenever the handoff failed.
-        window.history.replaceState({}, '', window.location.pathname + window.location.search);
-        console.info(`Twitch: connected as ${validated.login}`);
-      } catch (err: any) {
-        console.error('Twitch token handoff failed:', err);
-        alert(`Could not finish Twitch login.\n\n${err.message}\n\n`
-          + 'The token is still in the address bar — reload the page to retry, '
-          + 'or check the server terminal for details.');
-      }
-    })();
-  }, [send]);
-
-  // Discord and YouTube return an authorisation code on the query string
-  // (Twitch uses the hash). The exchange needs a live socket to carry the
-  // reply, so this waits for the connection rather than firing on mount.
+  // Discord returns an authorisation code on the query string. The exchange
+  // needs a live socket to carry the reply, so this waits for the connection
+  // rather than firing on mount. A sign-in (state "signin…") is the sign-in
+  // page's, not a connection.
   const codeHandled = useRef(false);
   useEffect(() => {
     if (!backend.connected || codeHandled.current) return;
@@ -177,7 +101,7 @@ export const useStreamSystem = () => {
     const search = new URLSearchParams(window.location.search);
     const code = search.get('code');
     const provider = search.get('state');
-    if (!code || !provider) return;
+    if (!code || provider !== 'discord') return;
 
     codeHandled.current = true;
     const redirectUri = window.location.origin + window.location.pathname;
@@ -191,28 +115,22 @@ export const useStreamSystem = () => {
 
     (async () => {
       try {
-        if (provider === 'discord') {
-          const result: any = await request(C2S.DISCORD, { op: 'exchange_code', code, redirectUri });
+        const result: any = await request(C2S.DISCORD, { op: 'exchange_code', code, redirectUri });
 
-          if (result?.user) {
-            setDiscordUser(result.user);
-            localStorage.setItem('discord_user', JSON.stringify(result.user));
-          }
-          if (result?.guilds) {
-            setDiscordGuilds(result.guilds);
-            localStorage.setItem('discord_guilds', JSON.stringify(result.guilds));
-          }
-
-          console.info(`Discord: signed in as ${result?.user?.username ?? 'unknown'}`);
-          scrub();
-        } else if (provider === 'youtube') {
-          await request(C2S.YOUTUBE_EXCHANGE_CODE, { code, redirectUri });
-          console.info('YouTube: authorised');
-          scrub();
+        if (result?.user) {
+          setDiscordUser(result.user);
+          localStorage.setItem('discord_user', JSON.stringify(result.user));
         }
+        if (result?.guilds) {
+          setDiscordGuilds(result.guilds);
+          localStorage.setItem('discord_guilds', JSON.stringify(result.guilds));
+        }
+
+        console.info(`Discord: signed in as ${result?.user?.username ?? 'unknown'}`);
+        scrub();
       } catch (err: any) {
-        console.error(`${provider} code exchange failed:`, err);
-        alert(`Could not finish the ${provider} login.\n\n${err.message}\n\n`
+        console.error('Discord code exchange failed:', err);
+        alert(`Could not finish the Discord login.\n\n${err.message}\n\n`
           + 'Check that the redirect URL is registered on the developer portal, '
           + 'and that the client secret is set in .env on the server.');
       }
@@ -236,8 +154,6 @@ export const useStreamSystem = () => {
     exportConfig: () => request(C2S.CONFIG_EXPORT, {}),
     importConfig: (bundle: any) => request(C2S.CONFIG_IMPORT, { bundle }),
     setQuestionStatus: (id: string, status: string) => send(C2S.QUESTION_SET_STATUS, { id, status }),
-    /** Set up, open, close or clear the poll. The server counts the votes. */
-    poll: (op: string, value?: any) => send(C2S.POLL, { op, value }),
     // Answers, so the Giveaways screen can say why not (no prize, nobody to draw).
     giveaway: (op: string, value?: any) => request(C2S.GIVEAWAY, { op, value }),
     /** The Discord pages screen: save, remove, post, test, unpost, import, delete_source (server/engine/discord-pages.js). */
@@ -248,8 +164,6 @@ export const useStreamSystem = () => {
     points: (op: string, payload: Record<string, any> = {}) => request(C2S.POINTS, { ...payload, op }),
     /** The profile card: 'settings' or 'preview' (server/engine/profile-card.js). */
     profileCard: (op: string, payload: Record<string, any> = {}) => request(C2S.PROFILE_CARD, { ...payload, op }),
-    /** Highlights: 'settings' or 'test' (server/engine/highlights.js). */
-    highlights: (op: string, payload: Record<string, any> = {}) => request(C2S.HIGHLIGHTS, { ...payload, op }),
     /** Private go-live messages: 'settings', 'post' or 'test' (server/engine/live-dms.js). */
     liveDms: (op: string, payload: Record<string, any> = {}) => request(C2S.LIVE_DMS, { ...payload, op }),
     // Updates from GitHub (server/engine/updater.js): 'check', or 'apply' to get the newest ready and restart into it.
@@ -258,15 +172,13 @@ export const useStreamSystem = () => {
     setDiscordQuestions: (settings: Record<string, any>) => request(C2S.DISCORD_QUESTIONS, { settings }),
     /** The game requests board (server/engine/game-requests.js). */
     gameRequests: (op: string, payload: Record<string, any> = {}) => request(C2S.GAME_REQUESTS, { ...payload, op }),
-    /** Moderation: 'settings', 'act' ({ uid, platform, action }) or 'log' (server/engine/moderation.js). */
+    /** The Discord mod log: 'settings' or 'log' (server/engine/moderation.js). */
     moderation: (op: string, payload: Record<string, any> = {}) => request(C2S.MODERATION, { ...payload, op }),
     /** Which Discord call the bot follows, and whether it joins it. */
     setVoice: (patch: { channelId?: string; listen?: boolean; pinned?: { id: string; name: string }[]; follow?: { id: string; name: string } | null }) => send(C2S.SET_VOICE, patch),
     clearQuestions: (which?: string) => send(C2S.QUESTIONS_CLEAR, { which }),
     /** Add one by hand, edit one, "Next question", the settings. Awaited, so the screen can say why not. */
     questions: (payload: Record<string, any>) => request(C2S.QUESTIONS, payload),
-    /** The Twitch schedule, asked for again (server/engine/twitch-schedule.js). */
-    refreshSchedule: () => request(C2S.TWITCH_SCHEDULE, {}),
     // Assets go over HTTP rather than the socket: the body is the file, and
     // pushing binary through the JSON protocol would mean base64.
     listAssets: () => apiFetch(`/api/assets`).then((r) => r.json()),
@@ -295,74 +207,21 @@ export const useStreamSystem = () => {
       return body;
     },
 
-    // -- twitch
-    handleTwitchLogin: (role: 'main' | 'bot' = 'main') => {
-      // The server value first: localStorage is per-origin, so a Client ID
-      // saved while viewing :8081 is invisible on :5173.
-      const clientId = (snapshot.connections as any)?.twitch?.clientId
-        || twitchClientId
-        || localStorage.getItem('twitch_client_id')
-        || '';
-
-      if (!clientId) {
-        alert('Set your Twitch Client ID in Connections first.');
-        return;
-      }
-      localStorage.setItem('twitch_pending_role', role);
-      const scopes = [
-        // Reading chat, and answering in it ("!puntos", "!rango").
-        'chat:read', 'chat:edit',
-        // Follows, subscriptions and bits, for points and the roles that follow them.
-        'moderator:read:followers', 'channel:read:subscriptions', 'bits:read',
-        // Banning and timing out, from the mod log and Role Management.
-        'moderator:manage:banned_users',
-      ].join(' ');
-
-      const redirectUri = window.location.origin + window.location.pathname;
-      // Twitch requires this to match a registered URL character for character,
-      // and it differs between the dev port and the server port.
-      console.info(`Twitch login: redirect_uri=${redirectUri} (must be registered on your Twitch app)`);
-
-      const url = new URL('https://id.twitch.tv/oauth2/authorize');
-      url.searchParams.set('client_id', clientId);
-      url.searchParams.set('redirect_uri', redirectUri);
-      url.searchParams.set('response_type', 'token');
-      url.searchParams.set('scope', scopes);
-      // Without this Twitch silently reuses whichever account the browser is
-      // already signed into, which made attaching a separate bot account
-      // impossible: force_verify always shows the consent screen.
-      url.searchParams.set('force_verify', 'true');
-
-      window.location.href = url.toString();
-    },
-    handleTwitchConnect: () => send(C2S.PLATFORM_CONNECT, { platform: 'twitch' }),
-    handleTwitchLogout: () => {
-      send(C2S.SET_CREDENTIALS, { platform: 'twitch', accessToken: '', login: '', userId: '' });
-      send(C2S.PLATFORM_DISCONNECT, { platform: 'twitch' });
-    },
-    handleTwitchBotConnect: () => send(C2S.PLATFORM_CONNECT, { platform: 'twitch' }),
-    handleTwitchBotLogout: () => send(C2S.SET_CREDENTIALS, { platform: 'twitch', botToken: '', botLogin: '' }),
-    getTwitchUser: (login: string) => req(C2S.TWITCH_GET_USER, { login }),
+    // -- the keys going-live alerts read Twitch and YouTube with (no sign-in)
     setTwitchClientId: (v: string) => {
       setTwitchClientIdState(v);
       localStorage.setItem('twitch_client_id', v);
-      // The server needs this too — Helix and EventSub both send it as a header.
       send(C2S.SET_CREDENTIALS, { platform: 'twitch', clientId: v });
     },
-
-    // -- tiktok
-    setTiktokUrl: (v: string) => send(C2S.SET_CREDENTIALS, { platform: 'tiktok', username: v }),
-    /** Optional Euler Stream key; without one TikTok uses the shared quota. */
-    setTiktokSignKey: (v: string) => {
-      setTiktokSignKeyDraft(v);
-      send(C2S.SET_CREDENTIALS, { platform: 'tiktok', signApiKey: v });
+    /** The Twitch app's secret: with the Client ID it gets an app token, enough to see who is live. */
+    setTwitchClientSecret: (v: string) => {
+      setTwitchClientSecretDraft(v);
+      send(C2S.SET_CREDENTIALS, { platform: 'twitch', clientSecret: v });
     },
-    // A toggle: the view turns the button red once the connection is live (or
-    // waiting) and expects a second press to stop it.
-    handleTikTokConnect: () => {
-      const s = (snapshot.status as any)?.tiktok?.status;
-      const live = s === 'connected' || s === 'connecting' || s === 'polling' || s === 'waiting' || s === 'searching';
-      send(live ? C2S.PLATFORM_DISCONNECT : C2S.PLATFORM_CONNECT, { platform: 'tiktok' });
+    /** A YouTube Data API key: public channels' live status, no Google sign-in. */
+    setYoutubeApiKey: (v: string) => {
+      setYoutubeApiKeyDraft(v);
+      send(C2S.SET_CREDENTIALS, { platform: 'youtube', apiKey: v });
     },
 
     // -- discord
@@ -408,7 +267,7 @@ export const useStreamSystem = () => {
       url.searchParams.set('redirect_uri', redirectUri);
       url.searchParams.set('response_type', 'code');
       url.searchParams.set('scope', 'identify guilds');
-      // Distinguishes this callback from YouTube's, which also returns ?code=.
+      // Tells this callback apart from signing in to the dashboard, which also returns ?code=.
       url.searchParams.set('state', 'discord');
       window.location.href = url.toString();
     },
@@ -457,8 +316,6 @@ export const useStreamSystem = () => {
     // -- reaction roles / buttons / welcome
     // Accept either a value or an updater, so a view using the React idiom
     // cannot silently send an unserialisable function.
-    setRoleMappings: (v: any) => send(C2S.SET_ROLE_MAPPINGS,
-      typeof v === 'function' ? v((snapshot as any).roleMappings ?? {}) : v),
     setWelcomeGoodbyeConfig: (v: any) => send(C2S.SET_WELCOME_GOODBYE,
       typeof v === 'function' ? v((snapshot as any).welcomeGoodbyeConfig ?? {}) : v),
 
@@ -541,12 +398,8 @@ export const useStreamSystem = () => {
       send(C2S.SET_BUTTON_MENUS, [...((snapshot as any).discordButtonConfigs ?? []), config]),
     updateButtonMenu: (config: DiscordButtonMessage) =>
       send(C2S.SET_BUTTON_MENUS, ((snapshot as any).discordButtonConfigs ?? []).map((c: any) => (c.id === config.id ? config : c))),
-    /** Going live in Discord: change a setting, or post a test now. */
-    setAnnounce: (settings: any) => send(C2S.ANNOUNCE, { settings }),
-    testAnnounce: () => request(C2S.ANNOUNCE, { op: 'test' }),
-    /** The Twitch schedule as Discord events: its settings, and following it now. */
-    setScheduleEvents: (settings: any) => send(C2S.SCHEDULE_EVENTS, { settings }),
-    syncScheduleEvents: () => request(C2S.SCHEDULE_EVENTS, { op: 'sync' }),
+    /** The watch list and its going-live posts: 'add', 'remove', 'update', 'copy', 'check', 'test' (server/engine/watch.js). */
+    watch: (op: string, payload: Record<string, any> = {}) => request(C2S.WATCH, { ...payload, op }),
     /** The welcome card, drawn by the server exactly as it will be posted. */
     previewWelcomeCard: (card: any, sample: any) => request(C2S.WELCOME_CARD_PREVIEW, { card, sample }),
     // Posts it in the server for real, with the settings on screen; refusals carry a code.
@@ -559,35 +412,9 @@ export const useStreamSystem = () => {
       send(C2S.SET_BUTTON_MENUS, ((snapshot as any).discordButtonConfigs ?? []).filter((c: any) => c.id !== id));
     },
 
-    /*
-      Discord roles that follow stream status (server/engine/role-sync.js).
-      The server links, syncs and keeps the log; this screen only asks.
-    */
-    linkDiscord: (link: { platform: 'twitch' | 'tiktok' | 'youtube'; platformId: string; platformName?: string; discordId: string; discordName?: string; discordAvatar?: string }) =>
-      request(C2S.ROLE_SYNC, { op: 'link', ...link }),
-    unlinkDiscord: (key: string) => send(C2S.ROLE_SYNC, { op: 'unlink', key }),
-    /** Roles for showing up (role-sync loyalty): [{ kind, atLeast, roleId }]. */
-    setLoyaltyRoles: (rules: any[]) => request(C2S.ROLE_SYNC, { op: 'loyalty', rules }),
-    /** Another account for somebody already linked, named by any account they have; one that was somebody else's brings them along. */
-    addAccount: (account: { to: string; platform: 'discord' | 'twitch' | 'tiktok' | 'youtube'; platformId: string; platformName?: string; avatar?: string }) =>
-      request(C2S.ROLE_SYNC, { op: 'add_account', ...account }),
-    forceSyncUser: (key: string) => request(C2S.ROLE_SYNC, { op: 'sync', key }),
-    clearSyncLog: () => send(C2S.ROLE_SYNC, { op: 'clear_log' }),
-    /** Somebody on YouTube to link: seen in its chat by name, or a channel by @handle / id. */
-    findYoutube: (query: string) => request(C2S.ROLE_SYNC, { op: 'find_youtube', query }),
-    /** Everybody following on Twitch, newest first, with how many there are and whether all were listed. */
-    listTwitchFollowers: (): Promise<{ followers: { id: string; login: string; name: string; followedAt: number; avatar: string }[]; total: number; complete: boolean }> =>
-      request(C2S.ROLE_SYNC, { op: 'twitch_followers' }),
-
     // -- leveling
     updateXpConfig: (config: any) => send(C2S.UPDATE_XP_CONFIG, config),
     resetXp: () => send(C2S.RESET_XP, {}),
-    linkIdentity: (primary: any, secondary: any) => send(C2S.LINK_IDENTITIES, { primary, secondary }),
-    unlinkUser: (key: string) => send(C2S.UNLINK_USER, { key }),
-    manualLinkUser: (twitchUser: string, discordId: string) => send(C2S.LINK_IDENTITIES, {
-      primary: { platform: 'twitch', id: twitchUser, username: twitchUser },
-      secondary: { platform: 'discord', id: discordId },
-    }),
   }), [send, req, request, snapshot, twitchClientId]);
 
   // ---------------------------------------------------------------- status
@@ -598,26 +425,20 @@ export const useStreamSystem = () => {
   const status = useMemo(() => {
     const s: any = snapshot.status || {};
     return {
-      twitch: s.twitch?.main ?? 'disconnected',
-      twitchBot: s.twitch?.bot ?? 'disconnected',
       // Either shape: a snapshot carries the word itself — "connected" — while
       // a live status event carries an object with it inside.
-      tiktok: settled(s.tiktok),
-      youtube: settled(s.youtube),
       discord: settled(s.discord),
-      tiktokError: s.tiktok?.error ?? null,
-      tiktokWatch: s.tiktok?.watch ?? null,
+      // Twitch and YouTube: whether the keys work, and if not, why.
+      twitch: settled(s.twitch),
+      youtube: settled(s.youtube),
+      twitchError: (s.twitch?.error ?? null) as string | null,
+      youtubeError: (s.youtube?.error ?? null) as string | null,
     };
   }, [snapshot.status]);
 
   const connections = useMemo(() => {
     const c: any = snapshot.connections || {};
     return {
-      // The full Helix user record the server resolved, for the avatar and display name.
-      twitchUser: c.twitch?.user ?? null,
-      twitchBotUser: c.twitch?.botUser ?? null,
-      twitchChannel: c.twitch?.channel ?? '',
-      tiktokUrl: c.tiktok?.username ?? '',
       discordToken: c.discord?.clientId || localStorage.getItem('discord_client_id') || '',
       discordChannelId: c.discord?.channelId ?? '',
       // Commands in every channel of the server, not only the one the app reads.
@@ -630,25 +451,21 @@ export const useStreamSystem = () => {
       discordChannels: c.discord?.channels?.length ? c.discord.channels : discordChannels,
       discordEmojis: c.discord?.emojis?.length ? c.discord.emojis : discordEmojis,
       botMember: c.discord?.botMember ?? discordBotMember,
-      /* The secret never comes back; the server only says whether it has one. */
-      youtubeClientId: c.youtube?.clientId || '',
-      youtubeHasSecret: Boolean(c.youtube?.hasSecret),
-      youtubeAuthorised: Boolean(c.youtube?.authorised),
-      youtubeCanEdit: Boolean(c.youtube?.canEdit),
-      youtubeHealth: c.youtube?.health || null,
-      // A live chat to post in, right now.
-      youtubeLive: Boolean(c.youtube?.live),
-      youtubeChannel: c.youtube?.channel || null,
       discordBotToken: discordBotTokenDraft,
       discordClientSecret: discordClientSecretDraft,
       discordHasBotToken: Boolean(c.discord?.hasBotToken),
       discordHasClientSecret: Boolean(c.discord?.hasClientSecret),
-      tiktokSignKey: tiktokSignKeyDraft,
-      tiktokHasSignKey: Boolean(c.tiktok?.hasSignKey),
       twitchClientId: c.twitch?.clientId || twitchClientId,
+      /* Secrets never come back; the server only says whether it has one. */
+      twitchClientSecret: twitchClientSecretDraft,
+      twitchHasSecret: Boolean(c.twitch?.hasClientSecret),
+      youtubeApiKey: youtubeApiKeyDraft,
+      youtubeHasKey: Boolean(c.youtube?.hasApiKey),
+      // Today's share of YouTube's daily allowance, and when it starts over.
+      youtubeHealth: c.youtube?.health || null,
     };
   }, [snapshot, discordUser, discordGuilds, discordChannels, discordEmojis, discordBotMember,
-    twitchClientId, discordBotTokenDraft, discordClientSecretDraft, tiktokSignKeyDraft]);
+    twitchClientId, discordBotTokenDraft, discordClientSecretDraft, twitchClientSecretDraft, youtubeApiKeyDraft]);
 
   /*
     The names Discord's codes stand for, learned for every screen that shows
@@ -673,9 +490,6 @@ export const useStreamSystem = () => {
       serverVersion: s.serverVersion || '',
       questions: s.questions,
       questionSettings: s.questionSettings,
-      poll: s.poll,
-      pollSettings: s.pollSettings,
-      pollHistory: s.pollHistory || [],
       // The giveaway (server/engine/giveaway.js) and how it is told and posted.
       giveaway: s.giveaway,
       giveawaySettings: s.giveawaySettings,
@@ -687,8 +501,6 @@ export const useStreamSystem = () => {
       pointsSettings: s.pointsSettings,
       // "!perfil" (server/engine/profile-card.js).
       profileCard: s.profileCard,
-      // The moments chat goes wild (server/engine/highlights.js).
-      highlights: s.highlights,
       // Going live, told privately (server/engine/live-dms.js).
       liveDms: s.liveDms,
       // Whether a newer version is out, and how an update is going (server/engine/updater.js); null on a copy updated by hand.
@@ -698,78 +510,31 @@ export const useStreamSystem = () => {
       moderation: s.moderation,
       moderationLog: s.moderationLog ?? [],
       voice: s.voice,
-      announce: s.announce,
-      // The Twitch schedule as Discord events: the settings, how many there are, when last checked.
-      scheduleEvents: s.scheduleEvents,
-      twitchSchedule: s.twitchSchedule ?? null,
-      roleSyncSubsCheck: s.roleSyncSubsCheck ?? null,
+      // The channels watched for going live, each with its post (server/engine/watch.js).
+      watch: s.watch,
       // The stream on now (server/engine/stream-sessions.js streamNow): null while offline.
       streamNow: (s.streamNow ?? null) as { n: number; startedAt: number; title: string; game: string } | null,
-      linkedUsers: s.linkedUsers ?? {},
-      // The same links as people: everybody with more than one account, each account listed (server/engine/role-sync.js).
-      linkedPeople: s.linkedPeople ?? [],
-      loyaltyRoles: s.loyaltyRoles ?? [],
-      pendingLinks: s.pendingLinks ?? {},
-      // Roles gate the Reaction Roles and Role Management screens, so they
+      // Roles gate the Reaction Roles screen, so they
       // must come from the server for a device that never fetched them.
       discordRoles: s.connections?.discord?.roles?.length ? s.connections.discord.roles : discordRoles,
-      roleMappings: s.roleMappings ?? {},
       reactionRoleConfigs: s.reactionRoleConfigs ?? [],
       roleActivityLog: s.roleActivityLog ?? [],
       syncingMessageId,
       reactionSyncError,
       discordButtonConfigs: s.discordButtonConfigs ?? [],
-      syncLog: s.roleSyncLog ?? [],
       welcomeGoodbyeConfig: s.welcomeGoodbyeConfig ?? {},
       discordSearchResults,
       xpData: s.xpData ?? {},
       leaderboard: s.leaderboard,
-      subscribers: s.subscribers,
       xpConfig: s.xpConfig,
     },
     settings: {
       activeThemeId, setActiveThemeId,
       language, setLanguage,
-      relayConfig: s.relayConfig as RelayConfig,
-      setRelayConfig: (v: any) => send(C2S.SET_RELAY_CONFIG,
-        typeof v === 'function' ? v(s.relayConfig ?? {}) : v),
     },
     status,
     connections,
     actions,
-    /*
-      YouTube: the id and secret are kept on the server so any device inherits
-      them, and the login is a redirect that comes back to exactly the URL the
-      screen shows.
-    */
-    youtube: {
-      setSettings: (patch: { clientId?: string; clientSecret?: string }) => send(C2S.YOUTUBE_SET_SETTINGS, patch),
-      logout: () => send(C2S.YOUTUBE_LOGOUT, {}),
-      login: () => {
-        const clientId = s.connections?.youtube?.clientId;
-        if (!clientId) {
-          alert('Set your YouTube Client ID in Connections first.');
-          return;
-        }
-        const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-        url.searchParams.set('client_id', clientId);
-        url.searchParams.set('response_type', 'code');
-        url.searchParams.set('redirect_uri', youtubeRedirectUri());
-        // Reading chat and posting in it.
-        url.searchParams.set('scope', 'https://www.googleapis.com/auth/youtube.force-ssl');
-        /*
-          Google hands back a refresh token only for offline access, and only
-          the first time somebody consents — so consent is asked for every
-          time. Without it a second login would authorise for an hour and
-          then quietly stop working.
-        */
-        url.searchParams.set('access_type', 'offline');
-        url.searchParams.set('prompt', 'consent');
-        // Tells the shared callback handler which provider is returning.
-        url.searchParams.set('state', 'youtube');
-        window.location.href = url.toString();
-      },
-    },
     /** Not part of the views' contract; handy for a connection indicator. */
     _backendConnected: backend.connected,
     /** Who this page is signed in as, whether the server wants a sign-in first, and connecting again once there is one. */
