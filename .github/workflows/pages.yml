@@ -1,0 +1,36 @@
+# Publishes README.md as the GitHub Pages site (scripts/pages.mjs) to the
+# gh-pages branch, which Pages serves.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: [README.md, scripts/pages.mjs, art/simonbot/**, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm i --no-save --ignore-scripts marked@15
+      - run: node scripts/pages.mjs _site
+      - name: Push to gh-pages
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Pages from ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
