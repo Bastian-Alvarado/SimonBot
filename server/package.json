@@ -1,9 +1,9 @@
 {
-  "name": "simonsays-server",
+  "name": "simonbot-server",
   "private": true,
-  "version": "2.2.1",
+  "version": "0.0.1",
   "type": "module",
-  "description": "Headless stream automation server: platform connections, command engine, alerts, leveling.",
+  "description": "SimonBot's headless server: the Discord bot, platform connections, levels and community features.",
   "main": "index.js",
   "engines": {
     "node": ">=22"
@@ -20,9 +20,7 @@
     "@fontsource/montserrat": "^5.3.0",
     "@fontsource/special-elite": "^5.3.0",
     "@fontsource/vt323": "^5.3.0",
-    "@google/genai": "^1.29.0",
     "@resvg/resvg-js": "^2.6.2",
-    "obs-websocket-js": "^5.0.5",
     "omggif": "^1.0.10",
     "satori": "^0.33.5",
     "tiktok-live-connector": "^2.4.4",

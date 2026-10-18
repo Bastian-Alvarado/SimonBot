@@ -6,8 +6,9 @@
  * an event in the server, with the Twitch link as where it happens.
  *
  * What it is for is Discord's own reminder: somebody who presses
- * "Interested" is told by Discord when the event starts. So when OBS starts
- * streaming, the event for this stream is started, and when it stops, ended
+ * "Interested" is told by Discord when the event starts. So when the stream
+ * starts (Twitch says it is live), the event for this stream is started, and
+ * when it stops, ended
  * — the reminder goes at the moment the stream does.
  *
  * Followed every time the schedule is read (every quarter of an hour, and on
@@ -264,16 +265,14 @@ export async function control(payload = {}) {
 
 export function initScheduleEvents() {
   store = collection('discord_events', DEFAULT_SCHEDULE_EVENTS);
-  // The schedule as the Twitch extras read it (twitch-extras.js publishes it each time).
+  // The schedule as Twitch gives it (twitch-schedule.js publishes it each time).
   bus.on(EVENTS.CONFIG, (c) => {
     if (c?.key !== 'twitchSchedule' || !Array.isArray(c.value?.segments)) return;
     schedule = c.value.segments;
     syncScheduleEvents().catch((err) => log.warn(`could not follow the schedule: ${err.message}`));
   });
-  bus.on(EVENTS.EVENT, (e) => {
-    if (e?.type === 'obs_stream_started') onStream('started').catch(() => {});
-    if (e?.type === 'obs_stream_stopped') onStream('stopped').catch(() => {});
-  });
+  bus.on('stream:on', () => { onStream('started').catch(() => {}); });
+  bus.on('stream:off', () => { onStream('stopped').catch(() => {}); });
 }
 
 export const snapshot = () => {

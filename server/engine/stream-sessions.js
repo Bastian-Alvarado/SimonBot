@@ -4,12 +4,11 @@
  *
  * Every stream, kept: when it started and ended, what it was called and
  * played, how fast chat went minute by minute on each platform, who took
- * part, the songs that played, the clips and markers made, the plan's steps
- * and the VOD it became. What chapters, highlights, attendance, profiles and
- * "answered at 1:23:45" links are made from.
+ * part, its highlights and the VOD it became. What highlights, attendance,
+ * loyalty roles and "answered at 1:23:45" links are made from.
  *
- * A stream is OBS streaming, as the recap counts it: one that drops and is
- * back within a few minutes is the same stream. The one on now is kept in
+ * A stream is the Twitch channel live (core/twitch-live.js): one that drops
+ * and is back within a few minutes is the same stream. The one on now is kept in
  * memory and saved once a minute (and on shutdown), not on every message;
  * a finished one is written once, to the list of streams.
  *
@@ -23,17 +22,16 @@ import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import * as leveling from '../leveling/index.js';
 import * as twitch from '../platforms/twitch.js';
-import * as obs from '../platforms/obs.js';
-import { getPlan } from './plan.js';
+import { onTwitchLive, twitchLive } from '../core/twitch-live.js';
 
 const log = createLogger('streams');
 
-/** A stream back within this long is the same stream (as the recap counts it). */
+/** A stream back within this long is the same stream. */
 export const SAME_STREAM_MS = 5 * 60_000;
 const SAVE_EVERY_MS = 60_000;
-/** How often a stream on is checked against OBS and Twitch, for an end that was missed. */
+/** How often a stream on is checked against Twitch, for an end that was missed. */
 const CHECK_EVERY_MS = 3 * 60_000;
-/** With neither OBS nor Twitch to ask, a stream nothing has happened in for this long is taken as over. */
+/** With Twitch not answering, a stream nothing has happened in for this long is taken as over. */
 export const QUIET_OVER_MS = 6 * 60 * 60_000;
 /** The platforms a minute is counted on, in the order the counts are kept: [all, …these]. */
 export const MINUTE_PLATFORMS = ['twitch', 'youtube', 'tiktok', 'discord', 'kick'];
@@ -47,7 +45,6 @@ let checkTimer = null;
 let checking = false;
 /** When Twitch first said the stream on now was offline (two checks in a row end it), or 0. */
 let offlineSince = 0;
-let obsWas = '';
 
 const session = () => live?.get().session || null;
 export const isRunning = (s = session()) => Boolean(s?.startedAt && !s.endedAt);
@@ -55,7 +52,7 @@ export const isRunning = (s = session()) => Boolean(s?.startedAt && !s.endedAt);
 /** The stream on now, or null. */
 export const current = () => (isRunning() ? session() : null);
 
-/** The stream on now as the home screen shows it (web DashboardView): since when, called what, playing what. */
+/** The stream on now as the dashboard shows it: since when, called what, playing what. */
 export const streamNow = () => {
   const s = current();
   return s ? { n: s.n, startedAt: s.startedAt, title: s.title || '', game: s.game || '' } : null;
@@ -77,7 +74,6 @@ const fresh = (startedAt, n) => ({
   channel: [],
   minutes: [],
   attendees: {},
-  songs: [],
   moments: [],
 });
 
@@ -91,12 +87,13 @@ function start(now) {
   clearTimeout(endTimer);
   endTimer = null;
   const s = session();
-  // Already on (told twice, or found streaming just before OBS said so): the same stream, not a new one over it.
+  // Already on (told twice): the same stream, not a new one over it.
   if (isRunning(s)) return;
   // Back within a few minutes: the same stream, carrying on.
   if (s?.startedAt && s.endedAt && now - s.endedAt < SAME_STREAM_MS) {
     live.set({ session: { ...s, endedAt: 0 } });
     log.info(`stream ${s.n} carries on`);
+    bus.emit('stream:on', session());
     tellStreamNow();
     return;
   }
@@ -105,11 +102,12 @@ function start(now) {
   live.set({ session: next });
   log.info(`stream ${next.n} started`);
   bus.emit('stream:started', next);
+  bus.emit('stream:on', next);
   tellStreamNow();
   // What it is called and played, once Twitch says (EVENTS.CHANNEL may not come before).
   twitch.getLiveInfo?.().then((info) => {
     if (!info || !isRunning() || session().id !== next.id) return;
-    changed((v) => ({ ...v, title: v.title || info.title || '', game: v.game || info.game || '', ...(info.live ? { onTwitch: true } : {}) }));
+    changed((v) => ({ ...v, title: v.title || info.title || '', game: v.game || info.game || '' }));
     tellStreamNow();
   }).catch(() => {});
 }
@@ -120,6 +118,7 @@ function stop(now) {
   offlineSince = 0;
   live.set({ session: { ...s, endedAt: now } });
   live.flush();
+  bus.emit('stream:off', session());
   tellStreamNow();
   clearTimeout(endTimer);
   // Finished for good only once it is clear it is not coming back (an end found late may be clear already).
@@ -129,14 +128,14 @@ function stop(now) {
 
 // ------------------------------------------------------------ an end that was missed
 
-/** The last sign of life in a stream: the end of its last minute with chat, its last song or moment, or its start. */
+/** The last sign of life in a stream: the end of its last minute with chat, its last moment, or its start. */
 export function lastSign(s) {
   let at = s.startedAt;
   const minutes = s.minutes || [];
   for (let i = minutes.length - 1; i >= 0; i -= 1) {
     if (minutes[i]?.[0]) { at = s.startedAt + (i + 1) * 60_000; break; }
   }
-  for (const x of [...(s.songs || []), ...(s.moments || [])]) if (x.at > at) at = x.at;
+  for (const x of s.moments || []) if (x.at > at) at = x.at;
   return at;
 }
 
@@ -144,29 +143,27 @@ export function lastSign(s) {
 let confirmed = { id: '', at: 0 };
 
 /**
- * When a stream found over really ended: now, if it was known to be on a
- * check or two ago; otherwise (OBS was away a long while, or the app was
- * off) the last time it was known to be on, so it is not kept as days long.
+ * When a stream found over really ended: then, if it was known to be on a
+ * check or two before; otherwise (Twitch was away a long while, or the app
+ * was off) the last time it was known to be on, so it is not kept as days long.
  */
-function endedBy(s, now) {
+function endedBy(s, then) {
   const known = Math.max(lastSign(s), confirmed.id === s.id ? confirmed.at : 0);
-  return now - known > 2 * CHECK_EVERY_MS ? known : now;
+  return then - known > 2 * CHECK_EVERY_MS ? known : then;
 }
 
 const realAskers = {
-  obs: () => obs.streamingNow(),
   twitch: () => twitch.getLiveInfo(),
 };
 let askers = realAskers;
 
 /**
- * A stream ends when OBS says so, but OBS can crash, its connection drop or
- * the app restart mid-stream, and then the end never comes and the stream
- * stays "live" for days. So a stream on is checked every few minutes: OBS is
- * asked first; when OBS cannot be reached, Twitch (if this stream was seen on
- * Twitch), and two offline answers in a row end it from the first; when
- * neither can say, hours with nothing happening end it from its last sign of
- * life.
+ * A stream ends when Twitch says the channel went offline, but Twitch's
+ * connection can drop or the app restart mid-stream, and then the end never
+ * comes and the stream stays "live" for days. So a stream on is checked
+ * every few minutes: two offline answers in a row end it from the first;
+ * when Twitch cannot say, hours with nothing happening end it from its last
+ * sign of life.
  */
 async function checkStillLive(now = Date.now(), ask = askers) {
   const s = session();
@@ -174,33 +171,20 @@ async function checkStillLive(now = Date.now(), ask = askers) {
   checking = true;
   try {
     const still = () => isRunning() && session().id === s.id;
-    const onObs = await ask.obs().catch(() => null);
-    if (!still()) return;
-    if (onObs === false) {
-      log.info(`stream ${s.n} is over: OBS is not streaming`);
-      stop(endedBy(s, now));
-      return;
-    }
-    if (onObs === true) confirmed = { id: s.id, at: now };
-    // Twitch is asked while OBS streams too, until this stream is seen there.
-    if (onObs === true && s.onTwitch) { offlineSince = 0; return; }
     const info = await ask.twitch().catch(() => null);
     if (!still()) return;
     if (info?.live) {
       offlineSince = 0;
       confirmed = { id: s.id, at: now };
-      if (!s.onTwitch) changed((v) => ({ ...v, onTwitch: true }));
       return;
     }
-    if (onObs === true) return;
-    // Only a stream that was on Twitch is over when Twitch is offline (one sent elsewhere never is there).
-    if (info?.live === false && s.onTwitch) {
+    if (info?.live === false) {
       if (!offlineSince) { offlineSince = now; return; }
       log.info(`stream ${s.n} is over: Twitch says the channel is offline`);
-      stop(offlineSince);
+      stop(endedBy(s, offlineSince));
       return;
     }
-    // Quiet, but OBS or Twitch said it was on a check ago: not over for one check nobody could answer.
+    // Quiet, but Twitch said it was on a check ago: not over for one check nobody could answer.
     const last = Math.max(lastSign(s), confirmed.id === s.id ? confirmed.at : 0);
     if (now - last >= QUIET_OVER_MS) {
       log.info(`stream ${s.n} is over: nothing has happened in it for ${Math.round((now - last) / 3_600_000)} h`);
@@ -211,36 +195,23 @@ async function checkStillLive(now = Date.now(), ask = askers) {
   }
 }
 
-/** OBS back: a stream it stopped meanwhile is over, and one it is sending that nobody counted starts. */
-async function onObsBack(ask = askers) {
-  if (isRunning()) return checkStillLive(Date.now(), ask);
-  const onObs = await ask.obs().catch(() => null);
-  if (onObs === true && !isRunning()) {
-    log.info('OBS was already streaming: the stream is counted from now');
-    start(Date.now());
-  }
-  return undefined;
+/**
+ * Twitch's word on the channel (core/twitch-live.js): live starts the stream,
+ * or carries one that dropped for a moment on; offline ends it. Twitch not
+ * connected says neither, so a stream on is left to the check above.
+ */
+function onLive(state, now = Date.now()) {
+  if (state?.live) start(state.since || now);
+  else if (state?.known) stop(now);
 }
 
-function onStatus(st) {
-  if (st?.platform !== 'obs') return;
-  const was = obsWas;
-  obsWas = st.status;
-  if (st.status === 'connected' && was !== 'connected') onObsBack().catch((err) => log.debug(`stream check: ${err.message}`));
-}
-
-/** A stream over for good: its plan and VOD added, written to the list, and said. */
+/** A stream over for good: its VOD added, written to the list, and said. */
 async function finish(s) {
   if (!s?.startedAt || !s.endedAt) return;
   clearTimeout(endTimer);
   endTimer = null;
   if (finished().some((x) => x.id === s.id)) return;
   const record = { ...s };
-  // The plan's steps started during this stream, with when: the chapters of the night.
-  // A step carried on from an earlier stream (counted live in this one) is a chapter from where this stream began.
-  record.plan = (getPlan()?.items || [])
-    .filter((i) => typeof i.startedAt === 'number' && i.startedAt <= s.endedAt && (i.startedAt >= s.startedAt - 60_000 || typeof i.liveBase === 'number'))
-    .map((i) => ({ text: String(i.text || ''), startedAt: Math.max(i.startedAt, s.startedAt), ...(i.doneAt ? { doneAt: i.doneAt } : {}) }));
   try {
     const vod = await twitch.latestVod?.();
     // Only the VOD of this stream: made after it started.
@@ -278,16 +249,6 @@ function onChat(chat, now = Date.now()) {
   });
 }
 
-function onEvent(e, now = Date.now()) {
-  if (e?.type === 'obs_stream_started') return start(now);
-  if (e?.type === 'obs_stream_stopped') return stop(now);
-  if (!isRunning()) return undefined;
-  if (e?.type === 'spotify_track_change' && e.data?.title) {
-    changed((v) => ({ ...v, songs: [...v.songs, { at: now, title: String(e.data.title), artist: String(e.data.artist || e.user || '') }].slice(-400) }));
-  }
-  return undefined;
-}
-
 function onChannel(c, now = Date.now()) {
   if (!isRunning() || !c || c.initial) return;
   changed((v) => ({
@@ -299,7 +260,7 @@ function onChannel(c, now = Date.now()) {
   tellStreamNow();
 }
 
-/** A clip, a marker or a highlight, at this moment of the stream. */
+/** A highlight, at this moment of the stream. */
 function onMoment(m, now = Date.now()) {
   if (!isRunning() || !m?.kind) return;
   changed((v) => ({ ...v, moments: [...v.moments, { at: m.at || now, kind: m.kind, ...(m.url ? { url: m.url } : {}), ...(m.text ? { text: String(m.text).slice(0, 140) } : {}) }].slice(-200) }));
@@ -342,98 +303,9 @@ export const perMinute = (s) => Array.from({ length: (s?.minutes || []).length }
 /** The stream on now or just over (still in its few minutes of grace), or else the last one kept. */
 export const latest = () => session() || finished().at(-1) || null;
 
-/** A stream with its plan steps, for one not yet kept (the recap is written before a stream is). */
-export function withPlan(s, now = Date.now()) {
-  if (!s || s.plan) return s;
-  const end = s.endedAt || now;
-  return {
-    ...s,
-    plan: (getPlan()?.items || [])
-      .filter((i) => typeof i.startedAt === 'number' && i.startedAt >= s.startedAt - 60_000 && i.startedAt <= end)
-      .map((i) => ({ text: String(i.text || ''), startedAt: i.startedAt, ...(i.doneAt ? { doneAt: i.doneAt } : {}) })),
-  };
-}
-
-/** "1:02:03", or "12:30" under an hour: how YouTube reads a chapter's time. */
-export function chapterTime(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-/**
- * The stream's chapters, the way YouTube takes them in a description: the
- * plan's steps, the games played and the highlights, each at its time in
- * the VOD, the first at 00:00. Two within ten seconds are one; the same
- * title twice in a row is once.
- */
-export function chaptersOf(s) {
-  if (!s?.startedAt) return [];
-  const start = s.vod?.createdAt ? Date.parse(s.vod.createdAt) : s.startedAt;
-  const marks = [
-    { at: s.startedAt, title: 'Inicio' },
-    ...(s.plan || []).map((p) => ({ at: p.startedAt, title: p.text })),
-    ...(s.channel || []).filter((c) => c.game).map((c) => ({ at: c.at, title: c.game })),
-    ...(s.moments || []).filter((m) => m.kind === 'highlight').map((m) => ({ at: m.at, title: `🔥 ${m.text || 'Momento'}` })),
-  ].filter((m) => m.title && m.at >= s.startedAt - 60_000).sort((a, b) => a.at - b.at);
-  const out = [];
-  for (const m of marks) {
-    const last = out.at(-1);
-    if (last && (m.at - last.at < 10_000 || m.title === last.title)) continue;
-    out.push({ at: m.at, title: String(m.title).replace(/\s+/g, ' ').slice(0, 90) });
-  }
-  return out.map((c, i) => ({ ...c, time: chapterTime(i === 0 ? 0 : c.at - start) }));
-}
-
-/** The chapters as text to paste into a YouTube description. */
-export const chaptersText = (s) => chaptersOf(s).map((c) => `${c.time} ${c.title}`).join('\n');
-
-/** Every stream for the Streams screen, newest first, the one on now among them. */
-export function listed() {
-  const now = session();
-  return [...(now && !finished().some((x) => x.id === now.id) ? [{ ...summary(now), live: isRunning(now) }] : []), ...finished().slice().reverse().map(summary)];
-}
-
-/** One stream in full, for the Streams screen: its chapters, moments, songs, chat by minute and who came, by name. */
-export function details(id) {
-  const raw = finished().find((x) => x.id === id) || (session()?.id === id ? session() : null);
-  if (!raw) return null;
-  const s = withPlan(raw);
-  const users = leveling.getUsers();
-  const people = Object.entries(s.attendees || {})
-    .map(([uid, a]) => ({ uid, name: users[uid]?.username || '?', avatar: users[uid]?.avatar || '', messages: a.m, platforms: a.p }))
-    .sort((a, b) => b.messages - a.messages);
-  return {
-    ...summary(s),
-    live: isRunning(s),
-    vodUrl: s.vod?.url || '',
-    chapters: chaptersOf(s).map((c) => ({ ...c, link: vodLink(s, c.at) })),
-    chaptersText: chaptersText(s),
-    moments: (s.moments || []).map((m) => ({ ...m, link: vodLink(s, m.at) })),
-    songs: s.songs || [],
-    channel: s.channel || [],
-    plan: s.plan || [],
-    perMinute: perMinute(s),
-    byPlatform: MINUTE_PLATFORMS.map((p, i) => ({ platform: p, messages: (s.minutes || []).reduce((n, row) => n + (row?.[i + 1] || 0), 0) })).filter((x) => x.messages),
-    people: people.slice(0, 100),
-  };
-}
-
-/** A stream as a screen lists it: without the per-person and per-minute detail. */
-export const summary = (s) => ({
-  id: s.id, n: s.n, startedAt: s.startedAt, endedAt: s.endedAt, title: s.title, game: s.game,
-  people: Object.keys(s.attendees || {}).length,
-  messages: perMinute(s).reduce((a, b) => a + b, 0),
-  songs: (s.songs || []).length, moments: (s.moments || []).length,
-  ...(s.vod ? { vod: s.vod.url } : {}),
-});
-
 export function initStreamSessions() {
   live = collection('stream_live', { session: null });
   past = collection('stream_sessions', { list: [] });
-  bus.on(EVENTS.EVENT, onEvent);
   bus.on(EVENTS.CHAT, onChat);
   bus.on(EVENTS.CHANNEL, onChannel);
   bus.on('stream:moment', onMoment);
@@ -441,10 +313,12 @@ export function initStreamSessions() {
   clearInterval(saveTimer);
   saveTimer = setInterval(() => live.flush(), SAVE_EVERY_MS);
   saveTimer.unref?.();
-  bus.on(EVENTS.STATUS, onStatus);
+  onTwitchLive((state) => onLive(state));
   clearInterval(checkTimer);
   checkTimer = setInterval(() => { checkStillLive().catch((err) => log.debug(`stream check: ${err.message}`)); }, CHECK_EVERY_MS);
   checkTimer.unref?.();
+  // Twitch already live when the server starts: the stream is on (or carries on).
+  if (twitchLive().live) onLive(twitchLive());
   // A stream that ended while the server was down: finished now, or once its few minutes are up.
   const s = session();
   if (s?.startedAt && s.endedAt) {
@@ -455,4 +329,4 @@ export function initStreamSessions() {
 }
 
 /** For tests: what a moment in time does, now. */
-export const _test = { onChat, onEvent, onChannel, onMoment, finish: () => finish(session()), checkStillLive, onObsBack, useAskers: (a) => { askers = a || realAskers; } };
+export const _test = { onChat, onChannel, onMoment, finish: () => finish(session()), checkStillLive, onLive, useAskers: (a) => { askers = a || realAskers; } };

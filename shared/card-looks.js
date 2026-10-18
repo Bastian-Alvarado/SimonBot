@@ -2,9 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Looks for the welcome card, one per theme, to start from.
+ * Looks for the welcome card, to start from.
  *
- * Written like the layer looks: a stylesheet on the card's named parts —
+ * Each is a stylesheet on the card's named parts —
  * `:scope` for the card, `[data-card="avatar"]`, `"title"`, `"name"`,
  * `"subtitle"`, `"text"`, `"background"` — with every colour a field
  * (`--x: value; /* Label *\/`), so a look is a place to start and its knobs
@@ -18,7 +18,7 @@
 export const CARD_LOOKS = [
   {
     id: 'card-simonsays',
-    name: 'SimonSays Default',
+    name: 'SimonBot Default',
     hint: 'Clean and dark: the avatar in a ring of your colour, the name large and white.',
     css: `:scope {
   --color: #ffffff; /* Colour */

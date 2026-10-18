@@ -15,7 +15,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Newspaper, Plus, Trash2, Image as ImageIcon, Square, Type, MoveVertical, Link2, Send, FlaskConical, Download, Loader2,
-  ChevronDown, ChevronRight, Smile, Copy, AlertTriangle, CheckCircle2, Undo2, Radio, Braces, Play, Pause,
+  ChevronDown, ChevronRight, Smile, Copy, AlertTriangle, CheckCircle2, Undo2, Radio, Play, Pause,
 } from 'lucide-react';
 import { BannerCaption, BannerInset, DiscordPage, DiscordPageBlock } from '../../types';
 import { useDragOrder, DragGrip } from '../../hooks/useDragOrder';
@@ -24,7 +24,7 @@ import {
   cleanPage, singleMessage, classicMessages, countComponents, componentText, pageProblems, bannerDrawn, PAGE_LIMITS, PAGE_VARS, LIVE_STATUS_CARD,
   CAPTION_DEFAULTS, CAPTION_LIMITS, INSET_DEFAULTS, INSET_LIMITS,
 } from '../../../shared/discord-pages.js';
-import { OVERLAY_VARS } from '../../../shared/overlay-vars.js';
+import { LIVE_VARS } from '../../../shared/live-vars.js';
 import { textChannels } from '../DiscordPicks';
 import { refusalWords, fill } from '../../words';
 import { EmojiPicker } from '../EmojiPicker';
@@ -111,8 +111,8 @@ const RichText = ({ value, onChange, rows = 4, max, placeholder, emojis, channel
           <optgroup label={t.pageVarsPage || 'This page'}>
             {PAGE_VARS.map((v: any) => <option key={v.name} value={v.name}>{v.name} — {v.label}</option>)}
           </optgroup>
-          <optgroup label={t.pageVarsOverlay || 'Like the overlays'}>
-            {OVERLAY_VARS.map((v: any) => <option key={v.name} value={v.name}>{v.name} — {v.label}</option>)}
+          <optgroup label={t.pageVarsOverlay || 'Live values'}>
+            {LIVE_VARS.map((v: any) => <option key={v.name} value={v.name}>{v.name} — {v.label}</option>)}
           </optgroup>
         </select>
         <span className={`ml-auto text-[9px] ${value.length > max * 0.95 ? 'text-amber-400' : 'text-zinc-600'}`}>{value.length} / {max}</span>
@@ -669,7 +669,7 @@ const PagesScreen = ({ pages, control, channels, roles, emojis, testChannelId, l
                 <input type="checkbox" checked={!!draft.live} onChange={(e) => change({ live: e.target.checked })} className="accent-current-accent mt-0.5" />
                 <span className="text-[11px] text-zinc-300 leading-snug">
                   <span className="font-bold flex items-center gap-1"><Radio size={11} className="text-rose-400" /> {t.pageLive || 'Keep it up to date'}</span>
-                  <span className="block text-[10px] text-zinc-500">{t.pageLiveHint || 'Once posted, it is edited in place when what its { } values show changes — going live, the game, the song, the plan, the viewers. A line whose values are all empty is left out, so one card reads right live and not.'}</span>
+                  <span className="block text-[10px] text-zinc-500">{t.pageLiveHint || 'Once posted, it is edited in place when what its { } values show changes — going live, the game, the poll, the voice call. A line whose values are all empty is left out, so one card reads right live and not.'}</span>
                 </span>
               </label>
             </div>

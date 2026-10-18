@@ -8,8 +8,8 @@ import App from './App';
 
 // Tailwind, the self-hosted fonts and the app's base styles. This used to be
 // three <script>/<link> tags pointing at third-party CDNs in index.html; it is
-// now compiled into the bundle so the UI and the OBS overlay render with no
-// network access beyond this server.
+// now compiled into the bundle so the UI renders with no network access beyond
+// this server.
 import './styles.css';
 
 const rootElement = document.getElementById('root');

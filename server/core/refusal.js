@@ -6,7 +6,7 @@
  *
  * The message is English, for the log and for any screen with no words for
  * the code. The code is what a screen looks up, and `vars` fill in the parts
- * of its sentence that change — how many saved plans there can be, which
+ * of its sentence that change — how many of something there can be, which
  * channel was not found. The socket passes all three along; the words for
  * each code are in web/constants.ts, found through web/words.ts.
  */

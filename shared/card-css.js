@@ -11,8 +11,8 @@
  * stylesheet, so this is the small cascade in between: the rules a person
  * writes, aimed at the card's named parts, applied to each part in order,
  * `!important` winning, custom properties inherited and `var()` filled in —
- * the same way a stylesheet on an overlay layer behaves, for the parts of a
- * still picture.
+ * the same way a stylesheet behaves on a page, for the parts of a still
+ * picture.
  *
  * What a picture cannot have is left out and said so: selectors that reach
  * past the named parts (descendants, pseudo-elements, states) are reported

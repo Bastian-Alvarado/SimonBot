@@ -3,11 +3,11 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { refusalWords } from '../../words';
 import { LevelProfile, LevelSystemConfig, RoleReward, ThemeConfig } from '../../types';
 import { Button } from '../Button';
-import { Trophy, Settings, Gift, Medal, User, Save, RefreshCcw, Trash2, Plus, Hash, Shield, Info, AlertTriangle, MessageSquare, ArrowRight, History } from 'lucide-react';
+import { Trophy, Settings, Gift, Medal, User, Save, Trash2, Plus, Hash, Shield, AlertTriangle, MessageSquare, ArrowRight, History } from 'lucide-react';
 
 interface LevelsViewProps {
   activeTheme: ThemeConfig;
@@ -394,7 +394,7 @@ export const LevelsView: React.FC<LevelsViewProps> = ({ activeTheme, t, system }
                             ))}
                         </div>
                         <label className="flex items-center justify-between gap-3 text-[10px] font-bold uppercase text-zinc-500">
-                            <span>{t.levelChatTopCount || 'How many !top names'}</span>
+                            <span>{t.levelChatTopCount || 'How many names !top says'}</span>
                             <input type="number" min={1} max={10} value={levelChat.topCount} onChange={(e) => handleConfigChange('chat', { ...levelChat, topCount: Number(e.target.value) })} className="w-16 bg-zinc-900 border border-zinc-800 rounded-xl px-2 py-1.5 text-xs font-bold text-white text-center" />
                         </label>
                         <label className="flex items-start gap-2 cursor-pointer">

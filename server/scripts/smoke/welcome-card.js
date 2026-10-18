@@ -398,56 +398,6 @@ test('the bot hears of bans and boosts, and the screen offers every kind', () =>
   assert.ok(roles.includes("discord.getCache?.()?.roles?.find((r) => r.id === roleId)?.name"), 'a welcome\'s role button answers with a number instead of the role\'s name');
 });
 
-// ---------------------------------------------------------------- a join or a boost, for actions and alerts
-
-const { engine, said } = await import('./harness.js');
-const heard = [];
-const hear = (e) => { if (e?.platform === 'discord') heard.push(e); };
-const { EVENTS } = await import('../../core/bus.js');
-bus.on(EVENTS.EVENT, hear);
-engine.store.saveAction({
-  id: 'act-discord-join', name: 'Discord join', enabled: true,
-  trigger: { id: 't-dj', category: 'discord', type: 'discord_join', config: {} },
-  actions: [{ id: 's-dj', type: 'twitch_chat', config: { message: '{user} entró al Discord ({event.accountAge})' } }],
-});
-said.length = 0;
-const realFetch5 = globalThis.fetch;
-globalThis.fetch = async () => new Response(JSON.stringify({ id: 'x', approximate_member_count: 60, premium_subscription_count: 4 }), { status: 200 });
-config.discord.botToken = 'test-token';
-// The welcome post is off: the event is the app's, whether or not Discord gets a post.
-welcome.setGreetings({ welcome: { enabled: false }, goodbye: { enabled: false }, boost: { enabled: false }, ban: { enabled: false } });
-bus.emit('discord:member_join', { guild_id: 'g1', user: { id: twoYears, username: 'nueva', global_name: 'Nueva' }, nick: 'Nuevita' });
-bus.emit('discord:member_join', { guild_id: 'g1', user: { id: '9191919191', username: 'musicbot', bot: true } });
-bus.emit('discord:member_update', { guild_id: 'g1', user: { id: '5252525252', username: 'booster2' }, premium_since: new Date().toISOString() });
-await new Promise((r) => setTimeout(r, 800));
-config.discord.botToken = realToken;
-globalThis.fetch = realFetch5;
-bus.off(EVENTS.EVENT, hear);
-engine.store.deleteAction('act-discord-join');
-
-test('somebody joining or boosting the Discord is a stream event an action can answer', () => {
-  const join = heard.find((e) => e.type === 'discord_join');
-  assert.ok(join, 'a join with the welcome off told the app nothing');
-  assert.equal(join.user, 'Nuevita', 'not the name they show in the server');
-  assert.equal(join.data.accountAge, words.accountAge(words.createdAt(twoYears)));
-  assert.equal(heard.filter((e) => e.type === 'discord_join').length, 1, 'a bot joining was announced');
-  assert.ok(said.some((line) => line.startsWith('Nuevita entró al Discord (')), `the action did not run: ${JSON.stringify(said)}`);
-  const boost = heard.find((e) => e.type === 'discord_boost');
-  assert.ok(boost, 'a boost with its post off told the app nothing');
-  assert.equal(boost.data.boosts, 4);
-});
-
-test('an action can be set off by them, and an alert can show them', () => {
-  const actions = fs.readFileSync(new URL('../../web/components/views/ActionsView.tsx', SCRIPT_URL), 'utf8');
-  assert.ok(actions.includes("value: 'discord_join'") && actions.includes("value: 'discord_boost'"), 'the action editor does not offer them');
-  const alerts = fs.readFileSync(new URL('../engine/alerts.js', SCRIPT_URL), 'utf8');
-  assert.ok(alerts.includes("'discord_join', 'discord_boost',"), 'an alert cannot be made for them');
-  const alertsView = fs.readFileSync(new URL('../../web/components/views/AlertsView.tsx', SCRIPT_URL), 'utf8');
-  assert.ok(alertsView.includes("type: 'discord_join'"), 'the Alerts screen does not offer them');
-  const picker = fs.readFileSync(new URL('../../web/components/VariablePicker.tsx', SCRIPT_URL), 'utf8');
-  assert.ok(picker.includes('  discord_join: [') && picker.includes('  discord_boost: ['), 'their variables are not listed');
-});
-
 // ---------------------------------------------------------------- a name colour of one's own; server emojis picked
 
 const ownColour = cardCss.cleanCard({ nameColour: 'own', nameColourValue: '#123456' });
@@ -498,7 +448,7 @@ test('every look gives the name a colour field, beside its other colours', () =>
 
 test('a card wearing a look as it was is brought up to date; an edited one is left alone', () => {
   const was = PREVIOUS_CARD_LOOKS['card-simonsays'][0];
-  // The live welcome card is exactly this: SimonSays Default, never edited.
+  // The live welcome card is exactly this: SimonBot Default, never edited.
   assert.ok(was.includes('[data-card="name"] { color: #ffffff; }'));
   const now = CARD_LOOKS.find((l) => l.id === 'card-simonsays').css;
   assert.equal(cardCss.cleanCard({ css: was }).css, now, 'a card with the old look gets no Name field');

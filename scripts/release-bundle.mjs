@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * The two files a GitHub release carries so copies of the app can update
- * themselves (server/engine/updater.js): the package, simonsays-<version>.tgz,
+ * themselves (server/engine/updater.js): the package, simonbot-<version>.tgz,
  * and release.json, which says what is in it (shared/release.js).
  *
  *   node scripts/release-bundle.mjs [folder] [--out <dir>]
  *
- * `folder` is the app to package — the public edition's clone, built — and
+ * `folder` is the app to package — a clean clone, built — and
  * defaults to this one. The package is what runs: start.js, the server
  * without its dependencies, shared/, and the built web app (web/dist, so
  * run `npm run build` first; a build from another version is refused). Never
@@ -18,7 +18,7 @@
  *
  * Then, in the public repo:
  *
- *   gh release create v<version> <out>/simonsays-<version>.tgz <out>/release.json --notes-file <notes>
+ *   gh release create v<version> <out>/simonbot-<version>.tgz <out>/release.json --notes-file <notes>
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -90,7 +90,7 @@ const manifest = cleanReleaseManifest({
 });
 if (!manifest) fail('the release would not describe itself properly');
 
-const dir = path.resolve(out || path.join(os.tmpdir(), `simonsays-release-${version}`));
+const dir = path.resolve(out || path.join(os.tmpdir(), `simonbot-release-${version}`));
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, manifest.file), tgz);
 fs.writeFileSync(path.join(dir, RELEASE_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);

@@ -70,14 +70,13 @@ for (const file of ['package-lock.json', 'server/package-lock.json', 'web/packag
   write(file, head + rest);
 }
 
-// The changelogs — this one, and the public edition's where it is here. The
-// work written up as it was done, under "## [Unreleased]" (the roadmap's
-// "in progress"), becomes this version's entry; without it, a heading for
-// this version above the last one, to be filled in.
+// The changelog. The work written up as it was done, under "## [Unreleased]",
+// becomes this version's entry; without it, a heading for this version above
+// the last one, to be filled in.
 const today = new Date().toISOString().slice(0, 10);
 const UNRELEASED = /^## \[Unreleased\][^\r\n]*$/m;
 let carried = false;
-for (const logFile of ['CHANGELOG.md', 'public-edition/overrides/CHANGELOG.md']) {
+for (const logFile of ['CHANGELOG.md']) {
   if (!fs.existsSync(at(logFile))) continue;
   const log = fs.readFileSync(at(logFile), 'utf8');
   if (UNRELEASED.test(log)) {

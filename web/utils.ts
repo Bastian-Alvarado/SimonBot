@@ -60,55 +60,20 @@ export const parseMessageWithEmotes = (msg: string, emotes: { [id: string]: stri
     : React.createElement(React.Fragment, { key: `t${idx}` }, withDiscordText(part.text, `${size}px`, names))));
 };
 
-// --- PKCE Helpers for Kick Auth ---
-
-export type SortMode = 'created' | 'name';
-
 /**
- * Order commands or actions for display.
+ * The redirect URI to register with Google, and to send on the YouTube login.
  *
- * `created` is simply the stored order, and that genuinely is creation order:
- * the store appends new records and edits existing ones in place, so a rename
- * never moves a row. Neither commands nor actions carry a timestamp — their
- * ids are random strings, not sortable ones — so position is the only record
- * of when something was made. Give them a `createdAt` if that ever needs to
- * survive the array being reordered.
- *
- * Always returns a new array when it sorts: sorting the prop in place would
- * mutate React state held elsewhere.
+ * Google takes no raw addresses for a desktop sign-in but loopback ones, and
+ * returns to exactly the address registered, character for character — so
+ * localhost is written as 127.0.0.1, and the screen shows the address and the
+ * login sends it, both from here. Twitch and Discord accept localhost, so
+ * they use the page's own address as it is.
  */
-export const sortForDisplay = <T extends { name?: string }>(items: T[], mode: SortMode): T[] => {
-  if (mode !== 'name') return items;
-  // localeCompare with a base sensitivity so accents and case do not split
-  // names apart — "Juegación" belongs next to "Juegacion", not after Z.
-  return [...items].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-};
-
-/**
- * The redirect URI to register with Spotify, and to send on the authorize call.
- *
- * Spotify refuses `localhost` outright — "localhost is not allowed as redirect
- * URI" — but permits plain HTTP for an explicit loopback literal. So a
- * dashboard opened at http://localhost:8081/ cannot register a usable URI at
- * all, while the very same server reached as 127.0.0.1 can. Rewriting only the
- * hostname keeps both legs of the exchange pointed at this same server, and
- * Spotify sends the browser back to the loopback address to finish.
- *
- * Twitch and Discord accept localhost, so this is deliberately Spotify-only.
- * https://developer.spotify.com/documentation/web-api/concepts/redirect_uri
- */
-export const spotifyRedirectUri = () => {
+export const youtubeRedirectUri = () => {
   const url = new URL(window.location.origin + window.location.pathname);
   if (url.hostname === 'localhost') url.hostname = '127.0.0.1';
   return url.toString();
 };
-
-/*
-  Google returns to exactly this, and refuses anything that is not registered
-  against the client id character for character — so the screen shows it and
-  the login sends it, both from here.
-*/
-export const youtubeRedirectUri = () => spotifyRedirectUri();
 
 export const generateRandomString = (length: number) => {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';

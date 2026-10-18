@@ -9,7 +9,7 @@ import { useDragOrder, DragGrip } from '../../hooks/useDragOrder';
 import { moveToGap } from '../../../shared/list-order.js';
 import { DiscordButtonMapping, DiscordButtonMessage, DiscordEmbed, ThemeConfig } from '../../types';
 import { Button } from '../Button';
-import { Plus, Trash2, Edit2, Smile, AlertTriangle, MessageSquare, Palette, Layers, MousePointerClick, Hash } from 'lucide-react';
+import { Plus, Trash2, Edit2, Smile, AlertTriangle, MessageSquare, Hash } from 'lucide-react';
 import { EmojiPicker } from '../EmojiPicker';
 
 interface DiscordButtonsViewProps {
@@ -275,7 +275,7 @@ export const DiscordButtonsView: React.FC<DiscordButtonsViewProps> = ({ activeTh
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <span className="font-bold text-white">Simon Says Bot</span>
+                                        <span className="font-bold text-white">SimonBot</span>
                                         <span className="bg-[#5865F2] text-white text-[9px] px-1 rounded font-bold uppercase">Bot</span>
                                     </div>
                                     <div className="text-[#DBDEE1] mt-1 whitespace-pre-wrap">{messageBody}</div>

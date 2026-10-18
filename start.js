@@ -28,7 +28,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const RESTART_FOR_UPDATE = 75;
-const READY_WITHIN_MS = Number(process.env.SIMONSAYS_READY_MS) || 90_000;
+const READY_WITHIN_MS = Number(process.env.SIMONBOT_READY_MS) || 90_000;
 /** A crash restarts the server, but not forever: more than this many inside CRASH_WINDOW_MS and it stops. */
 const MAX_CRASHES = 5;
 const CRASH_WINDOW_MS = 2 * 60_000;
@@ -52,7 +52,7 @@ export const codeDirFor = (root, current) => (current ? current.abs : root);
 
 /**
  * The environment a version runs in: told it has a launcher and where the
- * install is (SIMONSAYS_ROOT, which server/config.js keeps data/ and assets/
+ * install is (SIMONBOT_ROOT, which server/config.js keeps data/ and assets/
  * in), and — when it runs from a version's own folder — pointed at the
  * install's .env, never at a copy of its own.
  *
@@ -61,7 +61,7 @@ export const codeDirFor = (root, current) => (current ? current.abs : root);
  * .env would come up after an update on an empty folder.
  */
 export function envFor(root, dir, base = process.env) {
-  const env = { ...base, SIMONSAYS_LAUNCHER: '1', SIMONSAYS_ROOT: root };
+  const env = { ...base, SIMONBOT_LAUNCHER: '1', SIMONBOT_ROOT: root };
   if (path.resolve(dir) !== path.resolve(root)) {
     if (!env.ENV_FILE) {
       const found = [path.join(root, '.env'), path.join(root, 'server', '.env')].find((f) => fs.existsSync(f));
@@ -173,7 +173,7 @@ function main() {
     };
     const timer = justSwitched ? setTimeout(giveUp, READY_WITHIN_MS) : null;
     child.on('message', (m) => {
-      if (m?.type !== 'simonsays-ready') return;
+      if (m?.type !== 'simonbot-ready') return;
       ready = true;
       clearTimeout(timer);
       // Up: the versions no longer needed go, the one that would not start among them.

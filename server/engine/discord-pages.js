@@ -43,11 +43,9 @@ import {
 } from '../../shared/discord-pages.js';
 import { drawBanner, keepDrawings, initBannerText } from './banner-text.js';
 import * as engine from './index.js';
-import * as tags from './tags.js';
 import * as sessions from './stream-sessions.js';
-import * as twitchExtras from './twitch-extras.js';
+import * as twitchSchedule from './twitch-schedule.js';
 import * as twitch from '../platforms/twitch.js';
-import * as spotify from '../platforms/spotify.js';
 import * as discordVoice from '../platforms/discord-voice.js';
 
 const log = createLogger('discord-pages');
@@ -132,17 +130,15 @@ const gone = (err) => err?.status === 404 || err?.code === 10008 || err?.code ==
 
 // ------------------------------------------------------------------ what it says, now
 
-/** The stream as the overlays see it, for the overlay's {names}. */
+/** What the live {names} are read from (shared/live-vars.js): the poll, the voice call, the Twitch schedule. */
 function liveState() {
-  return { ...engine.snapshot(), stats: tags.getStats(), voice: discordVoice.getState?.(), spotifyTrack: spotify.getNowPlaying?.() };
+  return { ...engine.snapshot(), ...twitchSchedule.snapshot(), voice: discordVoice.getState?.() };
 }
 
 /** The page's own {names}: live or not, since when, and times as Discord shows them. */
 export function pageValues(now = Date.now()) {
   const s = sessions.current();
-  const stats = tags.getStats() || {};
-  const viewers = (Number(stats.twitchViewers) || 0) + (stats.youtubeLive ? Number(stats.youtubeViewers) || 0 : 0) + (Number(stats.tiktokViewers) || 0);
-  const next = twitchExtras.nextStream?.(now);
+  const next = twitchSchedule.nextStream(now);
   const unix = next?.start ? Math.floor(Date.parse(next.start) / 1000) : 0;
   const login = twitch.getCredentials?.()?.login;
   return {
@@ -150,7 +146,6 @@ export function pageValues(now = Date.now()) {
     liveSince: s ? `<t:${Math.floor(s.startedAt / 1000)}:R>` : '',
     streamTitle: s?.title || '',
     streamGame: s?.game || '',
-    viewersAll: s && viewers ? viewers.toLocaleString('es-MX') : '',
     nextStreamAt: unix ? `<t:${unix}:F>` : '',
     nextStreamRelative: unix ? `<t:${unix}:R>` : '',
     twitchLink: login ? `https://twitch.tv/${login}` : '',
@@ -464,8 +459,7 @@ export async function deleteSource(id) {
 
 /*
   A page set to stay up to date is edited in place when what its {names}
-  say changes: going live, a new game, the song, the plan's step, the
-  viewers. Looked at once a minute, and soon after anything like that
+  say changes: going live, a new game, the next stream. Looked at once a minute, and soon after anything like that
   happens — at most every half minute per page. Only the messages whose
   words changed are sent again; a page whose blocks were changed by hand
   waits for "Update in Discord".
@@ -555,6 +549,6 @@ export function initDiscordPages() {
   liveTimer = setInterval(() => { refreshLive().catch((err) => log.warn(`live pages: ${err.message}`)); }, LIVE_EVERY_MS);
   liveTimer.unref?.();
   for (const what of ['stream:started', 'stream:ended', EVENTS.CHANNEL]) bus.on(what, nudge);
-  bus.on(EVENTS.EVENT, (e) => { if (e?.type === 'spotify_track_change' || e?.type === 'obs_stream_started' || e?.type === 'obs_stream_stopped') nudge(); });
-  bus.on(EVENTS.CONFIG, (c) => { if (c?.key === 'plan' || c?.key === 'twitchSchedule') nudge(); });
+  for (const what of ['stream:on', 'stream:off']) bus.on(what, nudge);
+  bus.on(EVENTS.CONFIG, (c) => { if (c?.key === 'twitchSchedule') nudge(); });
 }

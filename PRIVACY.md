@@ -1,6 +1,6 @@
 # Privacy
 
-SimonSays is software you run yourself, on your own computer or on a spare
+SimonBot is software you run yourself, on your own computer or on a spare
 PC or phone on your network. It has no website and no accounts, and it sends
 nothing to the people who make it: no analytics, no crash reports, no
 tracking of any kind.
@@ -15,53 +15,46 @@ GDPR in the EU, for example). The authors never see any of it.
 ## What it keeps, and where
 
 Everything is in two folders beside the server — `data/` (settings and
-records) and `assets/` (the pictures, sounds and fonts you upload) — and in
+records) and `assets/` (the pictures and fonts you upload) — and in
 `.env`, if you put sign-ins there.
 
 - **Your sign-ins:** the keys and tokens for the platforms you connect. The
   server keeps them; they are never sent to a browser, and backups leave
   them out.
-- **Your setup:** commands, actions, alerts, layouts, themes, Discord
-  messages and every other setting.
+- **Your setup:** welcome messages, Discord pages, role menus and every
+  other setting.
 - **About your viewers**, from the chats and events of the platforms you
   connect:
   - their names and account ids on each platform, and which accounts are one
     person, when they or you link them;
-  - levels, XP, points and what they bought with them;
+  - levels, XP and points;
   - counts of what they did — when they were first and last seen, messages
     per platform, streams they took part in, bits, subs, gifts and Super
     Chats, giveaways won. Counts, not the messages themselves;
-  - the most recent chat messages and events, for the chat dock and the
-    events list;
-  - questions, game requests, giveaway entries and the players list;
+  - questions, game requests and giveaway entries;
   - from Discord, members' ids, names and roles, where role menus, role
-    sync, welcome messages or the call overlay need them.
-- **Your streams:** when each one ran, and its chapters and highlights.
+    sync, welcome messages or the voice call need them.
+- **Your streams:** when each one ran, who took part, and its highlights.
 - **Who signs in to the dashboard**, once you switch sign-in on: you and your
   moderators — their Twitch name and id, when each was last seen, and the
   token Twitch gave them, kept on the server and never in a backup — and a
-  record of what each moderator changed from the dashboard (the last 500
+  record of what each moderator changed from the dashboard (the last 1000
   changes, also never in a backup).
 
 ## What leaves your computer
 
 Only what a feature you turn on needs, sent straight to that service:
 
-- **Twitch, YouTube (Google), Discord and Spotify**, once connected: reading
-  chat and events, and doing what your actions ask — posting, changing a
-  title, giving a role, playing a song.
+- **Twitch, YouTube (Google) and Discord**, once connected: reading chat and
+  events, and doing what you set up — posting, answering in chat, giving a
+  role.
 - **TikTok LIVE**, through Euler Stream (eulerstream.com), the signing
   service the TikTok connection relies on. It sees which TikTok LIVE is being
   connected to.
-- **VDO.Ninja**, if you use remote players: the players' video goes through
-  it, and the server asks it whether each seat is live.
-- **Google Gemini**, only if you choose Gemini as the text-to-speech voice:
-  the text to be spoken.
 - **jsDelivr**, for the emoji pictures on welcome cards, asked for by the
   emoji's code.
 - **Pictures** from the addresses you give (Discord pages, welcome cards),
   and avatars and emotes from the platforms' own image servers.
-- **OBS and DroidCam**, on your own network.
 
 Each service handles what it receives under its own privacy policy.
 
@@ -80,9 +73,6 @@ ads, no analytics and no outside scripts, and the fonts ship with the app.
   dashboard has all of it. Keep it on your own network until then, and switch
   sign-in on before it can be reached from anywhere else. It also asks search
   engines not to index it, but that is a request, not a lock.
-- The links you put in OBS carry a page key, which shows your stream without
-  signing in. Keep them as privately as a password, and make a new key in
-  Settings → Sign-in if one gets out.
 - A backup is a file you download, with the sign-ins left out on purpose.
   It still holds your viewers' data, so keep it as privately as the app.
 
@@ -92,5 +82,5 @@ ads, no analytics and no outside scripts, and the fonts ship with the app.
   a single account and no points to spend. It is off unless you choose it.
 - To delete everything, stop the server and delete `data/` (and `assets/`).
 - To end the app's access to an account, remove it on that platform: the bot
-  from your Discord server, and the app from your connected apps on Twitch,
-  Google and Spotify.
+  from your Discord server, and the app from your connected apps on Twitch
+  and Google.

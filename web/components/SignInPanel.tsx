@@ -4,15 +4,15 @@
  *
  * Settings → Sign-in (server/api/auth.js).
  *
- * The streamer's: switch sign-in on or off, see and change the owner key and
- * the page key, and sign out. A moderator sees only who they are signed in
+ * The streamer's: switch sign-in on or off, see and change the owner key, and
+ * sign out. A moderator sees only who they are signed in
  * as, and signing out.
  *
  * Switching on is offered only to somebody signed in — with Twitch or the
  * owner key — never merely because sign-in is off, so it can never lock out
  * the one who switched it on; the server refuses it the same way.
  */
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ShieldCheck, LogIn, LogOut, KeyRound, Eye, EyeOff, Copy, RefreshCw } from 'lucide-react';
 import { Button } from './Button';
 import { copyText } from '../utils';
@@ -23,7 +23,7 @@ import type { Me } from '../hooks/useBackend';
 interface Props {
   auth: {
     me: Me | null;
-    state: { enabled: boolean; ownerKey: string; pageKey: string } | null;
+    state: { enabled: boolean; ownerKey: string } | null;
     control: (payload: any) => Promise<any>;
   };
   light: boolean;
@@ -89,16 +89,13 @@ export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
 
   const toggle = () => {
     if (!state) return;
-    if (!state.enabled && !window.confirm(t.signInEnableConfirm || 'Switch sign-in on?\n\nFrom then on only you and your Twitch moderators can open the dashboard and the docks. Everybody else signed in signs in again, and the owner key changes. Pages in OBS need links with the page key: copy them again from their screens if you copied them before this update.')) return;
+    if (!state.enabled && !window.confirm(t.signInEnableConfirm || 'Switch sign-in on?\n\nFrom then on only you and your Twitch moderators can open the dashboard. Everybody else signed in signs in again, and the owner key changes.')) return;
     if (state.enabled && !window.confirm(t.signInDisableConfirm || 'Switch sign-in off?\n\nAnybody who can reach this app’s address will have all of it again.')) return;
     act({ op: 'enable', on: !state.enabled });
   };
 
-  const newKey = (which: 'pageKey' | 'ownerKey') => {
-    const ask = which === 'pageKey'
-      ? (t.signInNewPageKeyConfirm || 'Make a new page key?\n\nEvery page in OBS stops showing until you paste its new link.')
-      : (t.signInNewOwnerKeyConfirm || 'Make a new owner key?\n\nThe old one stops working at once, wherever it is saved.');
-    if (window.confirm(ask)) act({ op: 'new-key', which }, t.signInNewKeyDone || 'Done: the old one no longer works.');
+  const newKey = () => {
+    if (window.confirm(t.signInNewOwnerKeyConfirm || 'Make a new owner key?\n\nThe old one stops working at once, wherever it is saved.')) act({ op: 'new-key', which: 'ownerKey' }, t.signInNewKeyDone || 'Done: the old one no longer works.');
   };
 
   return (
@@ -145,7 +142,7 @@ export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
                   </p>
                   <p className="text-xs text-zinc-500 leading-relaxed mt-1">
                     {state.enabled
-                      ? (t.signInOnHint || 'Only you and your Twitch moderators can open the dashboard and the docks; pages in OBS show with the page key in their links.')
+                      ? (t.signInOnHint || 'Only you and your Twitch moderators can open the dashboard.')
                       : (t.signInOffHint || 'Anybody who can reach this app’s address — on your network, or through a public address — has all of it.')}
                   </p>
                 </div>
@@ -164,17 +161,10 @@ export const SignInPanel = ({ auth, light, panelClass, t }: Props) => {
                 label={t.signInOwnerKey || 'Owner key'}
                 hint={t.signInOwnerKeyHint || 'Your way in when Twitch isn’t: type it on the sign-in page. Keep it to yourself.'}
                 value={state.ownerKey}
-                onNew={() => newKey('ownerKey')}
+                onNew={newKey}
                 t={t}
               />
             )}
-            <KeyRow
-              label={t.signInPageKey || 'Page key'}
-              hint={t.signInPageKeyHint || 'In every link to a page OBS shows, so it can draw the stream without signing in. It lets a page show the stream, nothing else.'}
-              value={state.pageKey}
-              onNew={signedIn ? () => newKey('pageKey') : undefined}
-              t={t}
-            />
           </>
         )}
 

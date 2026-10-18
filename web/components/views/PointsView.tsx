@@ -2,35 +2,29 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Points: a currency apart from XP. What they are called, how they are
- * earned, the shop's rewards (each runs one of your actions), the shop's
- * message in Discord, and who has the most — with giving or taking by hand.
+ * Points: a score apart from XP. What they are called, how they are earned,
+ * the words chat asks with, and who has the most — with giving or taking by
+ * hand.
  *
  * Settings are a draft here until saved, as on Levels & XP: a typed number
- * is not a change to the shop until it is meant.
+ * is not a change until it is meant.
  */
-import React, { useEffect, useState } from 'react';
-import { Coins, Plus, Trash2, Save, Undo2, Send, Loader2, RefreshCw, ShoppingBag, AlertTriangle, CheckCircle2, Minus } from 'lucide-react';
-import { useDragOrder, DragGrip } from '../../hooks/useDragOrder';
-import { moveToGap } from '../../../shared/list-order.js';
-import { textChannels } from '../DiscordPicks';
+import { useEffect, useState } from 'react';
+import { Coins, Plus, Save, Undo2, Loader2, RefreshCw, AlertTriangle, CheckCircle2, Minus } from 'lucide-react';
 import { EmojiField } from '../EmojiField';
 import { refusalWords, fill } from '../../words';
 
-interface Item { id: string; name: string; emoji: string; cost: number; actionId: string; input: 'none' | 'optional' | 'required'; cooldownSec: number; perStream: number; liveOnly: boolean; enabled: boolean; description: string }
 interface Settings {
   enabled: boolean; name: string; emoji: string;
   earn: Record<string, number>;
-  words: { balance: string; shop: string; redeem: string; give: string };
-  youtube: boolean; shop: Item[]; discord: { channelId: string; messageId: string };
+  words: { balance: string; give: string };
+  youtube: boolean;
 }
 interface Props {
   settings?: Settings;
   control: (op: string, payload?: Record<string, any>) => Promise<any>;
-  actions: { id: string; name: string }[];
-  channels: { id: string; name: string; type: number }[];
-  emojis: any[];
-  botConnected: boolean;
+  /** The server's own emoji, for the points' emoji. */
+  emojis?: any[];
   t: any;
 }
 
@@ -50,9 +44,7 @@ const EARN_FIELDS: [string, string, string][] = [
   ['perDiamond', 'pointsEarnDiamond', 'Each TikTok diamond'],
   ['superChat', 'pointsEarnSuperChat', 'A Super Chat'],
 ];
-const newItem = (): Item => ({ id: `item-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name: '', emoji: '', cost: 100, actionId: '', input: 'none', cooldownSec: 0, perStream: 0, liveOnly: true, enabled: true, description: '' });
-
-export const PointsView = ({ settings, control, actions, channels, emojis, botConnected, t }: Props) => {
+export const PointsView = ({ settings, control, emojis = [], t }: Props) => {
   const [draft, setDraft] = useState<Settings | null>(settings || null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
@@ -64,8 +56,6 @@ export const PointsView = ({ settings, control, actions, channels, emojis, botCo
   useEffect(() => { loadBoard(); }, []);
 
   const change = (patch: Partial<Settings>) => { if (draft) { setDraft({ ...draft, ...patch }); setDirty(true); } };
-  const setItems = (fn: (items: Item[]) => Item[]) => change({ shop: fn(draft?.shop || []) });
-  const order = useDragOrder(({ from, gap }) => setItems((items) => moveToGap(items, from, gap)));
   const say = (ok: boolean, text: string) => setResult({ ok, text });
 
   const save = async () => {
@@ -75,15 +65,6 @@ export const PointsView = ({ settings, control, actions, channels, emojis, botCo
       await control('settings', { settings: draft });
       setDirty(false);
       say(true, t.pointsSaved || 'Saved.');
-    } catch (err: any) { say(false, refusalWords(t, err) || String(err?.message || err)); }
-    finally { setBusy(''); }
-  };
-  const postShop = async () => {
-    setBusy('post');
-    try {
-      if (dirty) { await control('settings', { settings: draft }); setDirty(false); }
-      const r = await control('post_shop', { channelId: draft?.discord.channelId });
-      say(true, r?.done === 'updated' ? (t.pointsShopUpdated || 'The shop in Discord was updated.') : (t.pointsShopPosted || 'The shop was posted in Discord.'));
     } catch (err: any) { say(false, refusalWords(t, err) || String(err?.message || err)); }
     finally { setBusy(''); }
   };
@@ -110,7 +91,7 @@ export const PointsView = ({ settings, control, actions, channels, emojis, botCo
             <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${draft.enabled ? 'translate-x-5' : ''}`} />
           </div>
         </div>
-        <p className="text-[11px] text-zinc-500 leading-relaxed">{t.pointsHint || 'A currency apart from XP: XP makes levels and only goes up; points are earned the same way and spent in the shop, on rewards that run one of your actions. One balance per person, whatever platforms they are on.'}</p>
+        <p className="text-[11px] text-zinc-500 leading-relaxed">{t.pointsHint || 'A score apart from XP: XP makes levels and only goes up; points are earned the same way, can be given or taken by hand, and have a board of their own. One balance per person, whatever platforms they are on.'}</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
           <label className="space-y-1 block"><span className={tag}>{t.pointsName || 'What they are called'}</span>
@@ -134,9 +115,9 @@ export const PointsView = ({ settings, control, actions, channels, emojis, botCo
         <div className="space-y-2">
           <span className={tag}>{t.pointsWords || 'In chat'}</span>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {(['balance', 'shop', 'redeem', 'give'] as const).map((k) => (
+            {(['balance', 'give'] as const).map((k) => (
               <label key={k} className="space-y-1 block">
-                <span className="text-[10px] text-zinc-500">{{ balance: t.pointsWordBalance || 'Balance', shop: t.pointsWordShop || 'The shop', redeem: t.pointsWordRedeem || 'Buy', give: t.pointsWordGive || 'Give (mods)' }[k]}</span>
+                <span className="text-[10px] text-zinc-500">{{ balance: t.pointsWordBalance || 'Balance', give: t.pointsWordGive || 'Give (mods)' }[k]}</span>
                 <input value={draft.words[k]} onChange={(e) => change({ words: { ...draft.words, [k]: e.target.value } })} className={`${box} font-mono`} />
               </label>
             ))}
@@ -145,68 +126,7 @@ export const PointsView = ({ settings, control, actions, channels, emojis, botCo
             <input type="checkbox" checked={draft.youtube} onChange={(e) => change({ youtube: e.target.checked })} className="accent-current-accent" />
             <span className="text-[11px] text-zinc-400">{t.pointsYoutube || 'Answer on YouTube too (each answer uses some of YouTube\'s daily allowance)'}</span>
           </label>
-          <p className="text-[10px] text-zinc-600">{fill(t.pointsChatHow || 'In any chat: {balance} for a balance, {shop} for the list, {redeem} 2 or {redeem} TTS hello to buy. Moderators: {give} @name 100.', { balance: draft.words.balance, shop: draft.words.shop, redeem: draft.words.redeem, give: draft.words.give })}</p>
-        </div>
-      </div>
-
-      {/* The shop. */}
-      <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-4" data-points-shop>
-        <div className="flex items-center gap-3">
-          <ShoppingBag size={16} className="text-current-accent" />
-          <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300 flex-1">{t.pointsShop || 'The shop'}</span>
-          <button onClick={() => setItems((items) => [...items, newItem()])} disabled={draft.shop.length >= 24} className={smallButton} data-points-add><Plus size={11} /> {t.pointsAddItem || 'Add a reward'}</button>
-        </div>
-        {draft.shop.length === 0 && <p className="text-[11px] text-zinc-600 italic">{t.pointsNoItems || 'No rewards yet. Each reward runs one of your actions — make the action first (a sound, a TTS message, an overlay effect).'}</p>}
-        <div ref={order.listRef} className="relative space-y-2">
-          {order.line}
-          {draft.shop.map((it, i) => {
-            const set = (patch: Partial<Item>) => setItems((items) => items.map((x) => (x.id === it.id ? { ...x, ...patch } : x)));
-            return (
-              <div key={it.id} {...order.row(it.id)} className={`bg-zinc-950/50 border border-zinc-800 rounded-2xl p-3 space-y-2 ${order.held === it.id ? 'opacity-40' : ''} ${it.enabled ? '' : 'opacity-60'}`} data-points-item={it.id}>
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                  {draft.shop.length > 1 && <DragGrip grip={order.grip(it.id)} title={t.pointsDrag || 'Drag to change the order'} />}
-                  <span className="text-[10px] font-black text-zinc-500 w-4">{i + 1}</span>
-                  <EmojiField size="sm" value={it.emoji} onChange={(emoji) => set({ emoji })} customEmojis={emojis} t={t} />
-                  <input value={it.name} onChange={(e) => set({ name: e.target.value.slice(0, 40) })} placeholder={t.pointsItemName || 'Name'} className={`${box} sm:w-48`} />
-                  <label className="flex items-center gap-1.5 shrink-0">
-                    <input type="number" min={1} value={it.cost} onChange={(e) => set({ cost: Number(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-[11px] text-white text-right" />
-                    <span className="text-[10px] text-zinc-500">{draft.emoji || draft.name}</span>
-                  </label>
-                  <select value={it.actionId} onChange={(e) => set({ actionId: e.target.value })} className={`${box} ${!it.actionId ? 'border-amber-500/40' : ''}`}>
-                    <option value="">{t.pointsPickAction || 'Runs which action?'}</option>
-                    {actions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
-                  <button onClick={() => setItems((items) => items.filter((x) => x.id !== it.id))} className="p-1.5 text-zinc-500 hover:text-rose-400"><Trash2 size={12} /></button>
-                </div>
-                <div className="flex items-center gap-3 flex-wrap pl-6">
-                  <select value={it.input} onChange={(e) => set({ input: e.target.value as Item['input'] })} className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-[10px] text-zinc-300">
-                    <option value="none">{t.pointsInputNone || 'No words'}</option>
-                    <option value="optional">{t.pointsInputOptional || 'Words if they like'}</option>
-                    <option value="required">{t.pointsInputRequired || 'Words needed'}</option>
-                  </select>
-                  <label className="flex items-center gap-1 text-[10px] text-zinc-500">{t.pointsCooldown || 'Wait between (s)'}
-                    <input type="number" min={0} value={it.cooldownSec} onChange={(e) => set({ cooldownSec: Number(e.target.value) })} className="w-16 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-[10px] text-white text-right" /></label>
-                  <label className="flex items-center gap-1 text-[10px] text-zinc-500">{t.pointsPerStream || 'Per stream (0: any)'}
-                    <input type="number" min={0} value={it.perStream} onChange={(e) => set({ perStream: Number(e.target.value) })} className="w-14 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-[10px] text-white text-right" /></label>
-                  <label className="flex items-center gap-1 cursor-pointer text-[10px] text-zinc-400"><input type="checkbox" checked={it.liveOnly} onChange={(e) => set({ liveOnly: e.target.checked })} className="accent-current-accent" /> {t.pointsLiveOnly || 'Only while live'}</label>
-                  <label className="flex items-center gap-1 cursor-pointer text-[10px] text-zinc-400"><input type="checkbox" checked={it.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="accent-current-accent" /> {t.pointsItemOn || 'On'}</label>
-                </div>
-                <input value={it.description} onChange={(e) => set({ description: e.target.value.slice(0, 200) })} placeholder={t.pointsItemDescription || 'A line about it (shown in Discord, and as the box\'s label when it asks for words)'} className={`${box} ml-6 w-[calc(100%-1.5rem)]`} />
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-zinc-800/60">
-          <span className={tag}>{t.pointsDiscord || 'In Discord'}</span>
-          <select value={draft.discord.channelId} onChange={(e) => change({ discord: { ...draft.discord, channelId: e.target.value } })} className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-[11px] text-zinc-200 max-w-[220px]" data-points-channel>
-            <option value="">{t.discordSendPickChannel || 'Choose a channel'}</option>
-            {textChannels(channels).map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
-          </select>
-          <button onClick={postShop} disabled={!!busy || !botConnected || !draft.discord.channelId} className={smallButton} data-points-post>
-            {busy === 'post' ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />} {settings?.discord.messageId && settings.discord.channelId === draft.discord.channelId ? (t.pointsShopUpdate || 'Update the shop') : (t.pointsShopPost || 'Post the shop')}
-          </button>
-          <span className="text-[10px] text-zinc-600">{t.pointsDiscordHint || 'A button for each reward; one that asks for words opens a box for them.'}</span>
+          <p className="text-[10px] text-zinc-600">{fill(t.pointsChatHow || 'In any chat: {balance} for a balance. Moderators: {give} @name 100.', { balance: draft.words.balance, give: draft.words.give })}</p>
         </div>
       </div>
 

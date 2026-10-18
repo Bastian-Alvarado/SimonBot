@@ -179,7 +179,7 @@ export const WelcomeCardEditor = ({ kind, card: incoming, onChange, preview, onP
         </div>
       </div>
       <p className="text-[10px] text-zinc-500 leading-relaxed">
-        {t.welcomeCardHint || 'A picture of them, drawn by the server and posted with the message — as the card\'s big picture when the card is on. Styled like a layer: pick a look, turn its fields, or write your own CSS.'}
+        {t.welcomeCardHint || 'A picture of them, drawn by the server and posted with the message — as the card\'s big picture when the card is on. Pick a look, turn its fields, or write your own CSS.'}
       </p>
 
       {card.enabled && (

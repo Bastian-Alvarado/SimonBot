@@ -2,9 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The server's channels and roles, for pickers deep inside an editor — the
- * action step editor renders itself recursively, and passing these down
- * through every level of it would be a prop on every step for the sake of one.
+ * The server's channels and roles, for pickers deep inside an editor: passing
+ * these down through every level of it would be a prop on every field for the
+ * sake of one.
  */
 import React, { createContext, useContext } from 'react';
 

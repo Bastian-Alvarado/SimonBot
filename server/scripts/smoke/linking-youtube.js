@@ -4,16 +4,15 @@
  *
  * Smoke tests: YouTube accounts linked to Discord — by hand from the Role
  * Management screen, or by the viewer from both sides — and the roles their
- * membership, moderation and Super Chats earn; Twitch followers listed in
- * the link window to pick from; and the per-command switch that keeps a
- * command out of Discord.
+ * membership, moderation and Super Chats earn; and Twitch followers listed
+ * in the link window to pick from.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After discord.js, which
  * set role sync up.
  */
 
-import { SCRIPT_URL, assert, bus, collection, discordSent, engine, EVENTS, fs, normaliseChat, normaliseEvent, said, test } from './harness.js';
+import { SCRIPT_URL, assert, bus, collection, EVENTS, fs, normaliseChat, normaliseEvent, test } from './harness.js';
 
 const roleSync = await import('../../engine/role-sync.js');
 const roles = await import('../../engine/discord-roles.js');
@@ -172,32 +171,3 @@ test('a viewer links YouTube themselves: !linkdiscord in its chat, !linkyoutube 
     assert.ok(read('../api/ws.js').includes("if (op === 'twitch_followers') return reply(await twitch.listFollowers());"));
   });
 }
-
-// ---------------------------------------------------------------- a command kept out of Discord
-
-const saved = engine.store.saveCommand({ id: 'cmd-twitch-only', name: 'Solo Twitch', triggers: ['!solotwitch'], enabled: true, permissions: { anyone: true }, globalCooldown: 0, userCooldown: 0, discord: false });
-engine.store.saveCommand({ id: 'cmd-everywhere-2', name: 'Todos', triggers: ['!todos'], enabled: true, permissions: { anyone: true }, globalCooldown: 0, userCooldown: 0 });
-const byDefault = engine.snapshot().commands.find((c) => c.id === 'cmd-everywhere-2');
-engine.store.saveAction({
-  id: 'act-twitch-only', name: 'Solo Twitch', enabled: true,
-  trigger: { id: 'tr-to', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-twitch-only' } },
-  actions: [{ id: 's1', type: 'twitch_chat', config: { message: 'Solo para {user}', sendTo: 'origin' } }],
-});
-const sentBefore = discordSent.length;
-bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'discord', user: 'EnDiscord', userId: 'd1', msg: '!solotwitch', raw: { channelId: '700000000000000888' } }));
-bus.emit('discord:message_elsewhere', normaliseChat({ platform: 'discord', user: 'EnOtroCanal', userId: 'd2', msg: '!solotwitch', raw: { channelId: '700000000000000889' } }));
-bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'twitch', user: 'EnTwitch', userId: 't1', msg: '!solotwitch' }));
-await wait(60);
-const fromDiscord = discordSent.slice(sentBefore).length;
-engine.store.deleteAction('act-twitch-only');
-engine.store.deleteCommand('cmd-twitch-only');
-engine.store.deleteCommand('cmd-everywhere-2');
-
-test('a command turned off for Discord does not run there, in any channel, and still runs on Twitch', () => {
-  assert.equal(saved.find((c) => c.id === 'cmd-twitch-only')?.discord, false, 'the switch was not kept');
-  assert.equal(byDefault?.discord, true, 'a command is not for Discord by default');
-  assert.equal(fromDiscord, 0, 'it ran from Discord');
-  assert.ok(!said.some((s) => s === 'Solo para EnDiscord' || s === 'Solo para EnOtroCanal'));
-  assert.ok(said.includes('Solo para EnTwitch'));
-  assert.ok(read('../../web/components/CommandEditorModal.tsx').includes('data-command-discord'));
-});

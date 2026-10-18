@@ -6,7 +6,7 @@
 import React, { useRef } from 'react';
 import { Language, ThemeConfig, ThemeId } from '../../types';
 import { THEMES } from '../../constants';
-import { Palette, Sun, Moon, Check, Languages, Globe, Save, Upload, Download, Database, Info, RefreshCw, GitBranch } from 'lucide-react';
+import { Palette, Sun, Moon, Check, Languages, Globe, Upload, Download, Database, Info, RefreshCw } from 'lucide-react';
 import { Button } from '../Button';
 import { VERSION } from '../../../shared/version.js';
 import { fill, refusalWords } from '../../words';
@@ -26,8 +26,6 @@ interface SettingsViewProps {
   /** Updates from GitHub, on a copy that updates itself (null on one updated by hand), and the way to ask for them. */
   updates?: UpdatesState | null;
   updatesAct?: (op: 'check' | 'apply') => Promise<any>;
-  /** To the Roadmap screen: every release, and the ones planned. */
-  openRoadmap?: () => void;
   /** Who this is, and the sign-in settings (hooks/useStreamSystem.ts auth). */
   auth?: any;
   t: any;
@@ -44,7 +42,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   serverVersion,
   updates,
   updatesAct,
-  openRoadmap,
   auth,
   t
 }) => {
@@ -58,17 +55,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   /**
    * The device-local half of a backup.
    *
-   * Everything else — commands, actions, alerts, levels — belongs to the
-   * server and is fetched from it. These are the per-browser display choices,
-   * which is all V2 ever had and all the old export ever captured.
+   * Everything else — Discord, levels, points — belongs to the server and is
+   * fetched from it. These are the per-browser display choices.
    */
-  const DEVICE_KEYS = [
-    'app_theme', 'app_lang',
-    'chat_theme', 'chat_dock_bg', 'chat_show_avatars', 'chat_show_platform_icons',
-    'chat_color_username', 'chat_show_events', 'chat_event_platforms',
-    'chat_highlight_ranks', 'chat_rank_badges', 'chat_sender_role',
-    'twitch_client_id',
-  ];
+  const DEVICE_KEYS = ['app_theme', 'app_lang', 'twitch_client_id'];
 
   const readDeviceKeys = () => {
     const out: Record<string, any> = {};
@@ -91,7 +81,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `simon-says-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `simonbot-backup-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -100,7 +90,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       const count = Object.keys(bundle.collections || {}).length;
       const stripped = bundle.meta?.stripped?.length ?? 0;
       setNote(`${t.exportDone || 'Saved'}: ${count} ${t.exportCollections || 'collections'}`
-        + (stripped ? ` — ${t.exportSecretsNote || 'sign-ins are not included; connect again on the new machine'}` : ''));
+        + (stripped ? ` — ${t.exportSecretsNote || 'sign-ins are not included, so connect the platforms again on the new machine'}` : ''));
     } catch (err: any) {
       setNote(`${t.exportFailed || 'Export failed'}: ${refusalWords(t, err) || err?.message || err}`);
     } finally {
@@ -121,8 +111,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setNote('');
       try {
         const bundle = JSON.parse(String(e.target?.result ?? ''));
-        if (!bundle?.meta || bundle.meta.app !== 'SimonSays') {
-          setNote(t.importNotOurs || 'That is not a SimonSays backup file.');
+        if (!bundle?.meta || !['SimonBot', 'SimonSays'].includes(bundle.meta.app)) {
+          setNote(t.importNotOurs || 'That is not a SimonBot or SimonSays backup file.');
           return;
         }
         if (!window.confirm(t.importConfirm)) return;
@@ -205,7 +195,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         <Download size={24} />
                     </div>
                     <h4 className={`font-bold text-lg mb-1 ${activeTheme.id === 'light' ? 'text-zinc-900' : 'text-white'}`}>{t.exportConfig || 'Export Configuration'}</h4>
-                    <p className="text-xs text-zinc-500">{t.exportDesc || 'Save a backup of your settings to a JSON file.'}</p>
+                    <p className="text-xs text-zinc-500">{t.exportDesc || 'Save everything on this server — levels, roles, welcome messages, pages — to one file.'}</p>
                 </div>
                 <Button onClick={handleExport} disabled={busy !== null} className="w-full bg-indigo-500 hover:bg-indigo-600 border-none text-white">
                     {t.exportConfig || 'Export Configuration'}
@@ -219,7 +209,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         <Upload size={24} />
                     </div>
                     <h4 className={`font-bold text-lg mb-1 ${activeTheme.id === 'light' ? 'text-zinc-900' : 'text-white'}`}>{t.importConfig || 'Import Configuration'}</h4>
-                    <p className="text-xs text-zinc-500">{t.importDesc || 'Restore settings from a previously exported JSON file.'}</p>
+                    <p className="text-xs text-zinc-500">{t.importDesc || 'Restore a backup onto this machine, replacing what is here.'}</p>
                 </div>
                 <input 
                     type="file" 
@@ -252,7 +242,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <h3 className="text-xl font-extrabold uppercase tracking-tight">{t.aboutApp || 'About'}</h3>
         </div>
         <p className={`text-2xl font-black tracking-tight ${activeTheme.id === 'light' ? 'text-zinc-900' : 'text-white'}`}>
-          SimonSays <span className="text-current-accent" data-app-version={VERSION}>{fill(t.versionLine || 'Version {version}', { version: VERSION })}</span>
+          SimonBot <span className="text-current-accent" data-app-version={VERSION}>{fill(t.versionLine || 'Version {version}', { version: VERSION })}</span>
         </p>
         {serverVersion && serverVersion !== VERSION ? (
           <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3" data-version-mismatch={serverVersion}>
@@ -262,11 +252,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         ) : serverVersion ? (
           <p className="mt-2 text-xs text-zinc-500" data-version-same>{t.versionSame || 'The server runs this same version.'}</p>
         ) : null}
-        {openRoadmap && (
-          <button onClick={openRoadmap} className="mt-3 flex items-center gap-1.5 text-xs font-bold text-current-accent hover:underline" data-settings-roadmap>
-            <GitBranch size={14} /> {t.roadmapAboutLink || 'See the roadmap: every update, and what is next'}
-          </button>
-        )}
         {owner && updates?.enabled && updatesAct && (
           <UpdatesPanel updates={updates} act={updatesAct} language={language} light={activeTheme.id === 'light'} t={t} />
         )}

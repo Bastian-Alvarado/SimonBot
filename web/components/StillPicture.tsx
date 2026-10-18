@@ -80,7 +80,7 @@ export const StillImg = ({ src, width, ...rest }: { src: string; width: number }
  * Whether the preview's pictures move, chosen on the screen and remembered
  * by this browser. Moving by default: the preview shows what Discord will.
  */
-const MOTION_KEY = 'simonsays.preview-still';
+const MOTION_KEY = 'simonbot.preview-still';
 export function usePreviewStill(): [boolean, (still: boolean) => void] {
   const [still, setStill] = useState(() => {
     try { return localStorage.getItem(MOTION_KEY) === '1'; } catch { return false; }

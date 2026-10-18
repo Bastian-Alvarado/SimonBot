@@ -6,7 +6,7 @@
  * release script writes it (scripts/release-bundle.mjs).
  *
  * Every GitHub release of the app carries two files: the package itself —
- * simonsays-<version>.tgz, everything needed to run that version, already
+ * simonbot-<version>.tgz, everything needed to run that version, already
  * built, without its dependencies — and release.json, which says what is in
  * the package and how to know it arrived whole:
  *
@@ -34,7 +34,7 @@ export function compareVersions(a, b) {
 }
 
 export const RELEASE_MANIFEST = 'release.json';
-export const packageName = (version) => `simonsays-${version}.tgz`;
+export const packageName = (version) => `simonbot-${version}.tgz`;
 
 /** release.json, held to its shape: anything off and it is not a release this can install. */
 export function cleanReleaseManifest(raw) {

@@ -143,7 +143,7 @@ function onList(list) {
  * Current subscribers with a known tenure, longest first.
  *
  * Anyone whose months we have never observed is omitted rather than sorted in
- * at zero — an overlay saying someone is a brand-new subscriber when they have
+ * at zero — a page saying someone is a brand-new subscriber when they have
  * been here three years is worse than not listing them yet.
  */
 export function topSubscribers(limit = 10) {

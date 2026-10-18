@@ -4,9 +4,9 @@
  *
  * Serial, rate-limited task queue for outbound API calls.
  *
- * V2 had a single global queue shared by every Discord call. That meant a
- * slow role-assignment blocked chat relays behind it. Queues are now named,
- * so independent workloads drain independently.
+ * One global queue shared by every Discord call meant a slow role-assignment
+ * blocked chat relays behind it. Queues are named, so independent workloads
+ * drain independently.
  */
 
 import { createLogger } from './logger.js';

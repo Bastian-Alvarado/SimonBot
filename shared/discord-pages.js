@@ -27,34 +27,33 @@
  *            and 4,000 characters of text; fields stack.
  */
 
-import { OVERLAY_VARS, fillTemplate } from './overlay-vars.js';
+import { LIVE_VARS, fillTemplate } from './live-vars.js';
 
 export const PAGE_BLOCK_TYPES = ['banner', 'card', 'text', 'gap', 'links'];
 
 /**
- * A page's own words, beside every overlay variable ({viewers}, {nowPlaying},
- * {planNow}, {nextStream}, {latestFollower}…): what only a Discord page says —
- * the times as Discord shows them, in each reader's own time zone, and
- * counting by themselves.
+ * A page's own words, beside the live values ({pollQuestion}, {voiceCount},
+ * {nextStream}…, shared/live-vars.js): what only a Discord page says — the
+ * times as Discord shows them, in each reader's own time zone, and counting
+ * by themselves.
  */
 export const PAGE_VARS = [
   { name: 'live', label: 'Live or not, as a line' },
   { name: 'liveSince', label: 'How long it has been on (Discord counts it up)' },
   { name: 'streamTitle', label: "The stream's title, while live" },
   { name: 'streamGame', label: "The stream's game, while live" },
-  { name: 'viewersAll', label: 'Viewers on every platform together, while live' },
   { name: 'nextStreamAt', label: "Next stream, in each reader's own time" },
   { name: 'nextStreamRelative', label: 'Next stream, as "in 2 days"' },
   { name: 'twitchLink', label: 'Your Twitch link' },
 ];
 /** Every {name} a page fills in. */
-export const PAGE_VAR_NAMES = new Set([...OVERLAY_VARS.map((v) => v.name), ...PAGE_VARS.map((v) => v.name)]);
+export const PAGE_VAR_NAMES = new Set([...LIVE_VARS.map((v) => v.name), ...PAGE_VARS.map((v) => v.name)]);
 
 /**
  * A page's words with their {names} filled in: the page's own from `values`,
- * the overlay's from `state`. A line whose names all came out empty goes
- * altogether, so one card reads right both live ("👀 {viewersAll} viendo")
- * and not. An unknown name stays as typed, to be seen and fixed.
+ * the live ones from `state`. A line whose names all came out empty goes
+ * altogether, so one card reads right both live ("🎮 {streamGame}") and not.
+ * An unknown name stays as typed, to be seen and fixed.
  */
 export function fillWords(text, state, values = {}) {
   return String(text ?? '').split('\n').map((line) => {
@@ -89,11 +88,11 @@ export function fillPage(page, state, values) {
   };
 }
 
-/** A card ready to show the stream as it is: live or not, title, game, viewers, song, the plan, the next stream. */
+/** A card ready to show the stream as it is: live or not, title, game, the next stream. */
 export const LIVE_STATUS_CARD = {
   type: 'card',
   title: '{live}',
-  description: '**{streamTitle}**\n🎮 {streamGame}\n👀 {viewersAll} viendo\n⏱️ En directo desde {liveSince}\n🎵 {nowPlaying} — {nowPlayingArtist}\n📋 Ahora: {planNow}\n\n📅 Próximo directo: {nextStreamAt} ({nextStreamRelative})',
+  description: '**{streamTitle}**\n🎮 {streamGame}\n⏱️ En directo desde {liveSince}\n\n📅 Próximo directo: {nextStreamAt} ({nextStreamRelative})',
   footer: 'Se actualiza solo',
 };
 export const PAGE_STYLES = ['classic', 'single'];

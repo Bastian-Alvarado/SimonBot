@@ -4,10 +4,7 @@
  *
  * The left-hand menu and what goes with it.
  *
- * Thirty-eight screens in four groups was a list to read rather than to use:
- * "Main" held the live controls beside the economy, the history and Twitch's
- * settings, "Automation" was mostly overlays, and the badges counted things
- * nobody needed to act on. Here:
+ * Every screen in one long list was a list to read rather than to use. Here:
  *
  *   - sections by when a screen is used — live, community, on screen,
  *     Discord, automation, setup — each folding away, remembered by this
@@ -154,7 +151,7 @@ export const NavSearch = ({ entries, go, onClose, t }: { entries: SearchEntry[];
   const found = useMemo(() => {
     const words = plain(query).split(/\s+/).filter(Boolean);
     if (!words.length) return entries;
-    // Each word typed is the start of a word there: "count" finds "Countdown" and "Viewer count", not "accounts".
+    // Each word typed is the start of a word there: "count" finds "Viewer count", not "accounts".
     const starts = (text: string, w: string) => text.split(/[^a-z0-9]+/).some((part) => part.startsWith(w));
     return entries
       .map((e) => ({ e, label: plain(e.label), all: plain(`${e.label} ${e.section} ${e.keywords || ''}`) }))

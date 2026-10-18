@@ -9,16 +9,13 @@
  * platform the app cannot write to (TikTok). YouTube can be left out: an
  * answer there costs 50 of its 10,000 units a day.
  *
- * "!rank Ana" asks about somebody else. A command of the streamer's own on
- * the same word answers instead, as with "!plan". Each person is answered at
- * most every half minute per word, and each chat at most every two seconds,
+ * "!rank Ana" asks about somebody else. Each person is answered at most every
+ * half minute per word, and each chat at most every two seconds,
  * so a chat that all asks at once does not bury itself in answers.
  */
 
 import { bus, EVENTS } from '../core/bus.js';
-import { collection } from '../core/store.js';
 import { createLogger } from '../core/logger.js';
-import * as commands from '../engine/commands.js';
 import * as leveling from './index.js';
 import * as discord from '../platforms/discord.js';
 import * as twitch from '../platforms/twitch.js';
@@ -61,7 +58,7 @@ const nameFor = (platform, name) => (platform === 'discord' ? discord.sanitise(n
 /**
  * The answer to "!rank": the words set for it, filled in. For somebody who
  * is not ranked — the channel's own accounts — the parts naming a place are
- * left out, the way "!plan" leaves out a step there is not.
+ * left out.
  */
 export function rankAnswer(person, platform, words = leveling.getConfig().chat) {
   const name = nameFor(platform, person.username);
@@ -100,8 +97,6 @@ function onChat(chat) {
   if (!which) return;
   const answer = services[chat.platform];
   if (!answer || (chat.platform === 'youtube' && !words.youtube)) return;
-  // A command of the streamer's own on the same word answers instead.
-  if (commands.ownCommandAnswers(collection('commands', []).get(), collection('actions', []).get(), said, chat.platform)) return;
 
   const now = services.now();
   const who = `${chat.platform}:${chat.userId || chat.user}:${which}`;

@@ -5,13 +5,13 @@
  * Settings → About → Updates: whether a newer version is out, what is new in
  * it, and a button to update (server/engine/updater.js does the work).
  *
- * Only on a copy that updates itself — the public edition, started with
+ * Only on a copy that updates itself — one with a release repository, started with
  * npm start. Checking is automatic, once a day; updating is always a press,
  * and a second one to confirm, since the app restarts for a few seconds.
  * While it works, the steps are shown as they go; then the server restarts
  * into the new version and this page, which is the old one, reloads itself.
  */
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, RefreshCw, Check, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Button } from './Button';
 import { VERSION } from '../../shared/version.js';
@@ -42,7 +42,7 @@ const STEPS: [string, string, string][] = [
 ];
 
 /** The version this page asked to update to, so it reloads into it — kept across the restart's reconnect. */
-const UPDATING_KEY = 'simonsays_updating_to';
+const UPDATING_KEY = 'simonbot.updating-to';
 const remember = (version: string | null) => {
   try {
     if (version) sessionStorage.setItem(UPDATING_KEY, version);
@@ -178,7 +178,7 @@ export const UpdatesPanel = ({ updates, act, language, light, t }: {
               </a>
             )}
           </div>
-          {confirming && <p className={`mt-3 text-xs ${muted}`} data-updates-confirm-note>{t.updatesConfirm || 'The app restarts for a few seconds to update; overlays and docks come back by themselves. Your data is backed up first.'}</p>}
+          {confirming && <p className={`mt-3 text-xs ${muted}`} data-updates-confirm-note>{t.updatesConfirm || 'The app restarts for a few seconds to update; the bot reconnects by itself. Your data is backed up first.'}</p>}
           {!updates.launcher && <p className="mt-3 text-xs text-amber-300" data-updates-no-launcher>{t.updatesNoLauncher || 'To update from here, start the app with npm start.'}</p>}
         </div>
       ) : updates.checkedAt && !updates.error ? (

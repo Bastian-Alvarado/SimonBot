@@ -5,7 +5,7 @@
  * Discord: gateway (chat, joins/leaves, reactions, button interactions),
  * REST helper with rate-limit handling, and OAuth code exchange.
  *
- * Ported from the V2 relay. The substantive changes are:
+ * The substantive changes from the earlier relay are:
  *   - 429 responses now honour `retry_after` instead of a fixed backoff
  *   - the gateway resumes with its session id rather than always re-identifying
  *   - all outbound calls go through a named queue, so a slow role assignment
@@ -27,7 +27,7 @@ const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json';
 /*
   Guilds, members, moderation, voice states, messages, reactions, message
   content. Voice states (1 << 7) are who is in which voice call — not
-  privileged, and what the voice overlay reads (see discord-voice.js).
+  privileged, and what the Voice screen reads (see discord-voice.js).
   Moderation (1 << 2) is bans, for a ban post in place of a goodbye; not
   privileged either.
 */
@@ -68,10 +68,10 @@ let settings = null;
  * Server-side cache of the Discord metadata the UI renders: the signed-in
  * user, the guild list, and the channels/roles/emojis of the selected guild.
  *
- * V2 kept all of this in the browser's localStorage, which meant a second
- * device (a phone, another machine) showed Discord as connected but had no
- * guild or channel names to display — and every Discord-dependent screen
- * stayed empty. Caching it here is what makes those screens work anywhere.
+ * Kept here rather than in each browser's storage: a second device (a phone,
+ * another machine) would otherwise show Discord as connected with no guild or
+ * channel names to display, and every Discord-dependent screen would stay
+ * empty. Caching it here is what makes those screens work anywhere.
  */
 let cache = null;
 
@@ -122,7 +122,7 @@ const botToken = () => settings?.get().botToken || config.discord.botToken;
 /**
  * What clients are told. Deliberately not `...settings.get()`: that would put
  * the bot token on the wire to every connected surface, including a phone on
- * the LAN opening the deck. Whether one is set is all a UI needs to know.
+ * the LAN opening the dashboard. Whether one is set is all a UI needs to know.
  */
 export const getStatus = () => {
   const { guildId, channelId } = settings?.get() ?? {};
@@ -143,7 +143,7 @@ export const getCache = () => cache.get();
  *
  * The secrets are replaced with "is one set?" flags. This object is broadcast
  * to every connected surface, and a bot token on that wire would be readable
- * by anything on the network that can open the deck.
+ * by anything on the network that can open the dashboard.
  */
 export const getSettings = () => {
   const { clientSecret: _s, botToken: _t, ...safe } = settings.get();
@@ -224,10 +224,6 @@ export async function refreshCache() {
 // -------------------------------------------------------------------- REST
 
 /**
- * Discord REST call. Retries on 429 using the server-provided `retry_after`,
- * and on 5xx with a short fixed backoff.
- */
-/**
  * A last look at each call before it goes: slash-commands.js turns the answer
  * to a command's words into the command's own reply. Returns a replacement
  * { method, endpoint, body } or null to send the call as it is.
@@ -235,6 +231,10 @@ export async function refreshCache() {
 let rewrite = null;
 export function setRequestRewrite(fn) { rewrite = fn; }
 
+/**
+ * Discord REST call. Retries on 429 using the server-provided `retry_after`,
+ * and on 5xx with a short fixed backoff.
+ */
 export async function request(method, endpoint, { token, body, isMultipart = false, retries = 3 } = {}) {
   const swap = rewrite && !token ? rewrite(method, endpoint, body, isMultipart) : null;
   if (swap) ({ method, endpoint, body } = swap);
@@ -410,7 +410,7 @@ function handleGatewayFrame(msg) {
         send(2, {
           token: botToken(),
           intents: INTENTS,
-          properties: { os: process.platform, browser: 'simonsays', device: 'simonsays' },
+          properties: { os: process.platform, browser: 'simonbot', device: 'simonbot' },
         });
       }
       return;
@@ -541,7 +541,7 @@ function handleDispatch(type, d) {
 
 /**
  * A message from the gateway, as chat: `where` is 'stream' for the channel
- * the app reads — the stream's chat, its commands, the overlay, the relay —
+ * the app reads — the stream's chat, its commands, the relay —
  * and 'elsewhere' for any other channel of the same server, which only
  * levels listen to. Null for a bot, another server, or nothing to go on.
  */
@@ -840,28 +840,6 @@ export function getGuilds() {
   return request('GET', '/users/@me/guilds');
 }
 
-/** Post to an incoming webhook. Used by the `discord_webhook` action step. */
-export async function postWebhook(url, content) {
-  // Only accept genuine Discord webhook URLs — this value comes from user
-  // config and would otherwise be an arbitrary outbound POST.
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error('Discord webhook: malformed URL');
-  }
-  if (!/(^|\.)discord(app)?\.com$/.test(parsed.hostname) || !parsed.pathname.startsWith('/api/webhooks/')) {
-    throw new Error('Discord webhook: URL is not a Discord webhook endpoint');
-  }
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: String(content).slice(0, 2000) }),
-  });
-  if (!res.ok) throw new Error(`Discord webhook failed: ${res.status}`);
-}
-
 /**
  * A footer or author line. Discord draws a server's own emoji in a
  * description, but in these two lines `<:Wow:123>` shows as exactly that.
@@ -930,8 +908,8 @@ export async function exchangeCode(code, redirectUri) {
 
 /**
  * Who a message may ping, from what its author wrote rather than what ended
- * up in it. Text that came from chat through a variable can say
- * "@everyone" or "<@&role>" all it likes: only the role pings and the
+ * up in it. Text that came from chat can say "@everyone" or "<@&role>" all it
+ * likes: only the role pings and the
  * @everyone typed into the template itself are let through.
  */
 export function mentionsFrom(template) {
@@ -945,4 +923,4 @@ export function mentionsFrom(template) {
 /** Whether commands work in every channel of the server, not only the one the app reads. On unless turned off (Connections). */
 export const commandsEverywhere = () => settings?.get().commandsEverywhere !== false;
 
-export const service = { postWebhook, sendMessage, addRole, removeRole, sanitise, mentionsFrom, commandsEverywhere };
+export const service = { sendMessage, addRole, removeRole, sanitise, mentionsFrom, commandsEverywhere };

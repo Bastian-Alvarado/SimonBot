@@ -23,7 +23,7 @@ import { assert, collection, fs, test } from './harness.js';
 const pages = await import('../../engine/discord-pages.js');
 const banner = await import('../../engine/banner-text.js');
 const shared = await import('../../../shared/discord-pages.js');
-const { encodeGif } = await import('../../../shared/gif.js');
+const { encodeGif } = await import('./gif.js');
 const { createHttpServer } = await import('../../api/http.js');
 const { config } = await import('../../config.js');
 const webp = await Module();

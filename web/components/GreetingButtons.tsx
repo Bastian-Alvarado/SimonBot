@@ -9,7 +9,6 @@
  *
  * Up to ten, two rows of five, as Discord lays them out. A role appears once.
  */
-import React from 'react';
 import { Plus, Trash2, ArrowUp, Link as LinkIcon, Shield } from 'lucide-react';
 import type { GreetingButton } from '../types';
 import { EmojiField } from './EmojiField';

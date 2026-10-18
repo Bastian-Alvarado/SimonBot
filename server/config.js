@@ -4,7 +4,7 @@
  *
  * Environment-driven configuration.
  *
- * V2 hardcoded secrets directly in server.js ("YOUR_CLIENT_ID_HERE"). That made
+ * An earlier version hardcoded secrets directly in server.js ("YOUR_CLIENT_ID_HERE"). That made
  * the file impossible to commit safely and impossible to run in more than one
  * environment. Everything now comes from the environment with sane defaults.
  */
@@ -70,7 +70,7 @@ const bool = (v, fallback) => {
   A relative DATA_DIR or ASSETS_DIR is from the install's server folder, where
   the server has always been started, not from the version running.
 */
-const install = process.env.SIMONSAYS_ROOT || path.join(__dirname, '..');
+const install = process.env.SIMONBOT_ROOT || path.join(__dirname, '..');
 const place = (dir, fallback) => (dir ? path.resolve(install, 'server', dir) : fallback);
 
 export const config = {
@@ -96,22 +96,8 @@ export const config = {
     clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
   },
 
-  spotify: {
-    clientId: process.env.SPOTIFY_CLIENT_ID || '',
-    clientSecret: process.env.SPOTIFY_CLIENT_SECRET || '',
-    // How often the server polls the Now Playing endpoint.
-    pollIntervalMs: num(process.env.SPOTIFY_POLL_MS, 3000),
-  },
-
   kick: {
     clientId: process.env.KICK_CLIENT_ID || '01KG2S47PDE3JBHWBHZBCS1M6G',
-  },
-
-  obs: {
-    host: process.env.OBS_HOST || 'localhost',
-    port: num(process.env.OBS_PORT, 4455),
-    password: process.env.OBS_PASSWORD || '',
-    autoConnect: bool(process.env.OBS_AUTOCONNECT, true),
   },
 
   tiktok: {
@@ -128,10 +114,6 @@ export const config = {
     signApiKey: process.env.TIKTOK_SIGN_API_KEY || process.env.EULER_API_KEY || '',
   },
 
-  gemini: {
-    apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY || '',
-  },
-
   logLevel: process.env.LOG_LEVEL || 'info',
 
   // Auto-reconnect platforms on boot using stored credentials.
@@ -146,8 +128,5 @@ export function describeConfig() {
     discordClientId: config.discord.clientId || '(unset)',
     discordBotToken: mask(config.discord.botToken),
     twitchClientId: config.twitch.clientId || '(unset)',
-    spotifyClientId: config.spotify.clientId || '(unset)',
-    obs: `${config.obs.host}:${config.obs.port}`,
-    geminiKey: mask(config.gemini.apiKey),
   };
 }

@@ -5,9 +5,8 @@
  * Game requests: a Discord channel where people suggest what to play becomes
  * a board. Each post is a request; the bot puts 👍 under it so voting is one
  * click, and counts the 👍 people give. The streamer sees them by votes on
- * the Requests screen and puts one in tonight's plan with a press; when that
- * step of the plan starts, the request is played — whoever asked is told in
- * Discord, and given points if points are on.
+ * the Requests screen and marks one played with a press — whoever asked is
+ * told in Discord, and given points if points are on.
  *
  * Optionally the channel keeps a ranking of its own, one message edited in
  * place as votes come in. The requests already in the channel can be read in
@@ -20,7 +19,6 @@ import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
 import * as discord from '../platforms/discord.js';
 import * as leveling from '../leveling/index.js';
-import * as plan from './plan.js';
 import * as points from './points.js';
 
 const log = createLogger('requests');
@@ -54,9 +52,10 @@ export function cleanRequestSettings(c = {}) {
 export const getRequestSettings = () => cleanRequestSettings({ ...DEFAULT_REQUESTS, ...(store?.get().settings || {}) });
 const all = () => store.get().requests || [];
 
-/** The board, best first: open and planned ones by votes, then played, then dismissed. */
+/** The board, best first: open ones by votes, then played, then dismissed. */
 export function board() {
-  const order = { planned: 0, open: 1, played: 2, dismissed: 3 };
+  // "planned" is an older status, kept so those requests still sort as open.
+  const order = { planned: 0, open: 0, played: 2, dismissed: 3 };
   return all().slice().sort((a, b) => (order[a.status] - order[b.status]) || (b.votes - a.votes) || (a.at - b.at));
 }
 
@@ -126,18 +125,6 @@ export async function readChannel() {
   return { read: fresh.length, total: all().length };
 }
 
-/** Into tonight's plan: as the next activity, or at the end. */
-export function planIt(id, where = 'end') {
-  const r = all().find((x) => x.id === id);
-  if (!r) throw refusal('request_missing', 'that request is gone');
-  const before = new Set(plan.getPlan().items.map((i) => i.id));
-  const after = plan.service.add(r.text, `Pedido por ${r.user}`, where === 'next' ? 'next' : undefined);
-  const item = after?.items?.find((i) => !before.has(i.id));
-  if (!item) throw refusal('plan_full', 'the plan is full');
-  change(id, { status: 'planned', planItemId: item.id });
-  return { planItemId: item.id };
-}
-
 /** Played: whoever asked is told, and given points. */
 export async function played(id) {
   const r = all().find((x) => x.id === id);
@@ -159,18 +146,10 @@ export async function played(id) {
   return { ok: true };
 }
 
-/** The plan moved: a planned request whose step has started is played. */
-function onPlan(p) {
-  const started = new Set((p?.items || []).filter((i) => typeof i.startedAt === 'number').map((i) => i.id));
-  for (const r of all()) {
-    if (r.status === 'planned' && r.planItemId && started.has(r.planItemId)) played(r.id).catch(() => {});
-  }
-}
-
 /** The ranking message in the channel: the top ten still to play, by votes. */
 export function rankingMessage() {
   const top = board().filter((r) => r.status === 'open' || r.status === 'planned').slice(0, 10);
-  const lines = top.map((r, i) => `**${i + 1}.** ${discord.sanitise(r.text, 80)} — ${VOTE} ${r.votes}${r.status === 'planned' ? ' · 📋 en el plan' : ''}`);
+  const lines = top.map((r, i) => `**${i + 1}.** ${discord.sanitise(r.text, 80)} — ${VOTE} ${r.votes}`);
   return { title: '🏆 Peticiones más votadas', description: lines.join('\n') || 'Todavía no hay peticiones.', color: '#f5a623', footer: `Vota con ${VOTE} en cada petición` };
 }
 
@@ -203,7 +182,6 @@ export async function control(payload = {}) {
       return next;
     }
     case 'read': return readChannel();
-    case 'plan': return planIt(String(payload.id || ''), payload.where);
     case 'played': return played(String(payload.id || ''));
     case 'dismiss': change(String(payload.id || ''), { status: 'dismissed' }); return { ok: true };
     case 'reopen': change(String(payload.id || ''), { status: 'open' }); return { ok: true };
@@ -220,11 +198,9 @@ export function initGameRequests() {
   bus.on(EVENTS.CHAT, (c) => { if (c?.platform === 'discord') onMessage(c); });
   bus.on('discord:reaction_add', (d) => onReaction(d, 1));
   bus.on('discord:reaction_remove', (d) => onReaction(d, -1));
-  bus.on(EVENTS.CONFIG, (c) => { if (c?.key === 'plan') onPlan(c.value); });
-  bus.on('plan:step_started', (item) => onPlan({ items: [{ ...item, startedAt: item?.startedAt || Date.now() }] }));
   clearInterval(rankingTimer);
   rankingTimer = setInterval(() => { updateRanking().catch(() => {}); }, RANKING_EVERY_MS);
   rankingTimer.unref?.();
 }
 
-export const _test = { onMessage, onReaction, onPlan, updateRanking: () => { rankingDue = true; return updateRanking(); } };
+export const _test = { onMessage, onReaction, updateRanking: () => { rankingDue = true; return updateRanking(); } };

@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Updates from GitHub: a copy of the public edition finds out a newer
+ * Updates from GitHub: a copy with a release repository (shared/edition.js) finds out a newer
  * version is out — once a day by itself, or when asked from Settings → About
  * — and, when told to, gets it ready and hands over to it.
  *
@@ -16,7 +16,7 @@
  * one if it does not come up.
  *
  * Never on its own: checking is automatic, installing is a button. Never
- * while OBS is streaming or recording. Never without the launcher, which is
+ * while the stream is on. Never without the launcher, which is
  * what makes it safe: without it there is nobody to start the new version.
  * And only from the repository this edition names (shared/edition.js) — the
  * source is not something a request can choose.
@@ -34,6 +34,7 @@ import { unpackTarGz } from '../core/tar.js';
 import { config } from '../config.js';
 import { VERSION } from '../../shared/version.js';
 import { UPDATE_REPO } from '../../shared/edition.js';
+import * as sessions from './stream-sessions.js';
 import { compareVersions, cleanReleaseManifest, sameDependencies, RELEASE_MANIFEST, MAX_PACKAGE_BYTES } from '../../shared/release.js';
 
 const log = createLogger('updater');
@@ -42,11 +43,10 @@ export const RESTART_FOR_UPDATE = 75;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_CHECK_MS = 60_000;
 
-// The install this runs in (start.js says, with SIMONSAYS_ROOT) and the version's own folder: the one holding server/.
+// The install this runs in (start.js says, with SIMONBOT_ROOT) and the version's own folder: the one holding server/.
 const CODE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 let store = null;
-let obs = null;
 let restart = (code) => process.exit(code);
 let timer = null;
 /** What an update is doing now, for the screen: idle, or one of the steps, or failed with why. */
@@ -55,7 +55,7 @@ let busy = false;
 
 const repo = () => process.env.UPDATE_REPO || UPDATE_REPO;
 const api = () => (process.env.UPDATE_API || 'https://api.github.com').replace(/\/+$/, '');
-const root = () => process.env.SIMONSAYS_ROOT || '';
+const root = () => process.env.SIMONBOT_ROOT || '';
 export const updatesEnabled = () => Boolean(repo());
 
 /** What the launcher remembers: versions that would not start, so the screen can say so. */
@@ -90,7 +90,7 @@ function publish() {
 export const snapshot = () => ({ updates: getUpdates() });
 
 async function getJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'SimonSays-updater' }, signal: AbortSignal.timeout(12_000) });
+  const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'SimonBot-updater' }, signal: AbortSignal.timeout(12_000) });
   if (res.status === 403 || res.status === 429) {
     if (res.headers.get('x-ratelimit-remaining') === '0' || res.status === 429) throw refusal('update_rate_limited', 'GitHub has had too many questions from this network; try again in an hour');
   }
@@ -130,7 +130,7 @@ export async function check() {
 const step = (name, extra = {}) => { phase = { step: name, ...extra }; publish(); };
 
 async function download(url, max) {
-  const res = await fetch(url, { headers: { Accept: 'application/octet-stream', 'User-Agent': 'SimonSays-updater' }, signal: AbortSignal.timeout(10 * 60_000) });
+  const res = await fetch(url, { headers: { Accept: 'application/octet-stream', 'User-Agent': 'SimonBot-updater' }, signal: AbortSignal.timeout(10 * 60_000) });
   if (!res.ok) throw refusal('update_download', `the download failed (${res.status})`, { status: res.status });
   const length = Number(res.headers.get('content-length'));
   if (length && length > max) throw refusal('update_too_big', 'the package is bigger than a release can be');
@@ -200,7 +200,7 @@ export async function copyTree(from, to, { at = 32 } = {}) {
  * Every file under a folder read once, many at a time, and nothing done with
  * it. A file written a moment ago is checked by the antivirus the first time
  * it is opened, and a new version opens thousands as it starts: on Windows
- * that was twenty seconds with the overlays off, between the old version
+ * that was twenty seconds with nothing answering, between the old version
  * stopping and the new one listening. Read here, while the old version still
  * runs, most of the checks are done before the switch: about eight seconds
  * off on the PC this was measured on, not twenty-two.
@@ -242,17 +242,15 @@ export function pruneBackups(dir, keep = KEEP_BACKUPS) {
   return gone;
 }
 
-const isLive = () => {
-  const s = obs?.getStatus?.() || {};
-  return Boolean(s.streamStatus?.active || s.recordingStatus?.active);
-};
+/** A restart in the middle of a stream drops the bot's go-live work for it: not then. */
+const isLive = () => Boolean(sessions.current());
 
 /** Whether an update may start now: refused at once, before anything is done, when not. */
 function mayStart() {
   if (!updatesEnabled()) throw refusal('update_off', 'this copy is updated by hand');
   if (!root()) throw refusal('update_no_launcher', 'start the app with npm start (start.js) to update it from here');
   if (busy) throw refusal('update_busy', 'an update is already on its way');
-  if (isLive()) throw refusal('update_live', 'not while OBS is streaming or recording');
+  if (isLive()) throw refusal('update_live', 'not while the stream is on');
 }
 
 /**
@@ -303,7 +301,7 @@ async function run() {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backup = path.join(root(), 'backups', `before-${manifest.version}-${stamp}`);
     fs.mkdirSync(backup, { recursive: true });
-    // Not the synchronous copy: the overlays and docks keep going while it runs.
+    // Not the synchronous copy: the server keeps answering while it runs.
     if (fs.existsSync(config.dataDir)) await copyTree(config.dataDir, path.join(backup, 'data'));
     try { pruneBackups(path.dirname(backup)); } catch { /* the oldest stay until next time */ }
 
@@ -374,11 +372,10 @@ export async function control(payload = {}) {
 
 /**
  * `restarter` stops the server cleanly with an exit code (index.js's own
- * shutdown); `obsService` says whether OBS is live.
+ * shutdown).
  */
-export function initUpdater({ restarter, obsService } = {}) {
+export function initUpdater({ restarter } = {}) {
   store = collection('updates', { checkedAt: 0, latest: null, error: null });
-  obs = obsService || null;
   if (restarter) restart = restarter;
   phase = { step: 'idle' };
   busy = false;

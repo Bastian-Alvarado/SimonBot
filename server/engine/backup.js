@@ -4,10 +4,10 @@
  *
  * Configuration backup — the thing "Export Configuration" always claimed to be.
  *
- * The button it belongs to came from V2, where the browser *was* the database
- * and localStorage held everything. V3 moved all of it onto the server, so the
- * old export quietly produced a file of display preferences: no commands, no
- * actions, no alerts. This reads the collections instead.
+ * It reads the server's collections: everything the bot is set up with, and
+ * what its community has built up (levels, points, history), without secrets.
+ * A backup from SimonSays, which SimonBot was made from, is read too: what of
+ * it SimonBot has a place for is restored, and the rest is left out.
  *
  * Everything goes through the live collections rather than the JSON files on
  * disk. Writing the files directly would be shorter, but a running server
@@ -23,16 +23,14 @@ import { VERSION } from '../../shared/version.js';
 
 const log = createLogger('backup');
 
-/** What a file has to say about itself to be accepted. */
-export const BACKUP_APP = 'SimonSays';
+/** What a file has to say about itself to be accepted: SimonBot's own, or one from SimonSays. */
+export const BACKUP_APP = 'SimonBot';
+export const BACKUP_APPS = ['SimonBot', 'SimonSays'];
 export const BACKUP_KIND = 'config-backup';
 export const BACKUP_VERSION = 2;
 
 /**
- * What travels, in the order it is restored.
- *
- * Order matters: dock buttons are dropped on save when they point at an action
- * that does not exist, so actions have to land first. The rest is independent.
+ * What travels.
  *
  * `strip` removes secrets. They are deliberately not in a backup — a file that
  * carries OAuth tokens is a file that hands over the account to anyone who
@@ -41,78 +39,21 @@ export const BACKUP_VERSION = 2;
  * Naming what was stripped lets the UI say which connections need attention.
  */
 export const MANIFEST = [
-  { name: 'commands' },
-  { name: 'actions' },
-  { name: 'alerts' },
-  { name: 'dock_buttons' },
-  { name: 'omnibar' },
-  { name: 'omnibars' },
-  { name: 'viewers' },
-  // The chat every layout used to share. Kept so an older backup's layouts,
-  // whose chat leaned on it, are filled out from it when they are restored.
-  { name: 'chat_settings' },
-  { name: 'chat_dock_settings' },
-  { name: 'plan' },
-  // Plans for nights that repeat, saved to load again.
-  { name: 'plan_saved' },
-  // Regulars and crews: who is on often, and whole nights of seats.
-  { name: 'people' },
-  // What is being played. Tonight's state rather than configuration, but so
-  // is the plan above it, and a blank run card after an import reads as a
-  // bug rather than as a clean slate.
-  { name: 'run' },
-  // Who is in tonight's game. State rather than configuration, like the run.
-  { name: 'players' },
   // Questions are what viewers typed, not configuration — see EXCLUDED.
   // The same goes for a poll's votes and past results, but not for what
   // happens around a poll: its announcements, its command, how long a result stays.
   { name: 'poll_settings' },
-  // What the Events dock's "Thank" says in chat. The events and the stream's totals stay behind.
-  { name: 'events_dock_settings' },
-  // Each moderator's own dock and deck, by their Twitch account: theirs to keep across a move (engine/mod-decks.js).
-  { name: 'mod_prefs' },
-  // Which layouts get a button on the home screen (engine/home.js).
-  { name: 'home_settings' },
-  // Whether alerts wait while nothing on stream shows them. Being paused is not kept, here or anywhere.
-  { name: 'alert_settings' },
-  // The named pixel avatars, which the layouts' avatar layers wear.
-  { name: 'avatar_sources' },
-  // How they ask, though, is: the command, its cooldown, the word back.
+  // How they ask, though, is: the word, its cooldown, and the reply.
   { name: 'questions_settings' },
-  // The overlay arrangements. Somebody who has spent an afternoon placing
-  // layers should not have to do it again on another machine.
-  { name: 'layouts' },
-  // The saved configurations themselves. Leaving these behind would export
-  // only whichever profile happened to be live.
-  { name: 'profiles' },
-  // Which phone is the camera, and on what port. No credentials in it.
-  { name: 'droidcam_settings' },
-  { name: 'countdown' },
-  { name: 'stopwatch' },
-  // The deaths count: a playthrough's, carried from one night to the next.
-  { name: 'counters' },
-  { name: 'omnilayer' },
-  // The remote players' seats: who is in each, and the links regulars keep from one night to the next.
-  { name: 'remote_players' },
-  // The pixel avatars drawn in the app, examples and all.
-  { name: 'pixel_avatars' },
-  // The themes made in the app's Library.
-  { name: 'user_themes' },
   { name: 'relay_config' },
-  // The shape of the button grid, which is arrangement rather than tonight.
-  { name: 'dock_grid' },
-  { name: 'tags' },
-  { name: 'tag_outputs' },
   { name: 'reaction_roles' },
   { name: 'discord_buttons' },
-  // Which voice channel the voice overlay shows, and whether the bot joins it.
+  // Which voice channel the bot follows, and whether it joins it.
   { name: 'discord_voice' },
   // Where and how going live is announced, the schedule as Discord events, and the channel pages.
   { name: 'discord_announce' }, { name: 'discord_events' }, { name: 'discord_pages' },
   // How giveaways are told and posted; the giveaway itself is tonight's.
-  { name: 'giveaway_settings' }, { name: 'pngtuber_mic' },
-  // Shoutouts for raiders and where clips are posted.
-  { name: 'twitch_extras' },
+  { name: 'giveaway_settings' },
   { name: 'welcome_goodbye' },
   { name: 'role_mappings' },
   // Roles for showing up: so many streams, a streak, platforms, messages.
@@ -126,13 +67,12 @@ export const MANIFEST = [
   // What each person has done across streams, and the streams themselves: they
   // accumulate the same way, and nothing could rebuild them.
   { name: 'viewer_history' },
-  // Points people have to spend, and the shop's rewards.
   { name: 'points' },
   { name: 'profile_card' },
   { name: 'highlights' },
   // Who asked to be told privately when the stream starts, and where they watch.
   { name: 'live_dms' },
-  // Which Discord channels feed the Questions dock.
+  // Which Discord channels feed the Questions screen.
   { name: 'discord_questions' },
   // The game requests board: what people asked for, their votes, what was played.
   { name: 'game_requests' },
@@ -145,50 +85,30 @@ export const MANIFEST = [
   { name: 'discord_settings', strip: ['botToken', 'clientSecret'] },
   { name: 'tiktok_credentials', strip: ['signApiKey'] },
   { name: 'twitch_credentials', strip: ['accessToken', 'botToken'] },
-  { name: 'obs_credentials', strip: ['password'] },
-  { name: 'spotify_settings', strip: ['clientSecret'] },
   { name: 'youtube_settings', strip: ['clientSecret'] },
-  // Nothing in here but the key, so it travels as an empty object. Listed
-  // rather than excluded so a later non-secret setting is carried by default.
-  { name: 'ai_settings', strip: ['geminiApiKey'] },
 ];
 
 /**
  * Left out on purpose:
- *   event_history, recent_chat  — a log of what happened, not configuration
- *   viewer_events               — a runtime ring of the last few events
  *   discord_cache, role_activity_log — rebuilt from the source at runtime
- *   spotify_tokens              — nothing but secrets
- *   youtube_tokens              — the same
+ *   youtube_tokens              — nothing but secrets
  *   youtube_usage               — today's count of YouTube's allowance, by this app
- *   stream_tally                — tonight's stream so far, for its recap
  *   stream_live                 — the stream on now, until it is kept with the rest
  *   banner_text                 — which drawn banner each page block has: drawn again when missing
  *   giveaway                    — who entered tonight's giveaway: tonight's, not setup
- *   repeat_fired                — when each calendar action last ran
- *   later_steps                 — Later steps waiting their turn: tonight's,
- *                                 and a backup put back days later, or on
- *                                 another computer, would run them out of time
  *   xp_data                     — the pre-migration shape, already converted
  *   poll                        — who voted for what: tonight's, not setup
  *   poll_history                — the last few polls' results, the same
- *   event_totals                — tonight's follows, subs and bits, the same
  *   role_sync                   — what each viewer is (sub, VIP, bits), learned
  *                                 from chat and events and learned again
  *   questions                   — what viewers typed during a segment, not
  *                                 configuration, and stale the moment it ends
- *   twitch_rewards              — names Twitch owns, refetched on connect, and
- *                                 belonging to whichever channel is signed in
- *                                 rather than to this configuration
- *   pixel_avatar_versions       — each pixel avatar's earlier versions: an undo
- *                                 history, up to a dozen whole avatars each,
- *                                 where the avatars themselves (pixel_avatars)
- *                                 travel
- *   auth_*                      — the sign-in: whether it is on, the owner and
- *                                 page keys, who is signed in and moderators'
+ *   auth_*                      — the sign-in: whether it is on, the owner
+ *                                 key, who is signed in and moderators'
  *                                 Twitch tokens; secrets, and this install's own
+ *   mod_activity                — what moderators did, this install's record
  */
-export const EXCLUDED = ['updates', 'event_history', 'recent_chat', 'viewer_events', 'discord_cache', 'role_activity_log', 'spotify_tokens', 'youtube_tokens', 'xp_data', 'twitch_rewards', 'questions', 'poll', 'poll_history', 'event_totals', 'role_sync', 'pixel_avatar_versions', 'youtube_usage', 'stream_tally', 'stream_live', 'giveaway', 'repeat_fired', 'later_steps', 'banner_text', 'auth_settings', 'auth_secrets', 'auth_sessions', 'auth_tokens', 'mod_activity', 'surfaces_seen'];
+export const EXCLUDED = ['updates', 'discord_cache', 'role_activity_log', 'youtube_tokens', 'xp_data', 'questions', 'poll', 'poll_history', 'role_sync', 'youtube_usage', 'stream_live', 'giveaway', 'banner_text', 'auth_settings', 'auth_secrets', 'auth_sessions', 'auth_tokens', 'mod_activity'];
 
 /** Everything needed to stand this install up somewhere else. */
 export function buildBundle() {
@@ -234,13 +154,14 @@ export function buildBundle() {
  * Restore a bundle, replacing what is there.
  *
  * Collections absent from the file are left alone rather than emptied: an older
- * backup should not wipe something it predates.
+ * backup should not wipe something it predates. Collections in the file that
+ * SimonBot has no place for (as a SimonSays backup can carry) are passed over.
  */
-export function applyBundle(bundle, { healCommands, setDockButtons } = {}) {
+export function applyBundle(bundle) {
   if (!bundle || typeof bundle !== 'object') throw refusal('backup_not_file', 'not a backup file');
 
   const meta = bundle.meta;
-  if (!meta || meta.app !== BACKUP_APP) throw refusal('backup_not_simonsays', 'not a SimonSays backup file');
+  if (!meta || !BACKUP_APPS.includes(meta.app)) throw refusal('backup_not_simonsays', 'not a SimonBot or SimonSays backup file');
   if (!bundle.collections || typeof bundle.collections !== 'object') throw refusal('backup_empty', 'backup file has no collections');
 
   const restored = [];
@@ -250,15 +171,6 @@ export function applyBundle(bundle, { healCommands, setDockButtons } = {}) {
     if (!(entry.name in bundle.collections)) continue;
     const value = bundle.collections[entry.name];
     if (value === undefined || value === null) continue;
-
-    // Dock buttons go through the engine so the same validation that guards a
-    // normal save applies here: colours checked, icons bounded, buttons whose
-    // action is missing dropped.
-    if (entry.name === 'dock_buttons' && setDockButtons) {
-      setDockButtons(value);
-      restored.push(entry.name);
-      continue;
-    }
 
     const c = getCollection(entry.name);
     if (!c) { skipped.push(entry.name); continue; }
@@ -281,10 +193,6 @@ export function applyBundle(bundle, { healCommands, setDockButtons } = {}) {
     }
     restored.push(entry.name);
   }
-
-  // Same healing the boot path applies, so a hand-edited or older file cannot
-  // leave a command missing fields the engine expects.
-  if (restored.includes('commands') && healCommands) healCommands();
 
   log.info(`imported ${restored.length} collections`
     + (skipped.length ? `; ${skipped.length} had no home on this server` : ''));

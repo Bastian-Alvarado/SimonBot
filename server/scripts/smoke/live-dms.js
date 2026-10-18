@@ -11,7 +11,7 @@
  * boots — through scripts/smoke.js, never on its own. After live-pages.js.
  */
 
-import { assert, bus, collection, EVENTS, normaliseEvent, test } from './harness.js';
+import { assert, bus, collection, EVENTS, test } from './harness.js';
 
 const dms = await import('../../engine/live-dms.js');
 const sessions = await import('../../engine/stream-sessions.js');
@@ -50,7 +50,7 @@ const dm = dms.dmFor('youtube', { name: 'Simon', title: 'Among Us', game: 'Among
 // Going live: after its wait, everybody on the list — once.
 dms.control({ settings: { enabled: true, delaySec: 0 } });
 const before = calls.length;
-bus.emit(EVENTS.EVENT, normaliseEvent({ type: 'obs_stream_started' }));
+bus.emit(EVENTS.STAT, { key: 'twitchLive', value: true });
 // One message a second: two people take two.
 await new Promise((r) => setTimeout(r, 2600));
 const firstRound = calls.slice(before);
@@ -63,7 +63,7 @@ await dms.sendAll({}, { wait: 0 });
 const afterThree = { ...dms._test.people() };
 await press('600000000000000001', 'livedm:stop');
 const afterStop = { ...dms._test.people() };
-bus.emit(EVENTS.EVENT, normaliseEvent({ type: 'obs_stream_stopped' }));
+bus.emit(EVENTS.STAT, { key: 'twitchLive', value: false });
 await sessions._test.finish();
 dms.control({ settings: { enabled: false } });
 announce.set(announceBefore);

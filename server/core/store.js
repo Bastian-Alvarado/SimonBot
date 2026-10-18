@@ -4,7 +4,7 @@
  *
  * Durable JSON store.
  *
- * Fixes three real defects carried over from V2:
+ * Fixes three real defects from an earlier version:
  *   1. A corrupt file crashed boot. Now each collection falls back to its
  *      default independently, and the bad file is preserved as `.corrupt`
  *      rather than silently overwritten.
@@ -128,7 +128,7 @@ export function collection(name, defaultValue) {
  * An already-created collection, or undefined.
  *
  * Unlike `collection()` this never creates one, because the caller — backup —
- * must not conjure an empty `spotify_settings` into existence just by asking
+ * must not conjure an empty collection into existence just by asking
  * whether there is one. A module that has not initialised simply has nothing
  * to contribute.
  */

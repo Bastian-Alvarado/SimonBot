@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Going live, announced in Discord (server/engine/announce.js): where, who to
- * ping, what it says, and what happens to the post when the stream ends —
- * marked over, or turned into a recap of the stream (server/engine/recap.js).
+ * ping, what it says, and what happens to the post when the stream ends.
  * Settings save as they change; the tests post for real, now.
  */
-import React, { useEffect, useState } from 'react';
-import { Megaphone, Send, Loader2, ScrollText, CalendarDays, RefreshCw, Upload, Images, Trash2, Flame, BellRing } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Megaphone, Send, Loader2, CalendarDays, RefreshCw, Upload, Images, Trash2, Flame, BellRing } from 'lucide-react';
 import { Button } from '../Button';
 import { textChannels, pingableRoles } from '../DiscordPicks';
 import { refusalWords, fill as fillWords } from '../../words';
@@ -26,25 +25,11 @@ export interface AnnounceSettings {
   overMessage: string;
   youtubeUrl: string;
   tiktokUrl: string;
-  recap?: RecapSettings;
   last?: { channelId: string; messageId: string; at: number; test?: boolean } | null;
 }
 
-export interface RecapSettings {
-  enabled: boolean;
-  where: 'edit' | 'new';
-  title: string;
-  parts: Record<'length' | 'peak' | 'events' | 'chatters' | 'clips' | 'plan' | 'chapters' | 'next', boolean>;
-  chatters: number;
-}
-
-const RECAP_DEFAULT: RecapSettings = {
-  enabled: false, where: 'edit', title: 'Resumen del directo', chatters: 3,
-  parts: { length: true, peak: true, events: true, chatters: true, clips: true, plan: true, chapters: true, next: true },
-};
-
 export interface HighlightsSettings {
-  enabled: boolean; factor: number; minMessages: number; cooldownMin: number; marker: boolean; clip: boolean; channelId: string; quotes: number;
+  enabled: boolean; factor: number; minMessages: number; cooldownMin: number; channelId: string; quotes: number;
 }
 
 export interface ScheduleEventsSettings {
@@ -63,7 +48,6 @@ interface Props {
   roles: any[];
   save: (patch: Partial<AnnounceSettings>) => void;
   test: () => Promise<any>;
-  testRecap: () => Promise<any>;
   scheduleEvents?: ScheduleEventsSettings;
   saveScheduleEvents: (patch: Partial<ScheduleEventsSettings>) => void;
   syncScheduleEvents: () => Promise<any>;
@@ -83,11 +67,11 @@ const tag = 'text-[9px] font-black uppercase tracking-widest text-zinc-500';
 
 /*
   The moments chat goes wild: every platform's chat counted together, and a
-  minute at several times the stream's usual pace is a marker, a clip and (if
-  a channel is chosen) a post in Discord. Off until turned on.
+  minute at several times the stream's usual pace is (if a channel is chosen)
+  a post in Discord. Off until turned on.
 */
 const HighlightsPanel = ({ settings, control, channels, botConnected, t }: { settings?: HighlightsSettings; control: (op: string, payload?: any) => Promise<any>; channels: any[]; botConnected: boolean; t: any }) => {
-  const h: HighlightsSettings = { enabled: false, factor: 3, minMessages: 15, cooldownMin: 5, marker: true, clip: true, channelId: '', quotes: 4, ...(settings || {}) };
+  const h: HighlightsSettings = { enabled: false, factor: 3, minMessages: 15, cooldownMin: 5, channelId: '', quotes: 4, ...(settings || {}) };
   const [said, setSaid] = useState('');
   const save = (patch: Partial<HighlightsSettings>) => control('settings', { settings: patch }).catch((err: any) => setSaid(refusalWords(t, err) || String(err)));
   const test = async () => {
@@ -103,7 +87,7 @@ const HighlightsPanel = ({ settings, control, channels, botConnected, t }: { set
           <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${h.enabled ? 'translate-x-5' : ''}`} />
         </div>
       </div>
-      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.highlightsHint || 'Every platform\'s chat counted together. When a minute runs at several times the stream\'s usual pace, that is a moment: a marker in the VOD, a clip, and a post in Discord with what chat was saying, the song and the plan\'s step. Moments become chapters too.'}</p>
+      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.highlightsHint || 'Every platform\'s chat counted together. When a minute runs at several times the stream\'s usual pace, that is a moment: a post in Discord with what chat was saying, and a link to it in the VOD.'}</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <label className="space-y-1 block"><span className={tag}>{t.highlightsFactor || 'Times the usual pace'}</span>
           <select value={h.factor} onChange={(e) => save({ factor: Number(e.target.value) })} className={box}>
@@ -117,8 +101,6 @@ const HighlightsPanel = ({ settings, control, channels, botConnected, t }: { set
           <input type="number" min={0} max={8} value={h.quotes} onChange={(e) => save({ quotes: Number(e.target.value) })} className={box} /></label>
       </div>
       <div className="flex flex-wrap items-center gap-4">
-        <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={h.marker} onChange={(e) => save({ marker: e.target.checked })} className="accent-current-accent" /><span className="text-[11px] text-zinc-300">{t.highlightsMarker || 'Marker in the VOD'}</span></label>
-        <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={h.clip} onChange={(e) => save({ clip: e.target.checked })} className="accent-current-accent" /><span className="text-[11px] text-zinc-300">{t.highlightsClip || 'A clip'}</span></label>
         <label className="flex items-center gap-2"><span className="text-[11px] text-zinc-400">{t.highlightsPostIn || 'Post in'}</span>
           <select value={h.channelId} onChange={(e) => save({ channelId: e.target.value })} className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-[11px] text-zinc-200 max-w-[200px]" data-highlights-channel>
             <option value="">{t.highlightsNowhere || 'Nowhere'}</option>
@@ -166,7 +148,7 @@ const LiveDmsPanel = ({ state, control, channels, botConnected, t }: { state?: a
         <textarea value={message} onChange={(e) => setMessage(e.target.value)} onBlur={() => message !== s.message && save({ message })} className={`${box} resize-y min-h-[52px]`} data-random-lines="live-dm" />
         <span className="block text-[10px] text-zinc-600">{t.liveDmsVars || '{streamer}, {title}, {game} and {platform} — the link is a button under it.'} {t.oneLinePerOption || 'One per line: a different one is picked at random each time.'}</span></label>
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2"><span className="text-[10px] text-zinc-500">{t.liveDmsDelay || 'Wait after OBS starts (s)'}</span>
+        <label className="flex items-center gap-2"><span className="text-[10px] text-zinc-500">{t.liveDmsDelay || 'Wait after going live (s)'}</span>
           <input type="number" min={0} max={600} value={s.delaySec} onChange={(e) => save({ delaySec: Number(e.target.value) })} className="w-20 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-200" /></label>
         <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-[11px] text-zinc-200 max-w-[200px]" data-live-dms-channel>
           <option value="">{t.discordSendPickChannel || 'Choose a channel'}</option>
@@ -183,7 +165,7 @@ const LiveDmsPanel = ({ state, control, channels, botConnected, t }: { state?: a
   );
 };
 
-export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, scheduleEvents, saveScheduleEvents, syncScheduleEvents, streamsOnSchedule, listAssets, uploadAsset, botConnected, highlights, highlightsControl, liveDms, liveDmsControl, t }: Props) => {
+export const GoLiveView = ({ settings, channels, roles, save, test, scheduleEvents, saveScheduleEvents, syncScheduleEvents, streamsOnSchedule, listAssets, uploadAsset, botConnected, highlights, highlightsControl, liveDms, liveDmsControl, t }: Props) => {
   const s: AnnounceSettings = settings || {
     enabled: false, channelId: '', roleId: '', message: '', card: true, cardColor: '#9146ff', delaySeconds: 45, whenOver: 'edit', overMessage: '', youtubeUrl: '', tiktokUrl: '',
   };
@@ -192,12 +174,6 @@ export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, s
   useEffect(() => { setDraft({ message: s.message, overMessage: s.overMessage, youtubeUrl: s.youtubeUrl, tiktokUrl: s.tiktokUrl }); }, [s.message, s.overMessage, s.youtubeUrl, s.tiktokUrl]);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState('');
-  const recap: RecapSettings = { ...RECAP_DEFAULT, ...(s.recap || {}), parts: { ...RECAP_DEFAULT.parts, ...(s.recap?.parts || {}) } };
-  const saveRecap = (patch: Partial<RecapSettings>) => save({ recap: { ...recap, ...patch } });
-  const [recapTitle, setRecapTitle] = useState(recap.title);
-  useEffect(() => { setRecapTitle(recap.title); }, [recap.title]);
-  const [recapTesting, setRecapTesting] = useState(false);
-  const [recapResult, setRecapResult] = useState('');
   const events: ScheduleEventsSettings = { enabled: false, count: 3, description: '', ...(scheduleEvents || {}) };
   const saveEvents = (patch: Partial<ScheduleEventsSettings>) => saveScheduleEvents(patch);
   const [eventsText, setEventsText] = useState(events.description);
@@ -231,19 +207,6 @@ export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, s
       setSyncing(false);
     }
   };
-  const runRecapTest = async () => {
-    setRecapTesting(true);
-    setRecapResult('');
-    try {
-      await testRecap();
-      setRecapResult(t.goLiveTestSent || 'Posted — have a look in Discord.');
-    } catch (err: any) {
-      setRecapResult(refusalWords(t, err) || String(err));
-    } finally {
-      setRecapTesting(false);
-    }
-  };
-
   const commit = (key: keyof typeof draft) => { if (draft[key] !== (s as any)[key]) save({ [key]: draft[key] } as any); };
   const runTest = async () => {
     setTesting(true);
@@ -269,7 +232,7 @@ export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, s
           </div>
         </div>
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.goLiveHint || 'When OBS starts streaming, the bot waits for Twitch to show you live, then posts here — your message, a card with the title, game and live picture, and buttons to watch. When the stream stops, the post is marked as over.'}
+          {t.goLiveHint || 'When Twitch shows you live, the bot posts here — your message, a card with the title, game and live picture, and buttons to watch. When the stream stops, the post is marked as over.'}
         </p>
         {!botConnected && <p className="text-[11px] text-amber-400">{t.voiceNoBot || 'The Discord bot is not connected. Connect it on the Connections screen first.'}</p>}
 
@@ -294,7 +257,7 @@ export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, s
         <label className="space-y-1 block">
           <span className={tag}>{t.goLiveMessage || 'Message'}</span>
           <textarea value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} onBlur={() => commit('message')} className={`${box} h-20 resize-none`} />
-          <span className="block text-[10px] text-zinc-600">{t.goLiveVars || '{role} is the ping, {streamer} your name, {title} and {game} what Twitch says, {link} where to watch.'}</span>
+          <span className="block text-[10px] text-zinc-600">{t.goLiveVars || '{role} is the ping, {streamer} your name, {title} and {game} what Twitch says, {link} where to watch. {next} is the next stream on your Twitch schedule (in each reader’s own time), {nextTitle} and {nextGame} its title and game — with nothing scheduled, the sentence naming it is left out.'}</span>
         </label>
 
         <div className="flex flex-wrap items-center gap-4">
@@ -309,7 +272,7 @@ export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, s
             </label>
           )}
           <label className="flex items-center gap-2 ml-auto">
-            <span className="text-[10px] text-zinc-500">{t.goLiveDelay || 'Wait after OBS starts (s)'}</span>
+            <span className="text-[10px] text-zinc-500">{t.goLiveDelay || 'Wait after going live (s)'}</span>
             <input type="number" min={0} max={600} value={s.delaySeconds} onChange={(e) => save({ delaySeconds: Number(e.target.value) })} className="w-20 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-200" />
           </label>
         </div>
@@ -353,74 +316,6 @@ export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, s
         <p className="text-[10px] text-zinc-600">{t.goLiveTestHint || 'The test posts for real, with a ping if one is chosen — pick a quiet channel or take the ping off while you try it.'}</p>
       </div>
 
-      {/* The stream recap: what the stream ending posts (server/engine/recap.js). */}
-      <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-5" data-recap>
-        <div className="flex items-center gap-3">
-          <ScrollText size={16} className="text-current-accent" />
-          <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300 flex-1">{t.recapTitle || 'Stream recap'}</span>
-          <div onClick={() => saveRecap({ enabled: !recap.enabled })} className={`w-12 h-7 rounded-full p-1 cursor-pointer transition-colors ${recap.enabled ? 'bg-current-accent' : 'bg-zinc-700'}`} data-recap-toggle>
-            <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${recap.enabled ? 'translate-x-5' : ''}`} />
-          </div>
-        </div>
-        <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.recapHint || 'A minute after the stream ends, a card in Discord says how it went: how long, the most watching at once, what viewers did, who talked the most, the clips, the plan as it went, and the next stream — with a button to the VOD.'}
-        </p>
-
-        <div className="space-y-2">
-          <span className={tag}>{t.recapWhere || 'Where'}</span>
-          <div className="flex flex-wrap gap-2">
-            {([
-              ['edit', t.recapWhereEdit || 'The go-live post becomes the recap'],
-              ['new', t.recapWhereNew || 'A post of its own, in the same channel'],
-            ] as const).map(([value, text]) => (
-              <button key={value} onClick={() => saveRecap({ where: value })} className={`px-3 py-1.5 rounded-lg border text-[10px] font-bold ${recap.where === value ? 'border-current-accent text-current-accent' : 'border-zinc-800 text-zinc-400 hover:text-white'}`} data-recap-where={value}>{text}</button>
-            ))}
-          </div>
-          {recap.where === 'new' && <p className="text-[10px] text-zinc-600">{t.recapWhereNewHint || 'The go-live post still goes the way "When the stream ends" says.'}</p>}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-4">
-          <label className="space-y-1 block">
-            <span className={tag}>{t.recapHeading || 'Heading'}</span>
-            <input value={recapTitle} onChange={(e) => setRecapTitle(e.target.value)} onBlur={() => { if (recapTitle !== recap.title) saveRecap({ title: recapTitle }); }} placeholder="Resumen del directo" className={box} />
-          </label>
-          <label className="space-y-1 block">
-            <span className={tag}>{t.recapChatters || 'Top chatters'}</span>
-            <input type="number" min={1} max={10} value={recap.chatters} onChange={(e) => saveRecap({ chatters: Number(e.target.value) })} className={box} />
-          </label>
-        </div>
-
-        <div className="space-y-2">
-          <span className={tag}>{t.recapParts || 'What it says'}</span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {([
-              ['length', t.recapPartLength || 'How long'],
-              ['peak', t.recapPartPeak || 'Most watching'],
-              ['events', t.recapPartEvents || 'Follows, subs, bits…'],
-              ['chatters', t.recapPartChatters || 'Top chatters'],
-              ['clips', t.recapPartClips || 'Clips'],
-              ['plan', t.recapPartPlan || 'The plan'],
-              ['chapters', t.recapPartChapters || 'Chapters (for YouTube)'],
-              ['next', t.recapPartNext || 'Next stream'],
-            ] as const).map(([key, text]) => (
-              <label key={key} className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={recap.parts[key] !== false} onChange={(e) => saveRecap({ parts: { ...recap.parts, [key]: e.target.checked } })} className="accent-current-accent" data-recap-part={key} />
-                <span className="text-[11px] text-zinc-300">{text}</span>
-              </label>
-            ))}
-          </div>
-          {recap.parts.plan !== false && <p className="text-[10px] text-zinc-600">{t.recapPlanHint || 'With the plan here, the Stream plan screen does not post its own recap as well.'}</p>}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-zinc-800/60">
-          <Button size="sm" icon={recapTesting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} onClick={runRecapTest} disabled={recapTesting || !botConnected} data-recap-test>
-            {t.recapTest || 'Post a test recap'}
-          </Button>
-          <span className="text-[10px] text-zinc-500">{recapResult}</span>
-        </div>
-        <p className="text-[10px] text-zinc-600">{t.recapTestHint || 'Built from the stream so far (or the last one), and posted in the test channel set on Welcome & Goodbye — or here, if there is none.'}</p>
-      </div>
-
       {/* The Twitch schedule as Discord events (server/engine/schedule-events.js). */}
       <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-5" data-schedule-events>
         <div className="flex items-center gap-3">
@@ -431,7 +326,7 @@ export const GoLiveView = ({ settings, channels, roles, save, test, testRecap, s
           </div>
         </div>
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.scheduleEventsHint || 'The next streams on your Twitch schedule become events in your Discord server, with the Twitch link. Anyone who presses "Interested" is told by Discord when the stream starts — the event starts when OBS does. A stream moved or cancelled on Twitch moves or goes here too; an event you delete in Discord stays deleted. Everybody in the server can see them.'}
+          {t.scheduleEventsHint || 'The next streams on your Twitch schedule become events in your Discord server, with the Twitch link. Anyone who presses "Interested" is told by Discord when the stream starts — the event starts when your Twitch stream does. A stream moved or cancelled on Twitch moves or goes here too; an event you delete in Discord stays deleted. Everybody in the server can see them.'}
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-4">

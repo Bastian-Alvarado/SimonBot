@@ -5,10 +5,10 @@
  * Twitch: IRC chat (main + bot accounts), Helix REST, and EventSub over
  * WebSocket.
  *
- * In V2 all of this ran inside the browser tab via tmi.js, which is exactly
- * why closing the tab killed the bot. It now runs in the server process.
+ * All of this runs in the server process, not a browser tab, so closing a
+ * tab does not stop the bot.
  *
- * EventSub-over-WebSocket is used for follow/sub/cheer/raid/redemption because
+ * EventSub-over-WebSocket is used for follow/sub/cheer/raid because
  * it needs no public callback URL — it is the right transport for a service
  * running on a streamer's own machine.
  */
@@ -43,9 +43,7 @@ let botProfile = null;
  * Profile pictures, keyed by Twitch user id.
  *
  * Twitch IRC carries no avatar — unlike TikTok, which embeds one in every
- * chat payload — so they have to be fetched from Helix. Previously only the
- * main and bot accounts were ever looked up, which is why every other
- * chatter rendered without a picture.
+ * chat payload — so they have to be fetched from Helix, for every chatter.
  *
  * Lookups are batched (Helix resolves up to 100 users per request) and
  * debounced, then broadcast so already-rendered messages can be filled in
@@ -57,10 +55,7 @@ const pendingAvatarIds = new Set();
 let avatarTimer = null;
 
 /**
- * How often to ask Twitch how many people are watching.
- *
- * Twitch's own viewer count is not real-time — it settles over tens of
- * seconds — so polling faster would spend requests to redraw the same number.
+ * How often to ask Twitch whether the channel is live, beside EventSub's own notices.
  */
 const VIEWER_POLL_MS = 60_000;
 let viewerTimer = null;
@@ -99,10 +94,7 @@ async function flushAvatarLookups() {
       }
     }
 
-    if (Object.keys(resolved).length > 0) {
-      bus.emit(EVENTS.AVATARS, { platform: 'twitch', avatars: resolved });
-      log.debug(`resolved ${Object.keys(resolved).length} avatar(s)`);
-    }
+    if (Object.keys(resolved).length > 0) log.debug(`resolved ${Object.keys(resolved).length} avatar(s)`);
   } catch (err) {
     // Not worth surfacing: chat still works, it just has no picture.
     log.debug(`avatar lookup failed: ${err.message}`);
@@ -211,92 +203,8 @@ export async function getUser(login) {
   const user = data?.data?.[0];
   if (user?.profile_image_url) {
     avatarCache.set(user.id, user.profile_image_url);
-    // Publish it too: a message may already be on screen without a picture,
-    // and this is the only path that resolves the main and bot accounts.
-    bus.emit(EVENTS.AVATARS, { platform: 'twitch', avatars: { [user.id]: user.profile_image_url } });
   }
   return user ?? null;
-}
-
-export async function fetchRewards() {
-  const c = creds.get();
-  const data = await helix('/channel_points/custom_rewards', { query: { broadcaster_id: c.userId } });
-  const rewards = data?.data ?? [];
-  /*
-    Published as well as returned.
-
-    The editor used to be the only thing that ever asked, and it threw the
-    answer away on reload — so a redemption alert filtered to a reward showed
-    an id where its name should be until somebody pressed Refresh. The engine
-    keeps what comes through here, which is why this emits even when it was
-    the editor that asked.
-  */
-  bus.emit(EVENTS.REWARD_LIST, rewards);
-  return rewards;
-}
-
-/**
- * Back-fill the stream tags that Twitch can tell us about after the fact.
- *
- * Tags are otherwise only populated by live events, so a freshly started
- * server showed "---" for everything until someone followed or subscribed.
- * Seeded through TAG_SEED rather than the event pipeline, so back-filling
- * last week's follower does not fire an alert for them.
- *
- * Only follows and subs are retrievable — Twitch exposes no history for
- * cheers or raids, so those stay empty until they happen live.
- */
-export async function fetchTags() {
-  const c = creds.get();
-  if (!c.userId) throw new Error('Twitch: not authenticated');
-
-  const seeded = [];
-
-  // Documented newest-first.
-  try {
-    const followers = await helix('/channels/followers', { query: { broadcaster_id: c.userId, first: 1 } });
-    const f = followers?.data?.[0];
-    if (f) {
-      bus.emit(EVENTS.TAG_SEED, {
-        key: 'latestFollower',
-        entry: {
-          user: f.user_name,
-          platform: 'twitch',
-          timestamp: f.followed_at ? Date.parse(f.followed_at) : Date.now(),
-        },
-      });
-      seeded.push(`follower=${f.user_name}`);
-    }
-  } catch (err) {
-    log.warn(`could not fetch latest follower: ${err.message}`);
-  }
-
-  try {
-    const all = await refreshSubscribers();
-    seeded.push(`subscribers=${all.length}`);
-  } catch (err) {
-    log.warn(`could not fetch the subscriber list: ${err.message}`);
-  }
-
-  // Note: Twitch does not document this as newest-first, so it is a best
-  // effort — the same one V2 made.
-  try {
-    const subs = await helix('/subscriptions', { query: { broadcaster_id: c.userId, first: 1 } });
-    const s = subs?.data?.[0];
-    if (s) {
-      bus.emit(EVENTS.TAG_SEED, {
-        key: 'latestSubscriber',
-        entry: { user: s.user_name, platform: 'twitch', timestamp: Date.now() },
-      });
-      seeded.push(`subscriber=${s.user_name}`);
-    }
-  } catch (err) {
-    // Missing channel:read:subscriptions, or an affiliate-only endpoint.
-    log.warn(`could not fetch latest subscriber: ${err.message}`);
-  }
-
-  log.info(seeded.length ? `tags refreshed — ${seeded.join(', ')}` : 'tags refreshed — nothing available');
-  return seeded;
 }
 
 /**
@@ -414,51 +322,12 @@ export async function getLiveInfo() {
   return { ...base, live: false, title: channel?.title || '', game: channel?.game_name || '', thumbnail: '' };
 }
 
-/**
- * Clips made of the channel since a moment, by anybody — the dock's, an
- * action's, a viewer's — most watched first. Twitch lists a clip a little
- * after it is made.
- */
-export async function clipsSince(startedAt, { max = 5 } = {}) {
-  const c = creds.get();
-  if (!c.userId || !c.accessToken || !startedAt) return [];
-  const res = await helix('/clips', { query: { broadcaster_id: c.userId, started_at: new Date(startedAt).toISOString(), first: 20 } });
-  return (res?.data || [])
-    .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
-    .slice(0, max)
-    .map((x) => ({ title: x.title || '', url: x.url, by: x.creator_name || '', views: x.view_count || 0 }));
-}
-
 /** The channel's latest past broadcast — tonight's, just after it ends — if Twitch keeps them. */
 export async function latestVod() {
   const c = creds.get();
   if (!c.userId || !c.accessToken) return null;
   const v = (await helix('/videos', { query: { user_id: c.userId, type: 'archive', first: 1 } }))?.data?.[0];
   return v ? { url: v.url, title: v.title || '', createdAt: v.created_at } : null;
-}
-
-export async function searchCategories(q) {
-  const data = await helix('/search/categories', { query: { query: q, first: 20 } });
-  return data?.data ?? [];
-}
-
-export async function setTitle(title) {
-  const c = creds.get();
-  if (!title) return;
-  await helix('/channels', { method: 'PATCH', query: { broadcaster_id: c.userId }, body: { title } });
-  log.info(`title set to "${title}"`);
-}
-
-export async function setCategory(gameId, gameName) {
-  const c = creds.get();
-  let id = gameId;
-  if (!id && gameName) {
-    const results = await searchCategories(gameName);
-    id = results[0]?.id;
-  }
-  if (!id) throw new Error('Twitch: no category id resolved');
-  await helix('/channels', { method: 'PATCH', query: { broadcaster_id: c.userId }, body: { game_id: id } });
-  log.info(`category set to ${gameName || id}`);
 }
 
 // --------------------------------------------------------------------- IRC
@@ -515,20 +384,15 @@ export async function connect() {
   if (c.accessToken && c.userId) {
     startViewerPoll();
     connectEventSub().catch((e) => log.error('EventSub failed:', e.message));
-    // Populate the tag cards straight away, as V2 did on connect.
-    fetchTags().catch((e) => log.debug('tag back-fill failed:', e.message));
-    // And the reward names, so the alert editor can name one without asking.
-    fetchRewards().catch((e) => log.debug('reward list failed:', e.message));
+    // Who subscribes, for the subscriber ledger and the roles that follow it.
+    refreshSubscribers().catch((e) => log.debug('subscriber list failed:', e.message));
   }
 }
 
 /**
- * Viewer count, and whether the channel is live at all.
- *
- * /helix/streams answers with an empty array when the channel is offline,
- * which is the only way to tell the difference between "nobody is watching"
- * and "there is nothing to watch" — zero viewers on a live stream is a real
- * state, and an overlay should be able to say so rather than vanishing.
+ * Whether the channel is live: /helix/streams answers with an empty array
+ * when it is not. Every minute, beside EventSub's own online and offline,
+ * for a notice that was missed (core/twitch-live.js).
  */
 async function pollViewers() {
   const c = creds.get();
@@ -537,45 +401,8 @@ async function pollViewers() {
     const res = await helix('/streams', { query: { user_id: c.userId } });
     const live = res?.data?.[0] ?? null;
     bus.emit(EVENTS.STAT, { key: 'twitchLive', value: Boolean(live) });
-    bus.emit(EVENTS.STAT, { key: 'twitchViewers', value: Number(live?.viewer_count) || 0 });
   } catch (err) {
-    log.debug('viewer count unavailable:', err.message);
-  }
-  pollTotals();
-}
-
-/**
- * How many followers and subscribers the channel has.
- *
- * Both are a `total` beside a first page we do not want, so each asks for one
- * item and reads the count off the envelope rather than paging through
- * thousands of names to length an array.
- *
- * Failures are quiet and separate. Each needs its own scope, and a channel
- * that never granted one should still get the other rather than losing both to
- * one 401 — these feed a goal bar, and a goal that silently reads zero is
- * worse than one that admits it has no number.
- */
-async function pollTotals() {
-  const c = creds.get();
-  if (!c.userId) return;
-
-  try {
-    const res = await helix('/channels/followers', { query: { broadcaster_id: c.userId, first: 1 } });
-    if (Number.isFinite(Number(res?.total))) {
-      bus.emit(EVENTS.STAT, { key: 'twitchFollowers', value: Number(res.total) });
-    }
-  } catch (err) {
-    log.debug('follower total unavailable:', err.message);
-  }
-
-  try {
-    const res = await helix('/subscriptions', { query: { broadcaster_id: c.userId, first: 1 } });
-    if (Number.isFinite(Number(res?.total))) {
-      bus.emit(EVENTS.STAT, { key: 'twitchSubs', value: Number(res.total) });
-    }
-  } catch (err) {
-    log.debug('subscriber total unavailable:', err.message);
+    log.debug('live check unavailable:', err.message);
   }
 }
 
@@ -617,7 +444,7 @@ function wireChatEvents(client) {
   client.on('message', (channel, tags, message, self) => {
     // `self` is true for anything from the connected account, including what
     // the streamer types in Twitch's own web chat. Dropping those (the usual
-    // bot-echo guard) left a solo streamer's dock permanently empty.
+    // bot-echo guard) left a solo streamer's own chat permanently empty.
     //
     // Twitch does NOT echo your own messages back over IRC, so tmi.js's local
     // synthetic copy is the only one that exists for an app-sent message —
@@ -651,15 +478,13 @@ function wireChatEvents(client) {
     // than delaying this one behind an HTTP round trip.
     scheduleAvatarLookup(userId);
 
-    // A reward configured to ask the viewer for text arrives twice: once here
-    // as a normal PRIVMSG carrying `custom-reward-id`, and once over EventSub
-    // as a redemption. Tag it so a surface showing the event can drop this
-    // copy rather than printing the same sentence twice.
+    // A channel-point reward that asks the viewer for text arrives as a normal
+    // PRIVMSG carrying `custom-reward-id`. Tag it, so a page that shows it
+    // differently can tell it apart from an ordinary line.
     //
-    // Deliberately still emitted: the engine matches commands against it, and
-    // a surface with events turned off wants this as its only representation.
-    // Read under both spellings because tmi.js normalises the tags it knows
-    // about and passes the rest through as-is.
+    // Deliberately still emitted, so the chat line is kept. Read under both
+    // spellings because tmi.js normalises the tags it knows about and passes
+    // the rest through as-is.
     const rewardId = tags['custom-reward-id'] || tags.customRewardId || null;
 
     bus.emit(EVENTS.CHAT, normaliseChat({
@@ -692,8 +517,8 @@ function wireChatEvents(client) {
 
   /*
     A moderator deleted a message, or timed out or banned somebody. Twitch's
-    own chat takes their words off screen, so the dock, the overlay and a
-    question still waiting take them off too. These arrive over IRC, so no
+    own chat takes their words off screen, so the pages and a question still
+    waiting take them off too. These arrive over IRC, so no
     EventSub scope is needed; a whole-chat /clear is left alone, as it only
     tidies Twitch's own window.
   */
@@ -742,18 +567,17 @@ function wireChatEvents(client) {
     type: 'twitch_sub', platform: 'twitch', user: username, data: extra,
   });
 
-  // msg is what they wrote with it, if anything: an alert can show it or read it out.
+  // msg is what they wrote with it, if anything.
   client.on('subscription', (ch, username, methods, msg, tags) => sub(username, { tier: tierNumber(methods?.plan), prime: String(methods?.plan).toLowerCase() === 'prime', message: msg || undefined, userId: tags?.['user-id'] || undefined }));
   client.on('resub', (ch, username, months, msg, tags, methods) => sub(username, { tier: tierNumber(methods?.plan), prime: String(methods?.plan).toLowerCase() === 'prime', months, message: msg || undefined, userId: tags?.['user-id'] || undefined }));
   /**
    * Somebody gifting a pile of subs at once.
    *
    * tmi.js announces the bundle, then sends a separate subgift for every
-   * recipient — so a fifty-sub bomb arrived as fifty events and, before this,
-   * fifty alerts back to back. Each recipient is still emitted, because the
-   * event history, levels and tags should all count every sub. They are just
-   * marked as part of a bundle so the alert engine can collapse them into the
-   * one announcement.
+   * recipient — so a fifty-sub bomb arrives as fifty events. Each recipient is
+   * still emitted, because the event history, levels and tags should all count
+   * every sub. They are just marked as part of a bundle, so whatever announces
+   * subs can collapse them into one.
    */
   client.on('submysterygift', (ch, username, count, methods) => {
     const total = Number(count) || 0;
@@ -796,8 +620,8 @@ export async function say(text, { useBot = false, fallbackToMain = true } = {}) 
 
 /*
   Lines the chat relay copied over from Discord, until Twitch reports them
-  back: that report is dropped, or the line would show twice on the overlay
-  and be relayed back into Discord. Keyed by the words, which is all the
+  back: that report is dropped, or the line would go back into Discord.
+  Keyed by the words, which is all the
   local copy of a sent message carries.
 */
 const relayedLines = new Map();
@@ -821,83 +645,12 @@ export function isRelayEcho(message, fromUs) {
   return until >= Date.now();
 }
 
-/**
- * A line typed into the chat dock, sent as whoever the dock says.
- *
- * Apart from say(), which the app's own actions call: a timer firing while
- * Twitch reconnects should shrug and carry on, but a person who typed
- * something needs to hear that it did not go. The dock used to clear the box
- * and lose the message, with nothing but a line in the server log. This
- * refuses out loud instead, with a code the dock turns into words.
- */
-export async function sayFromDock(text, { useBot = false } = {}) {
-  const line = dockLine(text);
-  if (!line) return;
-
-  // No quiet fallback from the bot to the main account: that would post as
-  // somebody the dock did not say.
-  const client = useBot ? botClient : mainClient;
-  const up = useBot ? status.bot === 'connected' : status.main === 'connected';
-  if (!client || !up) throw refusal(useBot ? 'bot_offline' : 'twitch_offline', `${useBot ? 'the bot' : 'Twitch'} is not connected`);
-
-  await client.say(creds.get().channel, line);
-}
-
-/** A typed line made ready for Twitch, or refused with the reason Twitch would not say. */
-function dockLine(text) {
-  const line = String(text ?? '').trim();
-  if (!line) return '';
-  // Twitch stopped acting on /commands sent over chat in 2023: /ban, /timeout
-  // and the rest now vanish without a word. /me is the only one it still takes.
-  if (/^[/\\]/.test(line) && !/^\/me\s/.test(line)) throw refusal('twitch_command', 'Twitch no longer runs /commands sent from chat apps');
-  // Longer than this, Twitch drops it without saying so.
-  if (Array.from(line).length > 500) throw refusal('too_long', 'Twitch takes 500 characters at most');
-  return line;
-}
-
-/**
- * A line typed by a moderator, sent as that moderator (2.0.0): through
- * Twitch's chat API with the token they signed in to the dashboard with,
- * never through the streamer's account. The streamer's connection is not
- * needed at all — only which channel it is.
- */
-export async function sayAsUser(text, { token, userId } = {}) {
-  const line = dockLine(text);
-  if (!line) return;
-  if (!token || !userId) throw refusal('mod_chat_signin', 'sign in again to chat as yourself');
-  const channelId = creds.get().userId;
-  if (!channelId) throw refusal('twitch_offline', 'Twitch is not connected');
-  let answer;
-  try {
-    answer = await helix('/chat/messages', { method: 'POST', token, body: { broadcaster_id: channelId, sender_id: userId, message: line } });
-  } catch (err) {
-    // A sign-in run out or taken back, or one from before chatting was asked for.
-    if (err.status === 401 || err.status === 403) throw refusal('mod_chat_signin', 'sign in again to chat as yourself');
-    throw err;
-  }
-  // Twitch can take the message and not post it: AutoMod, a slow mode, a banned word.
-  const sent = answer?.data?.[0];
-  if (sent && sent.is_sent === false) {
-    const err = refusal('chat_dropped', `Twitch did not post it: ${sent.drop_reason?.message || 'no reason given'}`);
-    err.vars = { reason: sent.drop_reason?.message || '' };
-    throw err;
-  }
-}
-
 function refusal(code, message) {
   const err = new Error(message);
   err.code = code;
   return err;
 }
 
-/**
- * Twitch reports a subscription tier as "1000", "2000", "3000" — or "Prime",
- * which is a tier 1 that someone did not pay for.
- *
- * That wire format should stop here rather than reaching a message template,
- * where it rendered as "subscribed at tier 2000", or a variation condition,
- * where "tier is at least 2" would never match anything.
- */
 /**
  * Gifters currently mid-bundle, so their individual subgifts can be recognised.
  *
@@ -909,17 +662,16 @@ const bulkGifts = new Map();
 
 /**
  * Who an anonymous cheer is from, as the stream says it. Twitch names nobody,
- * so the name is ours — in Spanish, since it goes on stream in an alert and a
- * chat line.
+ * so the name is ours — in Spanish, since it goes on stream in a chat line.
  */
 const ANONYMOUS = 'Anónimo';
 const BULK_GIFT_WINDOW_MS = 30_000;
 
 /**
  * Twitch tells us some things twice: a sub, a cheer and a raid each arrive over
- * chat (IRC) and over EventSub, a moment apart. Emitted both times, every raid
- * fired two alerts, sat twice in the Events dock, and counted double in the
- * stream's totals and a viewer's bits for a Discord role.
+ * chat (IRC) and over EventSub, a moment apart. Emitted both times, each one
+ * was counted twice in the stream's totals and in a viewer's bits for a
+ * Discord role.
  *
  * So the second telling is dropped — but only when it comes from the other
  * connection. Two cheers of the same size from the same viewer over chat are
@@ -955,6 +707,13 @@ function emitTwitchEvent(source, event) {
   bus.emit(EVENTS.EVENT, normaliseEvent(event));
 }
 
+/**
+ * Twitch reports a subscription tier as "1000", "2000", "3000" — or "Prime",
+ * which is a tier 1 that someone did not pay for.
+ *
+ * That wire format should stop here, so a page or message never shows "2000"
+ * for tier 2.
+ */
 function tierNumber(plan) {
   const raw = String(plan ?? '').toLowerCase();
   if (!raw) return 1;
@@ -971,51 +730,20 @@ const EVENTSUB_TOPICS = [
   /*
     A gifted sub is told by chat with who gave it and which bundle it belongs
     to. EventSub's copy of it has neither, so it went out as an ordinary new
-    sub: a fifty-sub bomb became fifty "new sub" alerts beside the one for the
+    sub: a fifty-sub bomb became fifty "new sub" events beside the one for the
     bundle. Chat's copy is the one kept.
   */
   ['channel.subscribe', '1', (e) => (e.is_gift ? null : { type: 'twitch_sub', user: e.user_name, data: { tier: tierNumber(e.tier), prime: false, userId: e.user_id } })],
   ['channel.cheer', '1', (e) => ({ type: 'twitch_cheer', user: (!e.is_anonymous && e.user_name) || ANONYMOUS, data: { bits: e.bits, amount: e.bits, currency: 'BITS', message: e.message || undefined, userId: (!e.is_anonymous && e.user_id) || undefined } })],
   ['channel.raid', '1', (e) => ({ type: 'twitch_raid', user: e.from_broadcaster_user_name, data: { amount: e.viewers, viewers: e.viewers, currency: 'VIEWERS', login: e.from_broadcaster_user_login, userId: e.from_broadcaster_user_id } })],
-  ['channel.channel_points_custom_reward_redemption.add', '1', (e) => ({
-    type: 'twitch_redemption',
-    user: e.user_name,
-    data: {
-      rewardId: e.reward?.id,
-      // The Events dock reads `data.reward`; actions and alert templates may
-      // reference `{event.rewardName}`. Emit both rather than renaming one and
-      // silently breaking the other.
-      reward: e.reward?.title,
-      rewardName: e.reward?.title,
-      cost: e.reward?.cost,
-      input: e.user_input,
-    },
-  })],
   /*
-    Not an event anybody watches happen — nothing is alerted and nothing lands
+    Not an event anybody watches happen — nothing is counted and nothing lands
     in the history — so it maps to null and travels as CHANNEL instead. It
     fires for a title edit as much as a category change; telling those apart
     is left to whoever listens, since only they know which one they care about.
     Version 2 asks for no scope, so connecting it needs nobody to log in again.
   */
   ['channel.update', '2', () => null],
-  /*
-    The Hype Train: not something that happens once, but a state that runs
-    for a few minutes, so it is not an event in the history. It travels on
-    its own, as twitch:hypetrain, for the layer that draws it and the avatar
-    that cheers it on. Version 2 first; version 1 wherever Twitch still has it.
-  */
-  ['channel.hype_train.begin', ['2', '1'], null, (e) => hypeTrain('begin', e)],
-  ['channel.hype_train.progress', ['2', '1'], null, (e) => hypeTrain('progress', e)],
-  ['channel.hype_train.end', ['2', '1'], null, (e) => hypeTrain('end', e)],
-  /*
-    What AutoMod holds back, and what became of it (let through, kept out,
-    run out), for the dock to decide on (engine/twitch-mod.js). Needs
-    moderator:manage:automod on the channel's login, and a moderator id in
-    the condition: the channel's own.
-  */
-  ['automod.message.hold', ['2', '1'], null, (e) => automodListener?.('hold', e)],
-  ['automod.message.update', ['2', '1'], null, (e) => automodListener?.('update', e)],
   /*
     The stream starting and ending, the moment it does, rather than at the
     next minute's live check: TikTok and YouTube only look for a stream of
@@ -1025,26 +753,6 @@ const EVENTSUB_TOPICS = [
   ['stream.online', '1', null, () => bus.emit(EVENTS.STAT, { key: 'twitchLive', value: true })],
   ['stream.offline', '1', null, () => bus.emit(EVENTS.STAT, { key: 'twitchLive', value: false })],
 ];
-
-/** One Hype Train update, in the fields either version of the event carries. */
-/** Who hears AutoMod's held messages: one listener, set by engine/twitch-mod.js. */
-let automodListener = null;
-export const onAutomod = (fn) => { automodListener = fn; };
-
-function hypeTrain(phase, e) {
-  bus.emit('twitch:hypetrain', {
-    phase,
-    level: Number(e?.level) || 1,
-    total: Number(e?.total) || 0,
-    progress: Number(e?.progress) || 0,
-    goal: Number(e?.goal) || 0,
-    expiresAt: e?.expires_at ? Date.parse(e.expires_at) : null,
-    endedAt: e?.ended_at ? Date.parse(e.ended_at) : null,
-    golden: e?.type === 'golden_kappa' || e?.is_golden_kappa_train === true,
-    top: (Array.isArray(e?.top_contributions) ? e.top_contributions : []).slice(0, 3)
-      .map((c) => ({ user: c.user_name || c.user_login || '', type: c.type || '', total: Number(c.total) || 0 })),
-  });
-}
 
 /** The channel as a CHANNEL payload, from Helix's or EventSub's field names. */
 const channelPayload = (e, initial) => ({
@@ -1217,8 +925,8 @@ async function subscribeTopics(sessionId, broadcasterId) {
       ? { to_broadcaster_user_id: broadcasterId }
       : { broadcaster_user_id: broadcasterId };
 
-    // channel.follow v2 additionally requires a moderator id, and AutoMod's topics do too.
-    if (type === 'channel.follow' || type.startsWith('automod.')) condition.moderator_user_id = broadcasterId;
+    // channel.follow v2 additionally requires a moderator id.
+    if (type === 'channel.follow') condition.moderator_user_id = broadcasterId;
 
     try {
       // Newest version first; an older one only if Twitch refuses the version itself.
@@ -1254,7 +962,7 @@ async function subscribeTopics(sessionId, broadcasterId) {
     log.info(`EventSub: subscribed to all ${created} event types`);
   } else {
     log.warn(`EventSub: subscribed to ${created}/${EVENTSUB_TOPICS.length} event types — `
-      + 'the rest will not trigger alerts or actions');
+      + 'what they would have said (follows, subs, cheers, going live) will not arrive');
   }
 }
 
@@ -1277,26 +985,6 @@ function closeEventSub() {
 
 // ------------------------------------------------------------- extras
 
-/** A channel's title and category, by its broadcaster id. */
-export async function channelOf(broadcasterId) {
-  const res = await helix('/channels', { query: { broadcaster_id: broadcasterId } });
-  return res?.data?.[0] ?? null;
-}
-
-/**
- * Twitch's own shoutout, from this channel to another — the card on Twitch
- * with their follow button. Needs moderator:manage:shoutouts, and the stream
- * live; Twitch allows one every two minutes, and the same channel once an hour.
- */
-export async function sendShoutout(toBroadcasterId) {
-  const c = creds.get();
-  await helix('/chat/shoutouts', {
-    method: 'POST',
-    query: { from_broadcaster_id: c.userId, to_broadcaster_id: toBroadcasterId, moderator_id: c.userId },
-  });
-}
-
-/** A marker at this moment of the live stream, to find it again in the VOD. Needs channel:manage:broadcast. */
 /**
  * Ban somebody from the channel's chat, or time them out for `seconds`.
  * The channel's own login acts as moderator, so it needs
@@ -1325,108 +1013,13 @@ export async function banUser(userId, { seconds = 0, reason = '', as = null } = 
 /*
   Moderating, as whoever is doing it: `as` is a moderator's own Twitch
   sign-in ({ token, userId }, from api/auth.js), so Twitch's own mod log names
-  them; without it, the channel's login acts. Each needs its scope on the
-  token that acts — a login from before it was asked for has to sign in or
-  connect again, and is told so.
+  them; without it, the channel's login acts.
 */
 function actor(as) {
   const c = creds.get();
   if (!c.userId) throw refusal('twitch_offline', 'Twitch: not authenticated');
   return as?.token && as?.userId ? { token: as.token, moderatorId: String(as.userId) } : { token: undefined, moderatorId: c.userId };
 }
-async function moderating(endpoint, opts, as, scope) {
-  const by = actor(as);
-  try {
-    return await helix(endpoint, { ...opts, token: by.token, query: { broadcaster_id: creds.get().userId, moderator_id: by.moderatorId, ...(opts.query || {}) } });
-  } catch (err) {
-    if (err.status === 401 || err.status === 403) {
-      const e2 = refusal('twitch_mod_scope', `Twitch refused: sign in or connect again to allow ${scope}`);
-      e2.vars = { scope };
-      throw e2;
-    }
-    throw err;
-  }
-}
-
-/** End a ban or a timeout. */
-export async function unbanUser(userId, { as = null } = {}) {
-  await moderating('/moderation/bans', { method: 'DELETE', query: { user_id: String(userId) } }, as, 'moderator:manage:banned_users');
-  return { ok: true };
-}
-
-/** Delete one message (Twitch's id for it): under six hours old, and not the broadcaster's or another moderator's. */
-export async function deleteChatMessage(messageId, { as = null } = {}) {
-  if (!messageId) throw refusal('unknown_request', 'no message named');
-  await moderating('/moderation/chat', { method: 'DELETE', query: { message_id: String(messageId) } }, as, 'moderator:manage:chat_messages');
-  return { ok: true };
-}
-
-/** The chat's modes, in the app's words. */
-const chatModes = (d = {}) => ({
-  slow: Boolean(d.slow_mode),
-  slowSeconds: Number(d.slow_mode_wait_time) || 30,
-  emoteOnly: Boolean(d.emote_mode),
-  followersOnly: Boolean(d.follower_mode),
-  followersMinutes: Number(d.follower_mode_duration) || 0,
-  subscribersOnly: Boolean(d.subscriber_mode),
-});
-
-export async function getChatSettings() {
-  const c = creds.get();
-  if (!c.userId) throw refusal('twitch_offline', 'Twitch: not authenticated');
-  const data = await helix('/chat/settings', { query: { broadcaster_id: c.userId } });
-  return chatModes(data?.data?.[0]);
-}
-
-/** Switch chat modes: only what is named changes. Slow mode waits 3 to 120 seconds. */
-export async function updateChatSettings(patch = {}, { as = null } = {}) {
-  const body = {};
-  if ('slow' in patch) {
-    body.slow_mode = Boolean(patch.slow);
-    if (patch.slow) body.slow_mode_wait_time = Math.min(120, Math.max(3, Math.round(Number(patch.slowSeconds) || 30)));
-  }
-  if ('emoteOnly' in patch) body.emote_mode = Boolean(patch.emoteOnly);
-  if ('followersOnly' in patch) {
-    body.follower_mode = Boolean(patch.followersOnly);
-    if (patch.followersOnly && Number(patch.followersMinutes) > 0) body.follower_mode_duration = Math.min(129_600, Math.round(Number(patch.followersMinutes)));
-  }
-  if ('subscribersOnly' in patch) body.subscriber_mode = Boolean(patch.subscribersOnly);
-  const data = await moderating('/chat/settings', { method: 'PATCH', body }, as, 'moderator:manage:chat_settings');
-  return chatModes(data?.data?.[0]);
-}
-
-/** Let a message AutoMod held through, or keep it out. Done by the one deciding: their own user id, their own token. */
-export async function resolveAutomod(messageId, allow, { as = null } = {}) {
-  const by = actor(as);
-  try {
-    await helix('/moderation/automod/message', { method: 'POST', token: by.token, body: { user_id: by.moderatorId, msg_id: String(messageId), action: allow ? 'ALLOW' : 'DENY' } });
-  } catch (err) {
-    if (err.status === 401 || err.status === 403) {
-      const e2 = refusal('twitch_mod_scope', 'Twitch refused: sign in or connect again to allow moderator:manage:automod');
-      e2.vars = { scope: 'moderator:manage:automod' };
-      throw e2;
-    }
-    throw err;
-  }
-  return { ok: true };
-}
-
-export async function createMarker(description = '') {
-  const c = creds.get();
-  const text = String(description ?? '').trim().slice(0, 140);
-  const res = await helix('/streams/markers', { method: 'POST', body: { user_id: c.userId, ...(text ? { description: text } : {}) } });
-  const m = res?.data?.[0];
-  return m ? { id: m.id, at: m.position_seconds ?? null, description: m.description || text } : null;
-}
-
-/** A clip of the last half minute of the live stream. Needs clips:edit. */
-export async function createClip() {
-  const c = creds.get();
-  const res = await helix('/clips', { method: 'POST', query: { broadcaster_id: c.userId } });
-  const clip = res?.data?.[0];
-  return clip ? { id: clip.id, url: `https://clips.twitch.tv/${clip.id}`, editUrl: clip.edit_url || '' } : null;
-}
-
 /**
  * The channel's stream schedule: the next few streams on it, soonest first,
  * cancelled ones left out. A channel with no schedule has none, not an error.
@@ -1446,14 +1039,4 @@ export async function fetchSchedule(first = 5) {
     .map((s) => ({ id: s.id || '', start: s.start_time, end: s.end_time || null, title: s.title || '', category: s.category?.name || '' }));
 }
 
-/** The permissions the channel's Twitch login was given, or null when it cannot tell. */
-export async function tokenScopes() {
-  const c = creds.get();
-  if (!c.accessToken) return null;
-  const res = await fetch('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: `OAuth ${c.accessToken}` } });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return Array.isArray(json?.scopes) ? json.scopes : [];
-}
-
-export const service = { say, getStatus, setTitle, setCategory, getUser, fetchRewards, searchCategories, channelOf, sendShoutout, createMarker, createClip, fetchSchedule, tokenScopes };
+export const service = { say, getStatus, getUser, fetchSchedule };

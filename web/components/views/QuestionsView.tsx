@@ -5,20 +5,18 @@
  * Moderating what viewers have asked.
  *
  * Two piles. What has come in and not been looked at, and what has been
- * approved and is ready to read out. Nothing reaches the screen from the first
- * pile — approving is the gate, and the server refuses to show anything that
- * has not been through it.
+ * approved and is ready to read out. Approving is the gate: only an approved
+ * question is ever the one being answered.
  *
  * Laid out for use during the segment rather than before it: the approved pile
- * is on the left where it is glanced at, one press puts a question on screen,
- * the same press on the one already up takes it down, and "Next question"
- * answers the one up and puts up the next. A question can be tidied before it
- * goes up, and added by hand. The rules — the built-in "!pregunta", and what
- * the end of a stream does to the queue — are at the bottom. The server side
- * is server/engine/questions.js.
+ * is on the left where it is glanced at, and "Next question" answers the one
+ * being answered and takes up the next. A question can be tidied before it is
+ * read, and added by hand. The rules — the built-in "!pregunta", and what the
+ * end of a stream does to the queue — are at the bottom. The server side is
+ * server/engine/questions.js.
  */
 import React, { useState } from 'react';
-import { Check, X, Play, Square, Trash2, MessageCircleQuestion, SkipForward, Pencil, Plus, Settings2 } from 'lucide-react';
+import { Check, X, Trash2, MessageCircleQuestion, SkipForward, Pencil, Plus, Settings2 } from 'lucide-react';
 import { Button } from '../Button';
 import { CommittedInput } from '../CommittedInput';
 import { PLATFORMS } from '../../../shared/platforms.js';
@@ -40,7 +38,6 @@ interface Props {
   questions: Questions;
   settings?: QuestionSettings;
   setStatus: (id: string, status: string) => void;
-  show: (id: string) => void;
   clear: (which?: string) => void;
   /** Add, edit, next, settings: awaited, so a refusal can be shown. */
   control: (payload: Record<string, any>) => Promise<any>;
@@ -121,7 +118,7 @@ const Toggle = ({ on, onClick, text, hint }: { on: boolean; onClick: () => void;
   </div>
 );
 
-export const QuestionsView = ({ questions, settings, setStatus, show, clear, control, fromDiscord, setFromDiscord, channels = [], language, t }: Props) => {
+export const QuestionsView = ({ questions, settings, setStatus, clear, control, fromDiscord, setFromDiscord, channels = [], language, t }: Props) => {
   const items = questions?.items || [];
   const pending = items.filter((q) => q.status === 'pending');
   const approved = items.filter((q) => q.status === 'approved');
@@ -157,11 +154,11 @@ export const QuestionsView = ({ questions, settings, setStatus, show, clear, con
       {/* What is up, and the one press that answers it and brings up the next. */}
       <div className="glass-panel rounded-3xl border border-zinc-800 p-5 flex flex-col sm:flex-row sm:items-center gap-4" data-questions-now>
         <div className="flex-1 min-w-0">
-          <div className={label}>{t.questionsOnScreen || 'On screen'}</div>
+          <div className={label}>{t.questionsOnScreen || 'Answering now'}</div>
           <div className="text-sm text-zinc-200 truncate mt-1">
             {showing
               ? <><span className="font-black text-current-accent">{showing.user}</span> · {showing.text}</>
-              : <span className="text-zinc-600">{t.questionsNothingOnScreen || 'Nothing on screen.'}</span>}
+              : <span className="text-zinc-600">{t.questionsNothingOnScreen || 'Nothing being answered.'}</span>}
           </div>
         </div>
         <Button icon={<SkipForward size={14} className="mr-1.5" />} onClick={() => run({ op: 'next' })} disabled={!showing && approved.length === 0}>
@@ -183,7 +180,7 @@ export const QuestionsView = ({ questions, settings, setStatus, show, clear, con
           </div>
           {approved.length === 0 && (
             <p className="text-[10px] text-zinc-600 leading-relaxed">
-              {t.questionsNoneApproved || 'Nothing approved yet. Approve one on the right and it can go on screen.'}
+              {t.questionsNoneApproved || 'Nothing approved yet. Approve one on the right and it can be answered next.'}
             </p>
           )}
           <div className="space-y-2">
@@ -191,18 +188,6 @@ export const QuestionsView = ({ questions, settings, setStatus, show, clear, con
               const onScreen = q.id === questions?.showingId;
               return (
                 <QuestionRow key={q.id} q={q} highlight={onScreen} onEdit={(text) => run({ op: 'edit', id: q.id, text })} language={language} t={t}>
-                  {/* The same press takes it down again. */}
-                  <button
-                    onClick={() => show(onScreen ? '' : q.id)}
-                    title={onScreen ? (t.questionsHide || 'Take it off screen') : (t.questionsShow || 'Put it on screen')}
-                    className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-all ${
-                      onScreen
-                        ? 'bg-current-accent border-current-accent text-white'
-                        : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500'
-                    }`}
-                  >
-                    {onScreen ? <Square size={13} /> : <Play size={13} />}
-                  </button>
                   <button
                     onClick={() => setStatus(q.id, 'done')}
                     title={t.questionsDone || 'Answered'}
@@ -227,7 +212,7 @@ export const QuestionsView = ({ questions, settings, setStatus, show, clear, con
           {pending.length === 0 && (
             <p className="text-[10px] text-zinc-600 leading-relaxed">
               {String(t.questionsNonePending
-                || 'Nothing waiting. Viewers ask with {trigger}, or with a command of yours carrying the “Questions: add to queue” step.')
+                || 'Nothing waiting. Viewers ask with {trigger}, or in a questions channel in Discord.')
                 .split('{trigger}').join(ask.enabled ? ask.trigger : '!…')}
             </p>
           )}
@@ -314,7 +299,7 @@ export const QuestionsView = ({ questions, settings, setStatus, show, clear, con
           on={ask.enabled}
           onClick={() => setAsk({ enabled: !ask.enabled })}
           text={`${t.questionsAskToggle || 'Viewers can ask with a chat command'} · ${ask.trigger}`}
-          hint={t.questionsAskHint || 'Anything after the command goes into Waiting. Each person can ask once per cooldown, a question already in the queue is not added twice, and a command of your own with the same word answers instead.'}
+          hint={t.questionsAskHint || 'Anything after the command goes into Waiting. Each person can ask once per cooldown, and a question already in the queue is not added twice. It works in Twitch chat and in any Discord channel; from Discord, the answer goes back there.'}
         />
         {ask.enabled && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

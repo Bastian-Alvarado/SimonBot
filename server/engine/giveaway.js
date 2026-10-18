@@ -4,12 +4,11 @@
  *
  * The giveaway: one at a time, entered from every chat the app reads — the
  * keyword ("!sorteo") on Twitch, YouTube, TikTok, Kick or Discord — or with
- * the "Participar" button on its Discord post, and drawn live on stream.
+ * the "Participar" button on its Discord post, and drawn from the Giveaways
+ * screen.
  *
- * Bots that do giveaways do them in Discord, for Discord. This one is the
- * stream's: whoever is watching enters from wherever they watch, in one
- * pool, and the draw is a moment on the overlay (the Giveaway layer turns a
- * reel of names and stops on the winner) before chat and Discord are told.
+ * Whoever is watching enters from wherever they watch, in one pool, and the
+ * winners are told in chat and in Discord.
  *
  * Rules, set on the Giveaways screen: subscribers only, a level to reach,
  * extra tickets for subscribers, a Discord role, which platforms count.
@@ -24,7 +23,6 @@ import { collection } from '../core/store.js';
 import { bus, EVENTS, normaliseEvent } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
-import * as commands from './commands.js';
 import * as discord from '../platforms/discord.js';
 import * as leveling from '../leveling/index.js';
 import { getRoleMappings } from './discord-roles.js';
@@ -52,9 +50,8 @@ const DEFAULT = {
   winners: [],
   /** Who was drawn and passed over with a reroll: not drawn again. */
   passed: [],
-  /** The latest draw: when, and the names the overlay's reel turns through before it stops. */
+  /** When the latest draw was. */
   drawAt: null,
-  reel: [],
   /** The Discord post with the button. */
   post: null,
 };
@@ -69,17 +66,13 @@ export const DEFAULT_GIVEAWAY_SETTINGS = {
   autoDraw: false,
 };
 
-/** How long the overlay's reel turns before the winner is told to chat and Discord. */
-export const REEL_MS = 6000;
 const PUBLISH_EVERY_MS = 300;
-const REEL_NAMES = 30;
 
 let state = null;
 let settingsStore = null;
 let deps = {};
 let closeTimer = null;
 let publishTimer = null;
-let tellTimer = null;
 
 const draftOf = (s) => {
   const d = s.draft && typeof s.draft === 'object' ? s.draft : s;
@@ -251,8 +244,6 @@ function onChat(chat) {
   if (!s || s.mode !== 'open' || !chat?.msg || chat.isBot || chat.isBroadcaster) return;
   const said = String(chat.msg).trim();
   if (said.split(/\s+/)[0].toLowerCase() !== s.keyword) return;
-  // A command of the streamer's own on the same word answers instead.
-  if (commands.ownCommandAnswers(collection('commands', []).get(), collection('actions', []).get(), said, chat.platform)) return;
   const roles = chat.raw?.roles || [];
   enter({ platform: chat.platform, userId: chat.userId, name: chat.user, avatar: chat.avatar, isSub: Boolean(chat.isSub) || (chat.platform === 'discord' && subRoles().some((r) => roles.includes(r))), roles });
 }
@@ -321,20 +312,9 @@ function close(why) {
   return publish(next);
 }
 
-/** A reel for the overlay: some of who entered, shuffled, stopping on the winners. */
-function reelFor(entrants, winners, random = Math.random) {
-  const names = Object.values(entrants).map((e) => e.name);
-  for (let i = names.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    [names[i], names[j]] = [names[j], names[i]];
-  }
-  return [...names.slice(0, REEL_NAMES), ...winners.map((w) => w.name)];
-}
-
 /**
- * Draw: closes it if open, picks the winners by their tickets, and puts them
- * up — the overlay turns its reel for a few seconds, then chat and Discord
- * are told, and an action can answer (giveaway_winner).
+ * Draw: closes it if open, picks the winners by their tickets, and tells
+ * chat and Discord (and viewer history counts the win: giveaway_winner).
  */
 export function draw({ reroll = false, random = Math.random } = {}) {
   let s = state.get();
@@ -347,29 +327,20 @@ export function draw({ reroll = false, random = Math.random } = {}) {
   if (!picked.length) throw refusal(Object.keys(s.entrants).length ? 'giveaway_nobody_left' : 'giveaway_empty', 'nobody to draw');
   const now = Date.now();
   const drawn = picked.map((w) => ({ key: w.key, name: w.name, platform: w.platform, userId: w.userId || '', avatar: w.avatar || '', at: now }));
-  const next = { ...s, mode: 'drawn', winners: [...keep, ...drawn], passed, drawAt: now, reel: reelFor(s.entrants, drawn, random) };
+  const next = { ...s, mode: 'drawn', winners: [...keep, ...drawn], passed, drawAt: now };
   const shown = publish(next);
   log.info(`giveaway ${reroll ? 'rerolled' : 'drawn'}: ${drawn.map((w) => `${w.name} (${w.platform})`).join(', ')}`);
-
-  // Told once the reel has stopped, so chat does not give it away first.
-  if (tellTimer) clearTimeout(tellTimer);
-  tellTimer = setTimeout(() => {
-    tellTimer = null;
-    const after = state.get();
-    if (after.drawAt !== now) return;
-    say(winnerLine(after, drawn));
-    updatePost(after, 'drawn');
-    for (const w of drawn) {
-      bus.emit(EVENTS.EVENT, normaliseEvent({
-        type: 'giveaway_winner',
-        platform: w.platform,
-        user: w.name,
-        avatar: w.avatar || undefined,
-        data: { prize: after.prize, entrants: Object.keys(after.entrants).length, reroll, userId: w.userId || '' },
-      }));
-    }
-  }, deps.reelMs ?? REEL_MS);
-  tellTimer.unref?.();
+  say(winnerLine(shown, drawn));
+  updatePost(shown, 'drawn');
+  for (const w of drawn) {
+    bus.emit(EVENTS.EVENT, normaliseEvent({
+      type: 'giveaway_winner',
+      platform: w.platform,
+      user: w.name,
+      avatar: w.avatar || undefined,
+      data: { prize: shown.prize, entrants: Object.keys(shown.entrants).length, reroll, userId: w.userId || '' },
+    }));
+  }
   return shown;
 }
 
@@ -404,7 +375,7 @@ export async function control(op, value) {
       if (s.mode === 'open') throw refusal('giveaway_running', 'a giveaway is already open');
       const now = Date.now();
       const opened = {
-        ...next, ...d, mode: 'open', entrants: {}, winners: [], passed: [], reel: [], drawAt: null, post: null,
+        ...next, ...d, mode: 'open', entrants: {}, winners: [], passed: [], drawAt: null, post: null,
         openedAt: now, closedAt: null, endsAt: d.durationMs ? now + d.durationMs : null,
       };
       publish(opened);
@@ -426,12 +397,11 @@ export async function control(op, value) {
       if (s.mode !== 'drawn') throw refusal('giveaway_none', 'draw first');
       return draw({ reroll: true });
 
-    /** Back to nothing on screen; the prize and rules stay, ready to run again. */
+    /** Back to nothing running; the prize and rules stay, ready to run again. */
     case 'reset': {
       if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-      if (tellTimer) { clearTimeout(tellTimer); tellTimer = null; }
       if (s.mode === 'open') updatePost(s, 'closed');
-      return publish({ ...s, mode: 'idle', entrants: {}, winners: [], passed: [], reel: [], drawAt: null, endsAt: null, post: null });
+      return publish({ ...s, mode: 'idle', entrants: {}, winners: [], passed: [], drawAt: null, endsAt: null, post: null });
     }
 
     /** Take somebody out — a mod's call. */
@@ -453,12 +423,6 @@ export async function control(op, value) {
   }
 }
 
-/** For a step: open the one set up, with a prize if one is given. */
-export async function openFromStep(prize) {
-  const p = cleanPrize(prize);
-  return control('open', p ? { prize: p } : undefined);
-}
-
 export function initGiveaway(d = {}) {
   deps = d;
   state = collection('giveaway', DEFAULT);
@@ -472,11 +436,6 @@ export function initGiveaway(d = {}) {
   bus.on(EVENTS.CHAT, onChat);
   bus.on('discord:message_elsewhere', onChat);
   bus.on('discord:interaction', (i) => { onInteraction(i).catch((err) => log.warn(`giveaway button: ${err.message}`)); });
-}
-
-/** Tests only: a shorter reel, so a draw is told without waiting six seconds. */
-export function useReelForTests(ms) {
-  deps = { ...deps, reelMs: ms };
 }
 
 export const snapshot = () => ({ giveaway: getState(), giveawaySettings: getSettings() });

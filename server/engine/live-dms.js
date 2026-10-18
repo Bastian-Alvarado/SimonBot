@@ -32,7 +32,7 @@ const NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok' };
 const EMOJI = { twitch: '💜', youtube: '❤️', tiktok: '🎵' };
 export const DEFAULT_LIVE_DMS = {
   enabled: false,
-  /** Seconds after OBS starts streaming, so the link works when it lands. */
+  /** Seconds after the stream starts, so the link works when it lands. */
   delaySec: 60,
   /** The words of the message. {streamer}, {title}, {game}, {platform}. */
   message: '🔴 ¡{streamer} está en directo! {title}',

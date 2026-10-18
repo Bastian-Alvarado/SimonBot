@@ -4,9 +4,9 @@
  *
  * YouTube live chat.
  *
- * Shaped like the Spotify module because the flow is the same: a client id and
- * secret from the Connections screen, an authorisation code exchanged once for
- * a refresh token, and a poll from then on.
+ * The sign-in is a client id and secret from the Connections screen, an
+ * authorisation code exchanged once for a refresh token, and a poll from then
+ * on.
  *
  * What YouTube gives, and what it does not
  * ----------------------------------------
@@ -18,7 +18,7 @@
  * substitute — you cannot see one arrive.
  *
  * So this app has no YouTube follow event, because there is nothing to raise
- * one from. An alert offered for it would be a line in a menu that can never
+ * one from. An event offered for it would be a line in a menu that can never
  * fire, which is worse than an absence you can see and understand.
  *
  * The mapping, which shared/platforms.js explains and this must obey:
@@ -36,7 +36,6 @@ import { collection } from '../core/store.js';
 import { bus, EVENTS, normaliseChat, normaliseEvent } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import { config } from '../config.js';
-import { isYoutubeCategory, youtubeCategoryName } from '../../shared/youtube-categories.js';
 import { defaultNameColour } from '../../shared/platforms.js';
 import { twitchLive, onTwitchLive } from '../core/twitch-live.js';
 import { refusal } from '../core/refusal.js';
@@ -168,10 +167,10 @@ let streamAbort = null;
 let streamOff = false;
 let quickEnds = 0;
 /*
-  Not live: how often to look for a broadcast. It used to be every minute,
-  and with the channel name read again each time that alone spent over a
-  quarter of the day's allowance with nobody streaming. Three minutes still
-  finds a stream moments after it starts.
+  Not live: how often to look for a broadcast. Looking every minute, with the
+  channel name read again each time, would spend over a quarter of the day's
+  allowance with nobody streaming. Three minutes still finds a stream moments
+  after it starts.
 */
 const WAIT_MS = 180_000;
 /* After a failure that is not the allowance — a network blip, a chat that ended. */
@@ -183,8 +182,7 @@ const RETRY_MS = 60_000;
   broadcast to find, and every look is allowance spent for nothing. Twitch
   going live is looked at once, then every minute for ten minutes —
   YouTube's broadcast tends to start a beat after — then every three. With
-  Twitch not connected, nobody can say, and it looks every three minutes as
-  it always did.
+  Twitch not connected, nobody can say, and it looks every three minutes.
 
   Reading a chat already, Twitch stopping is given five minutes before the
   reading stops with it: a stream that drops and comes straight back is
@@ -225,8 +223,8 @@ function pause() {
 
 /*
   The first page of a chat is its backlog — everything said before we arrived.
-  Replaying it would fire an alert for every member who joined while the app
-  was shut, and fill the dock with an hour nobody was watching for.
+  Replaying it would fire a sub event for every member who joined while the
+  app was shut, and fill the chat with an hour nobody was watching for.
 */
 let seenFirstPage = false;
 
@@ -461,86 +459,6 @@ async function findLiveChat() {
   return { chatId: item.snippet?.liveChatId || null, videoId: item.id || null };
 }
 
-/**
- * Say which category the stream is in, for the dock button that shows it and
- * a text source that wants it: the id, which the button picks its picture by,
- * and the name, which is what anybody reading it wants.
- */
-function announceCategory(id) {
-  if (!id) return;
-  bus.emit(EVENTS.STAT, { key: 'youtubeCategoryId', value: String(id) });
-  bus.emit(EVENTS.STAT, { key: 'youtubeCategory', value: youtubeCategoryName(id) });
-}
-
-/**
- * The video a title change is for: the broadcast on air, or failing that the
- * next one scheduled — so a title can be set before going live, which is
- * when it matters most.
- */
-async function targetVideo() {
-  if (videoId) return videoId;
-  const live = await findLiveChat();
-  if (live?.videoId) return live.videoId;
-  const upcoming = await api('/liveBroadcasts?part=snippet&broadcastStatus=upcoming&broadcastType=all&maxResults=10');
-  const soonest = (upcoming?.items || [])
-    .slice()
-    .sort((a, b) => String(a.snippet?.scheduledStartTime || '').localeCompare(String(b.snippet?.scheduledStartTime || '')))[0];
-  return soonest?.id || null;
-}
-
-/*
-  YouTube refuses angle brackets in either field, and measures the description
-  in bytes. Cut to the byte limit, then drop whatever half a character the cut
-  left behind.
-*/
-const noBrackets = (text) => String(text ?? '').replace(/[<>]/g, '');
-const toBytes = (text, max) => Buffer.from(text).subarray(0, max).toString().replace(/\uFFFD+$/, '');
-
-/**
- * Change the title, the description, the category, or several at once.
- *
- * The category is a toggle: given two, it moves to whichever one it is not
- * on, and from anything else to the first — so one dock button can flip a
- * stream between Gaming and People & Blogs. Given one, it simply sets it.
- *
- * A video's snippet is replaced whole, not merged: a request carrying only a
- * title would wipe the description, the tags and the language. So the current
- * one is read first and only the asked-for fields are changed in it.
- */
-export async function setDetails({ title, description, toggleCategory } = {}) {
-  if (!isAuthorised()) throw new Error('YouTube: not connected');
-  if (!canEdit()) {
-    throw new Error('YouTube: sign in again on the Connections screen to allow changing the title and description');
-  }
-  const id = await targetVideo();
-  if (!id) throw new Error('YouTube: there is no live or scheduled broadcast to change');
-
-  const found = await api(`/videos?part=snippet&id=${encodeURIComponent(id)}`);
-  const snippet = (found?.items || [])[0]?.snippet;
-  if (!snippet) throw new Error('YouTube: the broadcast could not be read');
-
-  const next = { title: snippet.title || '', description: snippet.description || '', categoryId: snippet.categoryId };
-  for (const key of ['tags', 'defaultLanguage', 'defaultAudioLanguage']) {
-    if (snippet[key] !== undefined) next[key] = snippet[key];
-  }
-  if (title !== undefined) next.title = noBrackets(title).replace(/\s+/g, ' ').trim().slice(0, 100);
-  if (description !== undefined) next.description = toBytes(noBrackets(description), 5000);
-  if (toggleCategory) {
-    const [first, second] = toggleCategory.map((id) => String(id ?? '').trim());
-    if (!isYoutubeCategory(first)) throw new Error(`YouTube: "${first}" is not a category`);
-    const other = isYoutubeCategory(second) && second !== first ? second : '';
-    next.categoryId = other && String(snippet.categoryId) === first ? other : first;
-  }
-  if (!next.title) throw new Error('YouTube: a title cannot be empty');
-
-  await api('/videos?part=snippet', { method: 'PUT', body: { id, snippet: next } });
-  announceCategory(next.categoryId);
-  log.info(title !== undefined ? `title set: ${next.title}`
-    : description !== undefined ? 'description set'
-      : `category set: ${next.categoryId}`);
-  return next;
-}
-
 /*
   Which start this is. Twitch going live can start YouTube while another
   start is still waiting on Google; each is numbered, and stop() or a newer
@@ -612,15 +530,6 @@ async function startRun(mine) {
   setStatus('connected');
   log.info('live chat found — reading');
   setHealth({ state: 'reading', since: Date.now(), everyMs: MIN_POLL_MS, streaming: true });
-
-  /*
-    Which category it went live in, read once, so the dock button says the
-    right thing before anybody has pressed it. Decoration again: chat does not
-    wait on it and does not fail with it.
-  */
-  api(`/videos?part=snippet&id=${encodeURIComponent(videoId)}`)
-    .then((found) => announceCategory((found?.items || [])[0]?.snippet?.categoryId))
-    .catch((err) => log.warn('could not read the category:', err.message));
 
   // Streamed, not waited on: the connection stays open as long as the chat goes on.
   streamChat(mine).catch((err) => { if (mine === run) onFailure(err); });
@@ -852,8 +761,7 @@ export function handleMessage(item) {
         avatar,
         /*
           `amount` is the money as YouTube shows it ("$5.00"), for a caption;
-          `value` is the same as a number in its own currency, which an
-          alert variation can compare ("value at least 20").
+          `value` is the same as a number in its own currency, for comparing.
         */
         data: {
           amount: details.amountDisplayString || '',
@@ -925,17 +833,6 @@ async function pollViewers(mine = run) {
 export const YOUTUBE_CHAT_MAX = 200;
 
 /**
- * Post a message in the live chat being read, as the linked channel.
- *
- * Refused, with a code a screen can say, when there is no chat to post in,
- * when the sign-in cannot write, when it is too long, and when the day's
- * allowance would not cover it — a message costs 50 units, ten reads of
- * chat. Shown in chat at once rather than when the next read brings it
- * back. `sentToBoth` marks one that went to Twitch as well, so a command in
- * it runs once, from Twitch's copy. `cut` is for an action's reply: trimmed
- * to fit rather than refused, since nobody is there to shorten it.
- */
-/**
  * A YouTube channel by its id (UC…) or @handle, for linking somebody by hand
  * who has not chatted yet. One unit of the day's allowance. Null when it is
  * neither, YouTube is not signed in, or there is no such channel.
@@ -970,6 +867,17 @@ export async function ban(channelId, { seconds = 0 } = {}) {
   return { ok: true };
 }
 
+/**
+ * Post a message in the live chat being read, as the linked channel.
+ *
+ * Refused, with a code a screen can say, when there is no chat to post in,
+ * when the sign-in cannot write, when it is too long, and when the day's
+ * allowance would not cover it — a message costs 50 units, ten reads of
+ * chat. Shown in chat at once rather than when the next read brings it
+ * back. `sentToBoth` marks one that went to Twitch as well. `cut` is for a
+ * bot's reply: trimmed to fit rather than refused, since nobody is there to
+ * shorten it.
+ */
 export async function say(text, { sentToBoth = false, cut = false, quiet = false } = {}) {
   let line = String(text ?? '').replace(/\s+/g, ' ').trim();
   if (cut && Array.from(line).length > YOUTUBE_CHAT_MAX) line = `${Array.from(line).slice(0, YOUTUBE_CHAT_MAX - 1).join('')}…`;
@@ -1012,11 +920,7 @@ export async function say(text, { sentToBoth = false, cut = false, quiet = false
   return sent;
 }
 
-/** What an action step may do to YouTube. */
+/** What the rest of the app may ask of YouTube. */
 export const service = {
   say: (text, opts) => say(text, opts),
-  setTitle: (title) => setDetails({ title }),
-  setDescription: (description) => setDetails({ description }),
-  /** Resolves to the category the stream is in afterwards. */
-  toggleCategory: (first, second) => setDetails({ toggleCategory: [first, second] }).then((next) => next.categoryId),
 };

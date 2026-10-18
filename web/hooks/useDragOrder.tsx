@@ -4,8 +4,7 @@
  *
  * Putting the rows of a list in a new order by dragging a grip.
  *
- * One way for every list in the app that can be reordered — overlay layers,
- * action steps, alert variations, the plan, and the rest — so a grip does the
+ * One way for every list in the app that can be reordered, so a grip does the
  * same thing wherever it is found:
  *
  *   - Pointer events rather than the browser's drag and drop, which a finger

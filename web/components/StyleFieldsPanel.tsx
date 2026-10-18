@@ -13,16 +13,16 @@
  * The point of it is small and specific. These values were always editable;
  * they were editable by opening a box of CSS and changing text in the middle
  * of it, which is a thing you do once and then leave alone. A slider you move
- * while looking at the canvas is a different activity.
+ * while looking at the card's preview is a different activity.
  *
- * Kept with Look and Motion rather than under the stylesheet it is read from.
+ * Kept with Look rather than under the stylesheet it is read from.
  * Beside the stylesheet it read as part of that box, which is the one place
  * somebody who wants a slider instead of CSS was never going to look. These
- * are how a layer looks, the question Look already answers, so they sit where
+ * are how the card looks, the question Look already answers, so they sit where
  * that question is being asked. Open to begin with, unlike its neighbours:
  * the whole reason to have it is that the values are in plain sight.
  */
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { readFields } from '../../shared/css-fields.js';
 

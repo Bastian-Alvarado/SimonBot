@@ -3,12 +3,12 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDragOrder, DragGrip } from '../../hooks/useDragOrder';
 import { moveToGap } from '../../../shared/list-order.js';
 import { ThemeConfig, ReactionRoleMessage, ReactionMapping, DiscordEmbed, DiscordEmbedField } from '../../types';
 import { Button } from '../Button';
-import { Plus, Trash2, CheckCircle, MessageSquare, Hash, MousePointerClick, RefreshCcw, Edit2, Smile, AlertTriangle, Bot, List, Palette, Image as ImageIcon, Type, X, Loader2, ToggleRight, ToggleLeft, Layers, ShieldAlert, Copy, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, MessageSquare, Hash, MousePointerClick, RefreshCcw, Edit2, Smile, AlertTriangle, Bot, List, Palette, Loader2, Layers, ShieldAlert, RefreshCw } from 'lucide-react';
 import { EmojiPicker } from '../EmojiPicker';
 
 interface ReactionRolesViewProps {
@@ -352,7 +352,7 @@ export const ReactionRolesView: React.FC<ReactionRolesViewProps> = ({ activeThem
 
       {!discordGuildId || discordStatus !== 'connected' ? (
           <div className={`p-8 rounded-[32px] border border-dashed border-zinc-700 bg-zinc-900/20 text-center`}>
-              <div className="text-zinc-500 text-sm font-medium">{t.connectDiscordFirst || 'Please connect Discord and select a server in the Connections tab.'}</div>
+              <div className="text-zinc-500 text-sm font-medium">{t.connectDiscordFirst || 'Please connect your Discord bot and select a server in the Connections tab to enable this feature.'}</div>
           </div>
       ) : activeTab === 'log' ? (
           // --- ACTIVITY LOG TAB ---
@@ -428,10 +428,10 @@ export const ReactionRolesView: React.FC<ReactionRolesViewProps> = ({ activeThem
                               <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{t.selectionMode}</label>
                               <div className="flex bg-zinc-900 border border-zinc-800 rounded-xl p-1">
                                   <button onClick={() => setMenuMode('standard')} className={`flex-1 py-2 text-[10px] font-bold uppercase rounded-lg transition-all ${menuMode === 'standard' ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}>
-                                      {t.modeStandard || 'Standard'}
+                                      {t.modeStandard || 'Standard (Multiple)'}
                                   </button>
                                   <button onClick={() => setMenuMode('unique')} className={`flex-1 py-2 text-[10px] font-bold uppercase rounded-lg transition-all ${menuMode === 'unique' ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-500'}`}>
-                                      {t.modeUnique || 'Unique'}
+                                      {t.modeUnique || 'Unique (Single)'}
                                   </button>
                               </div>
                               <p className="text-[9px] text-zinc-600">{t.modeDesc}</p>
@@ -694,7 +694,7 @@ export const ReactionRolesView: React.FC<ReactionRolesViewProps> = ({ activeThem
                               </div>
                               <div className="w-full">
                                   <div className="flex items-center gap-2">
-                                      <span className="font-bold text-white">Simon Says Bot</span>
+                                      <span className="font-bold text-white">SimonBot</span>
                                       <span className="bg-[#5865F2] text-white text-[9px] px-1 rounded font-bold uppercase">Bot</span>
                                       <span className="text-xs text-[#949BA4]">Today at {new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                                   </div>

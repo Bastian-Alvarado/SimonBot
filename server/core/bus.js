@@ -22,20 +22,8 @@ export const EVENTS = {
   CHAT: 'chat',
   /** A stream event (follow/sub/cheer/raid/gift/...). Payload: NormalisedEvent */
   EVENT: 'event',
-  /**
-   * Something that only sets actions off. Payload: NormalisedEvent
-   *
-   * Not an EVENT: somebody in the Discord call starting to talk happens over
-   * and over, and as an event it would fill the history, reach every screen
-   * and be offered as an alert. Actions bound to its type run; nothing else.
-   */
-  TRIGGER: 'trigger',
   /** A platform connection status change. Payload: { platform, status, error? } */
   STATUS: 'status',
-  /** Stream tags were recomputed. Payload: StreamTags */
-  TAGS: 'tags',
-  /** An alert should be shown. Payload: ActiveAlert */
-  ALERT: 'alert',
   /** Config mutated server-side. Payload: { key, value } */
   CONFIG: 'config',
   /** The authoritative Twitch subscriber list. Payload: helix subscription[] */
@@ -47,27 +35,9 @@ export const EVENTS = {
    * "this just changed".
    */
   CHANNEL: 'channel',
-  /** The channel's own point rewards, so the editor can name one. */
-  REWARD_LIST: 'reward_list',
-  /** Ask the browser to play audio/speech (browser-only capability). */
-  DEVICE: 'device',
   /** Leveling emitted a level-up. Payload: { user, level, platform } */
   LEVELUP: 'levelup',
-  /** Profile pictures resolved after the fact. Payload: { platform, avatars: {id: url} } */
-  AVATARS: 'avatars',
-  /**
-   * Seed a stream tag from historical API data. Payload: { key, entry }
-   *
-   * Deliberately NOT an EVENT: back-filling "latest follower" from the API
-   * must not fire alerts or run actions for someone who followed last week.
-   */
-  TAG_SEED: 'tag_seed',
-  /**
-   * A live counter worth publishing. Payload: { key, value }
-   *
-   * Written to `data/tags/<key>.txt` so an OBS "Text -> Read from file"
-   * source can show it without any UI wiring.
-   */
+  /** A live reading worth passing on, such as whether Twitch is live. Payload: { key, value } */
   STAT: 'stat',
   /** Messages were removed upstream. Payload: { platform, msgIds[], userIds[] } */
   CHAT_DELETE: 'chat_delete',
@@ -118,8 +88,8 @@ export const bus = new Bus();
 
 /**
  * Normalises a chat message from any platform into the exact shape the UI's
- * `ChatMessage` type expects, plus the metadata the engine needs for
- * permission and condition evaluation.
+ * `ChatMessage` type expects, plus the flags the engine reads: mod, sub,
+ * VIP and broadcaster.
  */
 export function normaliseChat({
   platform,
@@ -140,8 +110,7 @@ export function normaliseChat({
   emotes,
   highlighted = false,
   // Set when the message was typed into a channel-point reward that asks for
-  // text. Such a message also arrives as a redemption event, so a surface
-  // showing events can suppress this copy instead of repeating itself.
+  // text, so a page can tell such a line apart from an ordinary one.
   rewardId = null,
   raw = null,
   // A Discord line's mentions by name (discord.js mentionNames), kept with it for screens.
@@ -159,10 +128,8 @@ export function normaliseChat({
       The moment it arrived, kept alongside the formatted string.
 
       `time` is formatted here, in the server's locale, so a client cannot
-      offer 12h/24h without the raw value. Auto-hide needs it too: an overlay
-      that reloads is replayed the recent log, and a message that is already
-      older than the hide delay has to arrive hidden rather than appear and
-      then expire a moment later.
+      offer 12h/24h without the raw value. A page that reloads is replayed the
+      recent log, and the raw value is what tells it how old each line is.
     */
     at: Date.now(),
     avatar,
@@ -179,7 +146,7 @@ export function normaliseChat({
   };
 }
 
-/** Normalises a stream event. `type` must be a valid AlertType. */
+/** Normalises a stream event. `type` says what happened, as `platform_kind` (e.g. `twitch_follow`). */
 export function normaliseEvent({ type, platform, user, data = {}, avatar }) {
   return {
     id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,

@@ -5,9 +5,8 @@
  * Where this copy's updates come from: the GitHub repository whose releases
  * carry a ready-to-run package of each version (server/engine/updater.js).
  *
- * Empty here, so a copy built from this source checks for nothing and shows
- * no update button: it is updated by hand. The public edition's builder
- * (scripts/public-edition.mjs) fills in the public repository, so a copy of
- * the public edition finds its own updates.
+ * Empty, so a copy built from this source checks for nothing and shows no
+ * update button: it is updated by hand. Naming SimonBot's repository here,
+ * once it publishes releases, is what turns updates on.
  */
 export const UPDATE_REPO = '';

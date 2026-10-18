@@ -18,7 +18,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { SCRIPT_URL, assert, fs, test } from './harness.js';
+import { EVENTS, SCRIPT_URL, assert, bus, fs, test } from './harness.js';
 
 const read = (p) => fs.readFileSync(new URL(p, SCRIPT_URL), 'utf8');
 const constants = read('../../web/constants.ts');
@@ -31,7 +31,7 @@ const { UPDATE_REPO } = await import('../../../shared/edition.js');
 const { VERSION } = await import('../../../shared/version.js');
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'simonsays-updates-'));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'simonbot-updates-'));
 
 test('versions compare as numbers, with or without the v, and anything unreadable is the oldest', () => {
   assert.deepEqual(parseVersion('v1.2.0'), [1, 2, 0]);
@@ -49,7 +49,7 @@ test('release.json is held to its shape: the package name, a whole SHA-256, a si
   assert.deepEqual(cleanReleaseManifest(good), good);
   assert.equal(cleanReleaseManifest({ ...good, version: 'v1.2.0' }).version, '1.2.0');
   assert.equal(cleanReleaseManifest({ ...good, node: undefined }).node, 22, 'no node means the current one');
-  for (const bad of [{ file: 'simonsays-1.2.1.tgz' }, { file: '../evil.tgz' }, { sha256: 'abc' }, { sha256: 'A'.repeat(64) }, { size: 0 }, { size: MAX_PACKAGE_BYTES + 1 }, { size: 1.5 }, { version: 'latest' }]) {
+  for (const bad of [{ file: 'simonbot-1.2.1.tgz' }, { file: '../evil.tgz' }, { sha256: 'abc' }, { sha256: 'A'.repeat(64) }, { size: 0 }, { size: MAX_PACKAGE_BYTES + 1 }, { size: 1.5 }, { version: 'latest' }]) {
     assert.equal(cleanReleaseManifest({ ...good, ...bad }), null, `took ${JSON.stringify(bad)}`);
   }
   assert.equal(cleanReleaseManifest(null), null);
@@ -179,9 +179,9 @@ const placed = {
 };
 
 test('a version runs on the install\'s own data, assets and .env, never on copies of its own', () => {
-  assert.equal(fromRoot.SIMONSAYS_LAUNCHER, '1');
-  assert.equal(fromRoot.SIMONSAYS_ROOT, install);
-  assert.equal(fromVersion.SIMONSAYS_ROOT, install);
+  assert.equal(fromRoot.SIMONBOT_LAUNCHER, '1');
+  assert.equal(fromRoot.SIMONBOT_ROOT, install);
+  assert.equal(fromVersion.SIMONBOT_ROOT, install);
   assert.equal(fromVersion.ENV_FILE, path.join(install, '.env'));
   assert.equal(fromVersion.DATA_DIR, undefined, 'the launcher sets DATA_DIR, which beats a DATA_DIR in .env');
   assert.equal(fromVersion.ASSETS_DIR, undefined, 'the launcher sets ASSETS_DIR, which beats an ASSETS_DIR in .env');
@@ -203,12 +203,14 @@ test('after an update only the version running and the one before stay; one that
 });
 
 // The updater against a stand-in GitHub. Nothing it does here gets past checking a package.
-let live = false;
+// Live is the stream on (engine/stream-sessions.js), as Twitch says it.
+const sessions = await import('../../engine/stream-sessions.js');
+const goLive = (on) => bus.emit(EVENTS.STAT, { key: 'twitchLive', value: on });
 let restartedWith = null;
-updater.initUpdater({ restarter: (code) => { restartedWith = code; }, obsService: { getStatus: () => ({ streamStatus: { active: live }, recordingStatus: { active: false } }) } });
+updater.initUpdater({ restarter: (code) => { restartedWith = code; } });
 updater.stopUpdater();
 const codeOf = async (fn) => { try { await fn(); return 'went ahead'; } catch (err) { return err.code || err.message; } };
-// Only where there is no repository: in the public edition this would ask the real GitHub.
+// Only where there is no repository: with one named, this would ask the real GitHub.
 const handOff = UPDATE_REPO ? null : { state: updater.getUpdates(), check: await codeOf(() => updater.control({ op: 'check' })), apply: await codeOf(() => updater.control({ op: 'apply' })) };
 
 let release = null;
@@ -228,7 +230,7 @@ const github = http.createServer((req, res) => {
   res.writeHead(404); res.end();
 });
 await new Promise((resolve) => github.listen(0, '127.0.0.1', resolve));
-const saved = { UPDATE_REPO: process.env.UPDATE_REPO, UPDATE_API: process.env.UPDATE_API, SIMONSAYS_ROOT: process.env.SIMONSAYS_ROOT };
+const saved = { UPDATE_REPO: process.env.UPDATE_REPO, UPDATE_API: process.env.UPDATE_API, SIMONBOT_ROOT: process.env.SIMONBOT_ROOT };
 process.env.UPDATE_REPO = 'test/app';
 process.env.UPDATE_API = `http://127.0.0.1:${github.address().port}`;
 const updRoot = path.join(scratch, 'updating');
@@ -240,14 +242,15 @@ const seen = {};
 seen.noRelease = (await updater.check()).error?.code;
 release = { tag: VERSION, manifest: { ...goodManifest }, pkg };
 seen.same = await updater.check();
-delete process.env.SIMONSAYS_ROOT;
+delete process.env.SIMONBOT_ROOT;
 release = { tag: '99.0.0', manifest: goodManifest, pkg };
 seen.newer = await updater.check();
 seen.noLauncher = await codeOf(() => updater.apply());
-process.env.SIMONSAYS_ROOT = updRoot;
-live = true;
+process.env.SIMONBOT_ROOT = updRoot;
+goLive(true);
 seen.live = await codeOf(() => updater.apply());
-live = false;
+goLive(false);
+await sessions._test.finish();
 release = { tag: '99.0.0', manifest: { ...goodManifest, sha256: 'b'.repeat(64) }, pkg };
 // From the screen: answered as it starts, a second press refused, and the failure said in the steps.
 seen.answered = await updater.apply();
@@ -400,10 +403,10 @@ test('the release script packages what runs and nothing that is the streamer\'s,
 
 test('wired: started by the launcher it says when it is up, it stops with the launcher\'s code, and the socket, backups and builder know it', () => {
   const index = read('../index.js');
-  assert.ok(index.includes("if (process.send) process.send({ type: 'simonsays-ready', version: VERSION });"));
-  assert.ok(index.includes("initUpdater({ restarter: (code) => shutdown('update', code), obsService: obs });"));
+  assert.ok(index.includes("if (process.send) process.send({ type: 'simonbot-ready', version: VERSION });"));
+  assert.ok(index.includes("initUpdater({ restarter: (code) => shutdown('update', code) });"));
   assert.ok(index.includes('const shutdown = async (signal, code = 0) => {') && index.includes('process.exit(code);'));
-  assert.ok(read('../../start.js').includes("if (m?.type !== 'simonsays-ready') return;"));
+  assert.ok(read('../../start.js').includes("if (m?.type !== 'simonbot-ready') return;"));
   assert.ok(read('../api/ws.js').includes('return reply(await updater.control(payload));'));
   assert.ok(read('../engine/backup.js').includes("EXCLUDED = ['updates',"), 'a backup would carry one copy\'s update state to another');
   assert.ok(read('../../shared/protocol.js').includes("UPDATES: 'updates',"));
@@ -411,16 +414,10 @@ test('wired: started by the launcher it says when it is up, it stops with the la
   for (const ignored of ['versions/', 'current.json', 'backups/']) assert.ok(read('../../.gitignore').includes(ignored), `${ignored} is not ignored`);
 });
 
-// public-edition: leave out
-test('the public edition is the one that updates itself, from the repository its manifest names', () => {
+test('this copy names no repository to update from, so it never updates itself', () => {
   assert.equal(UPDATE_REPO, '', 'this copy would update itself over the deploys');
   assert.ok(read('../../shared/edition.js').includes("export const UPDATE_REPO = '';"));
-  const builder = read('../../scripts/public-edition.mjs');
-  assert.ok(builder.includes("write(rel, text.replace(line, `export const UPDATE_REPO = '${M.UPDATE_REPO}';`));"));
-  assert.ok(builder.includes("if (path.relative(out, f).split(path.sep).join('/') === 'shared/edition.js') text = text.replace(updateLine, '');"), 'the name check would stop the build on the repository');
-  assert.match(read('../../public-edition/manifest.mjs'), /export const UPDATE_REPO = '[\w.-]+\/[\w.-]+';/);
 });
-// public-edition: end
 
 test('Settings shows updates only on a copy that updates itself, the menu marks one that is out, and the page reloads into it', () => {
   const settings = read('../../web/components/views/SettingsView.tsx');

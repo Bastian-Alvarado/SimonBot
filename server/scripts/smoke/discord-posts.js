@@ -2,17 +2,17 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Smoke tests: the bot posting on its own — an action step that sends as the
- * bot, the going-live announcement and what becomes of it when the stream
- * stops, and the daily subscriber list that takes away roles from
- * subscriptions that ran out.
+ * Smoke tests: the bot posting on its own — who a message may ping, the
+ * going-live announcement and what becomes of it when the stream stops, and
+ * the daily subscriber list that takes away roles from subscriptions that
+ * ran out.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. Role sync was set up
  * by the Discord tests before this file.
  */
 
-import { SCRIPT_URL, assert, fs, bus, EVENTS, engine, chat, settle, test, discordSent } from './harness.js';
+import { SCRIPT_URL, assert, fs, bus, EVENTS, test } from './harness.js';
 
 const discord = await import('../../platforms/discord.js');
 const announcer = await import('../../engine/announce.js');
@@ -20,68 +20,14 @@ const roleSync = await import('../../engine/role-sync.js');
 const roles = await import('../../engine/discord-roles.js');
 const { config } = await import('../../config.js');
 
-// ---------------------------------------------------------------- send as the bot
+// ---------------------------------------------------------------- who a message pings
 
 const pings = discord.mentionsFrom('<@&111111111> and <@&222222222>, <@&111111111> again, @everyone');
 const quiet = discord.mentionsFrom('hello {user}');
 
-engine.store.saveCommand({
-  id: 'cmd-drop', name: 'Drop', triggers: ['!drop'], enabled: true,
-  permissions: { anyone: true, vips: true, subscribers: true, moderators: true, broadcaster: true },
-  globalCooldown: 0, userCooldown: 0,
-});
-engine.store.saveAction({
-  id: 'act-drop',
-  name: 'Drop',
-  enabled: true,
-  trigger: { id: 't-drop', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-drop' } },
-  actions: [{
-    id: 's-drop',
-    type: 'discord_send',
-    config: {
-      channelId: '700000000000000001', message: '<@&111111111> {user} says: {message.args}',
-      card: true, cardTitle: 'From {user}', cardDescription: '{message.args}', cardColor: '#ff0000', cardUrl: 'https://twitch.tv/x',
-    },
-  }],
-});
-discordSent.length = 0;
-chat('!drop come watch @everyone', { user: 'Sneaky' });
-await settle();
-const dropped = discordSent.slice();
-
-// A step with no channel, or nothing to say, sends nothing.
-engine.store.saveAction({
-  id: 'act-drop',
-  name: 'Drop',
-  enabled: true,
-  trigger: { id: 't-drop', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-drop' } },
-  actions: [
-    { id: 's-drop-1', type: 'discord_send', config: { channelId: '', message: 'nowhere to go' } },
-    { id: 's-drop-2', type: 'discord_send', config: { channelId: '700000000000000001', message: '', card: false } },
-  ],
-});
-discordSent.length = 0;
-chat('!drop', { user: 'Sneaky' });
-await settle();
-const droppedNothing = discordSent.length;
-engine.store.deleteAction?.('act-drop');
-
 test('a role written into a message pings; a viewer typing @everyone pings nobody', () => {
   assert.deepEqual(pings, { parse: ['users', 'everyone'], roles: ['111111111', '222222222'] });
   assert.deepEqual(quiet, { parse: ['users'], roles: [] });
-  assert.equal(dropped.length, 1, `sent ${dropped.length} messages`);
-  const [channelId, content, card, , , extra] = dropped[0];
-  assert.equal(channelId, '700000000000000001');
-  assert.ok(content.startsWith('<@&111111111> Sneaky says: come watch'), content);
-  // The viewer's @everyone arrived through {message.args}: it goes out as text, with everyone left off.
-  assert.deepEqual(extra.allowed_mentions, { parse: ['users'], roles: ['111111111'] });
-  assert.equal(card.title, 'From Sneaky');
-  assert.equal(card.url, 'https://twitch.tv/x');
-  assert.equal(card.color, '#ff0000');
-});
-
-test('a send step with no channel or nothing to say sends nothing', () => {
-  assert.equal(droppedNothing, 0);
 });
 
 // ---------------------------------------------------------------- the going-live post
@@ -144,14 +90,15 @@ const realToken = config.discord.botToken;
 config.discord.botToken = 'test-token';
 announcer.initAnnounce();
 announcer.setAnnounce({ enabled: true, channelId: '700000000000000002', roleId: '800000000000000001', delaySeconds: 0, whenOver: 'edit', overMessage: 'Se acabó', message: '{role} en vivo', youtubeUrl: 'https://youtube.com/@simon/live' });
-const stream = (type) => bus.emit(EVENTS.EVENT, { type, platform: 'obs', user: 'OBS', data: {} });
+// The stream going on and off, as stream-sessions.js says it.
+const stream = (type) => bus.emit(type === 'on' ? 'stream:on' : 'stream:off', {});
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-stream('obs_stream_started');
+stream('on');
 await wait(300);
 const livePost = calls.filter((c) => c.method === 'POST');
 const liveLast = announcer.getAnnounce().last;
-stream('obs_stream_stopped');
+stream('off');
 await wait(300);
 const overEdit = calls.filter((c) => c.method === 'PATCH');
 const overLast = announcer.getAnnounce().last;
@@ -159,9 +106,9 @@ const overLast = announcer.getAnnounce().last;
 // Stopped before the wait was over: nothing is posted, and nothing is left to take down.
 calls.length = 0;
 announcer.setAnnounce({ delaySeconds: 5 });
-stream('obs_stream_started');
+stream('on');
 await wait(50);
-stream('obs_stream_stopped');
+stream('off');
 await wait(150);
 const cancelledCalls = calls.length;
 // And an announcement still waiting for Twitch when the stream stopped posts nothing either.
@@ -170,19 +117,19 @@ const lateOne = await announcer.announce({ current: { cancelled: true } });
 // Taken down rather than marked over.
 calls.length = 0;
 announcer.setAnnounce({ delaySeconds: 0, whenOver: 'delete' });
-stream('obs_stream_started');
+stream('on');
 await wait(300);
-stream('obs_stream_stopped');
+stream('off');
 await wait(300);
 const deleted = calls.map((c) => c.method);
 
-// Switched off: OBS starting posts nothing.
+// Switched off: going live posts nothing.
 calls.length = 0;
 announcer.setAnnounce({ enabled: false });
-stream('obs_stream_started');
+stream('on');
 await wait(300);
 const whileOff = calls.length;
-stream('obs_stream_stopped');
+stream('off');
 await wait(100);
 
 config.discord.botToken = realToken;
@@ -230,7 +177,7 @@ test('the going-live screen is wired to the server, in both languages', () => {
   assert.ok(protocol.includes("ANNOUNCE: 'announce'"));
   assert.ok(ws.includes('case C2S.ANNOUNCE') && ws.includes('announce: announcer.getAnnounce()'));
   assert.ok(backup.includes("name: 'discord_announce'"), 'the announcement settings are not backed up');
-  for (const key of ['goLiveNav', 'goLiveTest', 'goLiveTestHint', 'discordSendStep', 'discordSendHint', 'subsCheckFailed']) {
+  for (const key of ['goLiveNav', 'goLiveTest', 'goLiveTestHint', 'subsCheckFailed']) {
     assert.equal(strings.split(`${key}:`).length - 1, 2, `${key} is not in both languages`);
   }
   for (const key of ['goLiveChannel', 'goLivePing', 'goLiveWhenOver']) assert.ok(view.includes(`t.${key}`), `${key} is not used`);

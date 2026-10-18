@@ -74,26 +74,22 @@ test('nothing asks to be indexed: every answer says so, robots.txt turns every c
 const app = read('../../web/App.tsx');
 const modes = JSON.parse(app.match(/const PAGE_MODES = (\[[^\]]*\]);/)[1].replace(/'/g, '"'));
 
-test('every page the app shows by ?mode= is one it knows, so none of them is ever taken for a page that does not exist', () => {
-  const shown = [...app.matchAll(/^ {2}if \(mode === '([a-z-]+)'\)/gm)].map((m) => m[1]);
-  assert.ok(shown.length >= 10, 'the pages were not found in App.tsx');
-  for (const m of shown) assert.ok(modes.includes(m), `?mode=${m} is shown but not known`);
-  // And every link the app or its guides hand out.
-  const linked = new Set();
+test('the dashboard is the one page: any other ?mode= is a page that does not exist, and nothing links to one', () => {
+  assert.deepEqual(modes, ['dashboard']);
+  assert.ok(!/^ {2}if \(mode === '/m.test(app), 'a page is still chosen by ?mode=');
   const files = ['../../web/App.tsx', '../../shared/guides.js', '../../README.md', ...fs.readdirSync(new URL('../../web/components/views/', SCRIPT_URL)).map((f) => `../../web/components/views/${f}`)];
   for (const f of files) {
-    const text = read(f);
-    for (const m of text.matchAll(/\?mode=([a-z-]+)|searchParams\.set\('mode', '([a-z-]+)'\)|\{url:([a-z-]+)\}|\{ mode: '([a-z-]+)', words:/g)) linked.add(m[1] || m[2] || m[3] || m[4]);
+    const linked = [...read(f).matchAll(/\?mode=([a-z-]+)|searchParams\.set\('mode', '([a-z-]+)'\)/g)].map((m) => m[1] || m[2]).filter((m) => m !== 'dashboard');
+    assert.deepEqual(linked, [], `${f} links to a page that does not exist`);
   }
-  assert.ok(linked.size >= 8, `too few links found: ${[...linked]}`);
-  for (const m of linked) assert.ok(modes.includes(m), `a link to ?mode=${m} would open a page that does not exist`);
 });
 
 test('a page that does not exist says so, before any other page is chosen, and every screen names itself in the tab', () => {
   assert.ok(app.includes("const APP_PATHS = ['/', '/index.html'];"));
   const notFound = app.indexOf('if (notFound) return');
-  assert.ok(notFound > 0 && notFound < app.indexOf("if (mode === 'alerts')"), 'another page is chosen first');
-  assert.ok(app.includes('document.title = screenTitle ? `${screenTitle} · Simon Says` : \'Simon Says\';'));
+  assert.ok(notFound > 0 && notFound < app.indexOf('if (FINISHING_SIGN_IN || system.auth.signIn)'), 'another page is chosen first');
+  // The bot's Home is named SimonBot itself, so its tab says it once, not "SimonBot · SimonBot".
+  assert.ok(app.includes('document.title = screenTitle && screenTitle !== \'SimonBot\' ? `${screenTitle} · SimonBot` : \'SimonBot\';'), 'the tab does not name the screen and the app');
   const page = read('../../web/components/NotFoundPage.tsx');
   assert.ok(page.includes('data-not-found') && page.includes("back.searchParams.delete('mode')"));
   const strings = read('../../web/constants.ts');
@@ -106,7 +102,8 @@ test('a page that does not exist says so, before any other page is chosen, and e
 
 test('PRIVACY.md names every service the code reaches out to, and the forgetting the app really offers', () => {
   const note = read('../../PRIVACY.md');
-  for (const service of ['Twitch', 'YouTube', 'Discord', 'Spotify', 'TikTok', 'Euler Stream', 'VDO.Ninja', 'Gemini', 'jsDelivr', 'OBS', 'DroidCam']) {
+  for (const gone of ['Spotify', 'VDO.Ninja', 'Gemini', 'OBS', 'DroidCam']) assert.ok(!note.includes(gone), `the privacy note still names ${gone}, which the app no longer reaches`);
+  for (const service of ['Twitch', 'YouTube', 'Discord', 'TikTok', 'Euler Stream', 'jsDelivr']) {
     assert.ok(note.includes(service), `${service} is not in the privacy note`);
   }
   const months = FORGET_CHOICES.filter(Boolean);

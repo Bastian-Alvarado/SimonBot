@@ -10,12 +10,11 @@
  * Numbered major.minor.patch:
  *   - patch: fixes and wording, nothing new to learn;
  *   - minor: something new, and everything that was there still works;
- *   - major: something the streamer has to do or re-do to keep working —
+ *   - major: something the server owner has to do or re-do to keep working —
  *     a backup an older app cannot read, a feature taken out, a sign-in
  *     every platform needs again.
  *
- * 1.0.0 is the first numbered release (2026-10-06). The "V3" in the
- * project's name is the third rewrite, not a version: the package files
- * said 3.0.0 until then.
+ * 0.0.1 is SimonBot's first version (2026-10-17). It was made from
+ * SimonSays 2.2.1, but keeps none of that app's numbers or history.
  */
-export const VERSION = '2.2.1';
+export const VERSION = '0.0.1';

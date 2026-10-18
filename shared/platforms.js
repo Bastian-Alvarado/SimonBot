@@ -17,8 +17,8 @@
  *   PAYS YOU MONEY    twitch: suscriptor   youtube: miembro      tiktok: suscriptor
  *
  * The words are in Spanish, like everything else said on stream: they are
- * only ever read by captions, chat lines and posts ({words.follower}), never
- * by a screen, which says these things in its own language.
+ * only ever read by chat lines and posts ({words.follower}), never by a
+ * screen, which says these things in its own language.
  *
  * The rule that keeps the inside honest, and the one thing in here that must
  * never be got wrong:
@@ -28,8 +28,8 @@
  * A YouTube subscriber has paid nothing and must never set it. YouTube's
  * subscribe is this app's follow, and its membership is this app's sub. Get it
  * backwards and every free subscriber is treated as a paying one at once —
- * by permissions, by cooldowns, by the chat highlight, and by any condition
- * somebody has written against user.isSub — and none of it fails loudly.
+ * by the chat highlight, and by anything else that reads isSub, such as the
+ * subscribers-only giveaway rule — and none of it fails loudly.
  */
 
 /** The free relationship, and the paid one, in each platform's own words. */

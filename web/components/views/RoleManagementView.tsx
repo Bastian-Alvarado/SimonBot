@@ -5,8 +5,8 @@
 */
 import React, { useEffect, useRef, useState } from 'react';
 import { refusalWords } from '../../words';
-import { ThemeConfig, SyncLogEntry, LinkedUserData } from '../../types';
-import { Shield, Link as LinkIcon, Trash2, Clock, CheckCircle, RefreshCcw, Star, Diamond, Sword, Trophy, Search, Loader2, Heart, Award, Gem, List, User, Bot, Plus, X, ArrowRight, AlertTriangle, Filter, Gift, UploadCloud, Database } from 'lucide-react';
+import { ThemeConfig, SyncLogEntry } from '../../types';
+import { Shield, Link as LinkIcon, Trash2, Clock, CheckCircle, RefreshCcw, Star, Diamond, Sword, Trophy, Search, Loader2, Heart, Award, Gem, List, User, Bot, Plus, X, ArrowRight, AlertTriangle, Gift } from 'lucide-react';
 import { Button } from '../Button';
 
 // Icons for roles
@@ -32,7 +32,6 @@ type LinkPlatform = 'twitch' | 'tiktok' | 'youtube';
 type PickPlatform = LinkPlatform | 'discord';
 const PLATFORM_COLOUR: Record<PickPlatform, string> = { twitch: '#9146FF', tiktok: '#ff0050', youtube: '#FF0000', discord: '#5865F2' };
 const PLATFORM_LABEL: Record<PickPlatform, string> = { twitch: 'Twitch', tiktok: 'TikTok', youtube: 'YouTube', discord: 'Discord' };
-const platformOfKey = (key: string): LinkPlatform => (key.startsWith('tiktok:') ? 'tiktok' : key.startsWith('youtube:') ? 'youtube' : 'twitch');
 const PlatformIcon = ({ platform, size = 14, className = '' }: { platform: PickPlatform; size?: number; className?: string }) => (
   platform === 'discord' ? <DiscordIcon size={size} className={className} /> : platform === 'tiktok' ? <TikTokIcon size={size} className={className} /> : platform === 'youtube' ? <YouTubeIcon size={size} className={className} /> : <TwitchIcon size={size} className={className} />
 );
@@ -121,7 +120,7 @@ export const RoleManagementViewConnected: React.FC<RoleManagementViewProps> = ({
     const { linkedUsers, linkedPeople, loyaltyRoles, moderation: modSettings, moderationLog, pendingLinks, discordRoles, roleMappings, syncLog, discordSearchResults, roleSyncSubsCheck } = system.data;
     const { fetchDiscordRoles, setRoleMappings, forceSyncUser, clearSyncLog, getTwitchUser, searchDiscordMember, linkDiscord, unlinkDiscord, listServerMembers, findYoutube, listTwitchFollowers, addAccount, setLoyaltyRoles, moderation } = system.actions;
     const [linkError, setLinkError] = useState('');
-    const { discordGuildId, discordStatus, botMember } = system.connections;
+    const { discordGuildId, discordStatus } = system.connections;
 
     const [searchQuery, setSearchQuery] = useState('');
     const [syncingUsers, setSyncingUsers] = useState<Set<string>>(new Set());
@@ -792,8 +791,8 @@ export const RoleManagementViewConnected: React.FC<RoleManagementViewProps> = ({
                           {/* Community Group */}
                           <div className="space-y-2">
                               <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{t.commRoles || 'Community Roles'}</h4>
-                              {renderMappingRow(t.followerRole || 'Follower', 'follower', FollowerIcon, 'bg-rose-500/10 border-rose-500/20 text-rose-500')}
-                              {renderMappingRow(t.founderRole || 'Founder', 'founder', FounderIcon, 'bg-red-500/10 border-red-500/20 text-red-500')}
+                              {renderMappingRow(t.followerRole || 'Twitch Follower', 'follower', FollowerIcon, 'bg-rose-500/10 border-rose-500/20 text-rose-500')}
+                              {renderMappingRow(t.founderRole || 'Twitch Founder', 'founder', FounderIcon, 'bg-red-500/10 border-red-500/20 text-red-500')}
                           </div>
 
                           {/* Subscriptions Group */}
@@ -928,7 +927,7 @@ export const RoleManagementViewConnected: React.FC<RoleManagementViewProps> = ({
                                       icon={<LinkIcon size={14} />}
                                       disabled={!discordGuildId}
                                   >
-                                      {t.manualLinkBtn || 'Manual Link'}
+                                      {t.manualLinkBtn || 'Manually Link User'}
                                   </Button>
                               </div>
                           )}
@@ -961,7 +960,7 @@ export const RoleManagementViewConnected: React.FC<RoleManagementViewProps> = ({
                           <div className="flex justify-between items-center animate-fade-in">
                               <span className="text-xs font-bold text-zinc-500">{syncLog?.length || 0} entries</span>
                               <button onClick={clearSyncLog} className="text-[10px] text-zinc-500 hover:text-red-500 flex items-center gap-1 transition-colors">
-                                  <Trash2 size={12} /> {t.clearLog || 'Clear'}
+                                  <Trash2 size={12} /> {t.clearLog || 'Clear Log'}
                               </button>
                           </div>
                       )}

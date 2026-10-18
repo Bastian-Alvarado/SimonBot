@@ -6,8 +6,7 @@
  * services, and the helpers every feature file shares.
  *
  * Boots the engine with stub platform services, pushes synthetic chat and
- * events onto the bus, and asserts the pipeline reacts. No browser, no
- * network, no OBS — which is exactly the property V3 exists to provide.
+ * events onto the bus, and asserts the bot reacts. No browser, no network.
  *
  *   Run through scripts/smoke.js, never on its own.
  */
@@ -24,14 +23,7 @@ import path from 'node:path';
 export const SCRIPT_URL = new URL('../smoke.js', import.meta.url).href;
 
 // Point the store at a throwaway directory before anything imports config.
-// The shared stylesheet and its callers, read once: tests the length of this
-// file look at them.
-export const SCOPED = fs.readFileSync(new URL('../../web/components/ScopedStyle.tsx', SCRIPT_URL), 'utf8');
-export const LAYER_STYLE = fs.readFileSync(new URL('../../web/components/LayerStyle.tsx', SCRIPT_URL), 'utf8');
-export const ALERT_OVERLAY = fs.readFileSync(new URL('../../web/components/AlertOverlay.tsx', SCRIPT_URL), 'utf8');
-export const CHAT_ROW = fs.readFileSync(new URL('../../web/components/ChatMessageRow.tsx', SCRIPT_URL), 'utf8');
-
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'simonsays-smoke-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'simonbot-smoke-'));
 process.env.DATA_DIR = path.join(tmp, 'data');
 process.env.ASSETS_DIR = path.join(tmp, 'assets');
 process.env.AUTO_START = 'false';
@@ -46,14 +38,10 @@ export const engine = await import('../../engine/index.js');
 
 // ---------------------------------------------------------------- harness
 
+/** Every line the bot was asked to say in Twitch chat. */
 export const said = [];
-export const scenes = [];
-export const posted = [];
 /** Every message the bot was asked to send: [channelId, content, embed, components, files, extra]. */
 export const discordSent = [];
-// TTS leaves the engine as a DEVICE event for a browser to perform, rather
-// than through a platform service, so it is captured off the bus below.
-export const spoken = [];
 let passed = 0;
 let failed = 0;
 
@@ -79,243 +67,30 @@ export function test(name, fn) {
 
 export const settle = () => new Promise((r) => setTimeout(r, 60));
 
-bus.on(EVENTS.DEVICE, (d) => { if (d.kind === 'play_tts') spoken.push(d.text); });
-// Gemini speech arrives as audio for a surface to play, not as text.
-export const played = [];
-bus.on(EVENTS.DEVICE, (d) => { if (d.kind === 'play_audio') played.push(d.audioBase64); });
 /*
   What the stub services answer, set by the tests that need them to answer
-  differently. One object rather than three variables, because a test in
+  differently. One object rather than several variables, because a test in
   another file can change a field but can never reassign an import.
 */
-export const doubles = {
-  /** null models a failed speech synthesis, a string a working one. */
-  ttsAudio: null,
-  /** Flipped by the spotify double when a skip is requested. */
-  spotifySkipped: false,
-  /** The category the YouTube double is in. */
-  youtubeCategoryNow: '24',
-};
-/** Every camera control the engine asked for. */
-export const droidcamCalls = [];
-/* What Omnilayer asked OBS for: ['place', scene, source, box] and ['visible', scene, source, on]. */
-export const obsCalls = [];
-/** What Fetch a web address steps asked for: { url, method, body, headers }. */
-export const webRequests = [];
+export const doubles = {};
 
 initStore();
 
-/* Every operation the player was asked for, so a button can be followed. */
-export const spotifyOps = [];
-/* What the YouTube steps asked for. */
-export const youtubeCalls = [];
-
 engine.initEngine({
-  // Later steps run when a test says it is time (later.fireDue), not on a clock of their own.
-  laterAutoTimer: false,
-  laterBootGraceMs: 0,
-  // A Fetch a web address step asks nothing of the network: what it asked is kept, and doubles.webAnswer is the answer.
-  webFetch: async (req) => { webRequests.push(req); return doubles.webAnswer || { ok: true, status: 200, text: 'answer' }; },
-  youtube: {
-    setTitle: async (title) => { youtubeCalls.push(['title', title]); },
-    setDescription: async (description) => { youtubeCalls.push(['description', description]); },
-    toggleCategory: async (first, second) => {
-      youtubeCalls.push(['category', first, second]);
-      doubles.youtubeCategoryNow = second && doubles.youtubeCategoryNow === first ? second : first;
-      return doubles.youtubeCategoryNow;
-    },
-  },
   twitch: {
     say: async (text) => { said.push(text); },
-    setTitle: async () => {},
-    setCategory: async () => {},
-  },
-  obs: {
-    setScene: async (name) => { scenes.push(name); doubles.obsScene = name; },
-    // A source a scene does not hold (doubles.obsNoItem) gets OBS's own answer, which names neither.
-    setSourceVisible: async (scene, source, visible) => {
-      obsCalls.push(['visible', scene, source, visible]);
-      if ((doubles.obsNoItem || []).includes(source)) throw new Error('No scene items were found in the specified scene by that name or offset.');
-    },
-    // Omnilayer: where each source was put, OBS's canvas, a source OBS does not have when asked to fail,
-    // and an OBS that has stopped answering (a half-open connection), which never settles at all.
-    // On another canvas (the vertical one), with its id last; a source that canvas's scene lacks fails there (doubles.obsMissingVertical).
-    placeSource: async (scene, source, box, canvas) => {
-      obsCalls.push(canvas ? ['place', scene, source, box, canvas] : ['place', scene, source, box]);
-      if (doubles.obsHang) return new Promise(() => {});
-      if (canvas ? (doubles.obsMissingVertical || []).includes(source) : (doubles.obsMissing || []).includes(source)) throw new Error(`No source was found by the name of ${source}`);
-    },
-    // OBS's other canvases and their scenes, as a test gives them (doubles.obsCanvases, doubles.obsCanvasScenes).
-    canvases: async () => (doubles.obsNoCanvases ? { supported: false, canvases: [] } : { supported: true, canvases: doubles.obsCanvases || [] }),
-    canvasScenes: async (uuid) => (doubles.obsCanvasScenes || {})[uuid] || [],
-    setSourceVisibleIn: async (canvas, scene, source, visible) => {
-      obsCalls.push(['visible', scene, source, visible, canvas]);
-      if ((doubles.obsMissingVertical || []).includes(source)) throw new Error(`No source was found by the name of ${source}`);
-    },
-    videoSize: async () => doubles.obsVideo || { width: 1920, height: 1080 },
-    sceneSources: async (scene, canvas) => (canvas ? doubles.obsItemsVertical : doubles.obsItems) || [],
-    currentScene: () => doubles.obsScene ?? '',
-    isConnected: () => doubles.obsConnected !== false,
-    // Sending the stream: what a repeating action waits for when Twitch cannot say (doubles.obsStreaming).
-    isStreaming: () => doubles.obsStreaming === true,
-    setText: async () => {},
-    setFilterEnabled: async (source, filter, on) => { obsCalls.push(['filter', source, filter, on]); },
-    // The toggles, asked of OBS at the time: recorded as such, and answering "now on".
-    toggleFilter: async (source, filter) => { obsCalls.push(['filter', source, filter, 'toggle']); return true; },
-    toggleSourceVisible: async (scene, source) => { obsCalls.push(['visible', scene, source, 'toggle']); return true; },
-    toggleMuted: async (source) => { obsCalls.push(['mute', source, 'toggle']); return true; },
-    setVolumeDb: async () => {},
-    setMuted: async (source, muted) => { obsCalls.push(['mute', source, muted]); },
-    saveReplayBuffer: async () => {},
-    // Stopping the stream: counted, and answering whether one was going (doubles.obsStreaming).
-    stopStream: async () => {
-      doubles.streamStops = (doubles.streamStops || 0) + 1;
-      const was = doubles.obsStreaming === true;
-      doubles.obsStreaming = false;
-      return was;
-    },
-    setBrowserUrl: async () => {},
-    setTransform: async () => {},
   },
   discord: {
-    postWebhook: async (_url, content) => { posted.push(content); },
     sendMessage: async (...args) => { discordSent.push(args); return { id: '1' }; },
     // Commands in the rest of the server, as Connections sets them: on unless a test says otherwise.
     commandsEverywhere: () => doubles.discordCommandsEverywhere !== false,
     mentionsFrom,
   },
-  spotify: {
-    control: async (op) => { spotifyOps.push(op); if (op === 'next' || op === 'previous') doubles.spotifySkipped = true; },
-    queue: async (input) => (input
-      ? { name: 'Bohemian Rhapsody', artist: 'Queen', album: 'A Night at the Opera', url: 'https://open.spotify.com/track/x' }
-      : null),
-    // Spotify only switches tracks a beat AFTER the skip request returns, which
-    // is the whole reason settleAfterSkip exists. So getNowPlaying deliberately
-    // keeps reporting the old song here — a double that switched instantly
-    // could never catch the off-by-one this is guarding.
-    getNowPlaying: () => ({ name: 'Smells Like Teen Spirit', artist: 'Nirvana', album: 'Nevermind', isPlaying: true }),
-    getUpNext: () => (doubles.spotifySkipped
-      ? { name: 'Fuck Your Trends', artist: 'Chetta', album: '', coverUrl: '', url: '' }
-      : { name: 'Burn This City', artist: 'Chetta', album: '', coverUrl: '', url: '' }),
-    settleAfterSkip: async () => (doubles.spotifySkipped
-      ? { name: 'Burn This City', artist: 'Chetta', album: 'Burn This City', isPlaying: true }
-      : null),
-  },
-  tts: { synthesise: async () => doubles.ttsAudio },
-  droidcam: {
-    control: async (op, value) => {
-      droidcamCalls.push({ op, value });
-      if (op === 'explode') throw new Error('phone asleep');
-      return { ok: true };
-    },
-  },
-});
-
-// ------------------------------------------------------------------ seeds
-
-engine.store.saveCommand({
-  id: 'cmd-hello',
-  name: 'Hello',
-  triggers: ['!hello'],
-  enabled: true,
-  permissions: { anyone: true, vips: true, subscribers: true, moderators: true, broadcaster: true },
-  globalCooldown: 0,
-  userCooldown: 0,
-});
-
-engine.store.saveCommand({
-  id: 'cmd-subonly',
-  name: 'Sub Only',
-  triggers: ['!subonly'],
-  enabled: true,
-  permissions: { anyone: false, subscribers: true, vips: false, moderators: false, broadcaster: false },
-});
-
-engine.store.saveCommand({
-  id: 'cmd-cooldown',
-  name: 'Cooled',
-  triggers: ['!cool'],
-  enabled: true,
-  permissions: { anyone: true },
-  globalCooldown: 60,
-});
-
-engine.store.saveAction({
-  id: 'act-hello',
-  name: 'Say hello',
-  enabled: true,
-  trigger: { id: 't1', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-hello' } },
-  actions: [{ id: 's1', type: 'twitch_chat', config: { message: 'Hi {user}! You said: {message.args}' } }],
-});
-
-// Mirrors a real TTS action: the trigger word must not be read aloud.
-engine.store.saveAction({
-  id: 'act-tts-text',
-  name: 'TTS phrasing',
-  enabled: true,
-  trigger: { id: 't-tts', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-hello' } },
-  actions: [{ id: 's-tts', type: 'twitch_chat', config: { message: '{user} dice {message}' } }],
-});
-
-engine.store.saveAction({
-  id: 'act-subonly',
-  name: 'Sub only reply',
-  enabled: true,
-  trigger: { id: 't2', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-subonly' } },
-  actions: [{ id: 's2', type: 'twitch_chat', config: { message: 'secret' } }],
-});
-
-engine.store.saveAction({
-  id: 'act-cool',
-  name: 'Cooled reply',
-  enabled: true,
-  trigger: { id: 't3', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-cooldown' } },
-  actions: [{ id: 's3', type: 'twitch_chat', config: { message: 'cooled' } }],
-});
-
-engine.store.saveAction({
-  id: 'act-condition',
-  name: 'Mod branch',
-  enabled: true,
-  trigger: { id: 't4', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-hello' } },
-  actions: [{
-    id: 's4',
-    type: 'condition',
-    config: { logic: { matchType: 'AND', conditions: [{ id: 'c1', variable: 'user.isMod', operator: 'isTrue', value: '' }] } },
-    thenActions: [{ id: 's4a', type: 'twitch_chat', config: { message: 'mod-branch' } }],
-    elseActions: [{ id: 's4b', type: 'twitch_chat', config: { message: 'viewer-branch' } }],
-  }],
-});
-
-engine.store.saveAction({
-  id: 'act-raid',
-  name: 'Raid scene',
-  enabled: true,
-  trigger: { id: 't5', category: 'twitch', type: 'twitch_raid', config: {} },
-  actions: [{ id: 's5', type: 'obs_scene', config: { sceneName: 'RaidScene' } }],
-});
-
-engine.store.saveAction({
-  id: 'act-bigcheer',
-  name: 'Big cheer only',
-  enabled: true,
-  trigger: { id: 't6', category: 'twitch', type: 'twitch_cheer', config: { minBits: 100 } },
-  actions: [{ id: 's6', type: 'twitch_chat', config: { message: 'big cheer' } }],
-});
-
-// Self-referential action: must not blow the stack.
-engine.store.saveAction({
-  id: 'act-loop',
-  name: 'Loop',
-  enabled: true,
-  trigger: { id: 't7', category: 'command', type: 'command_trigger', config: { commandId: 'cmd-none' } },
-  actions: [{ id: 's7', type: 'trigger_action', config: { actionId: 'act-loop' } }],
 });
 
 export const chat = (msg, over = {}) => bus.emit(EVENTS.CHAT, normaliseChat({
   platform: 'twitch', user: 'Viewer', msg, ...over,
 }));
-
 
 export { assert, fs };
 

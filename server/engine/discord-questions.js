@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Questions from Discord: what people post in a channel chosen for it — an
- * ideas or suggestions channel, a Q&A one — goes into the Questions dock with
+ * ideas or suggestions channel, a Q&A one — goes into the Questions screen with
  * everything asked in chat, marked 📝 so they know it is in. When it is
  * answered on stream, the bot replies to it in Discord: answered live, with a
  * link to the very moment in the VOD.

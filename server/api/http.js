@@ -25,8 +25,6 @@ import * as leveling from '../leveling/index.js';
 import * as twitch from '../platforms/twitch.js';
 import * as tiktok from '../platforms/tiktok.js';
 import * as discord from '../platforms/discord.js';
-import * as obs from '../platforms/obs.js';
-import * as spotify from '../platforms/spotify.js';
 import * as youtube from '../platforms/youtube.js';
 import { VERSION } from '../../shared/version.js';
 import * as auth from './auth.js';
@@ -72,7 +70,7 @@ export function createHttpServer({ webRoot } = {}) {
     }
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-    // Nothing here is for a search engine: the dashboard has no sign-in, so it must never be found by one.
+    // Nothing here is for a search engine: the dashboard is for the streamer and their moderators, so it must never be found by one.
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
 
@@ -104,13 +102,13 @@ export function createHttpServer({ webRoot } = {}) {
           const me = auth.identify(req);
           if (!me) return json(res, 401, { error: 'sign in first', code: 'signin_needed' });
           const route = `${req.method} ${url.pathname.startsWith('/api/assets/') ? '/api/assets/*' : url.pathname}`;
-          if ((me.role === 'page' && !PAGE_API.has(route)) || (me.role === 'mod' && !MOD_API.has(route))) {
+          if (me.role === 'mod' && !MOD_API.has(route)) {
             return json(res, 403, { error: 'not for this sign-in', code: 'signin_not_allowed' });
           }
           if (me.role === 'mod') {
             // Asked about again when due, as their live connection is (auth.recheckMod).
             if (!(await auth.recheckMod(me))) return json(res, 401, { error: 'sign in first', code: 'signin_needed' });
-            // A new upload, never one replacing the streamer's: the overlays drawing it are not a moderator's to change.
+            // A new upload, never one replacing the streamer's: whatever already draws that file is not a moderator's to change.
             // By the name it would be saved under (safeAssetName), not as sent: "my logo.png" is saved as my_logo.png.
             const name = safeAssetName(decodeURIComponent(url.pathname.slice('/api/assets/'.length)));
             if (route === 'POST /api/assets/*' && name && fs.existsSync(path.join(config.assetsDir, name))) {
@@ -151,13 +149,6 @@ export function createHttpServer({ webRoot } = {}) {
       return;
     }
 
-    // Tag text files, so OBS can point a Text source at an HTTP URL too.
-    if (url.pathname.startsWith('/tags/')) {
-      const tagsDir = path.join(config.dataDir, 'tags');
-      serveFile(res, path.join(tagsDir, path.basename(url.pathname)), tagsDir, { req });
-      return;
-    }
-
     if (webRoot) { serveStatic(res, webRoot, url.pathname, req); return; }
 
     // No build present. Someone opening this port during development would
@@ -177,8 +168,6 @@ export function createHttpServer({ webRoot } = {}) {
   test endpoints — is the streamer's.
 */
 const MOD_API = new Set(['GET /api/assets', 'POST /api/assets/*']);
-/** And an OBS page's: the list of uploads, for the fonts it draws with. */
-const PAGE_API = new Set(['GET /api/assets']);
 
 async function handleAuth(req, res, url) {
   const route = `${req.method} ${url.pathname}`;
@@ -250,14 +239,12 @@ async function handleApi(req, res, url) {
       return json(res, 200, {
         ok: true,
         uptimeMs: Date.now() - startedAt,
-        // The app's version (shared/version.js). It said 3 before 1.0.0: the rewrite, not a version.
+        // The app's version (shared/version.js).
         version: VERSION,
         platforms: {
           twitch: twitch.getStatus(),
           tiktok: tiktok.getStatus(),
           discord: discord.getStatus(),
-          obs: obs.getStatus(),
-          spotify: spotify.getStatus(),
           youtube: youtube.getStatus(),
         },
         queues: queueDepths(),
@@ -266,35 +253,14 @@ async function handleApi(req, res, url) {
     case 'GET /api/snapshot':
       return json(res, 200, engine.snapshot());
 
-    case 'GET /api/commands':
-      return json(res, 200, engine.snapshot().commands);
-
-    case 'GET /api/actions':
-      return json(res, 200, engine.snapshot().streamActions);
-
-    case 'GET /api/alerts':
-      return json(res, 200, engine.snapshot().alertConfigs);
-
-    case 'GET /api/events':
-      return json(res, 200, engine.snapshot().eventHistory);
-
-    case 'GET /api/tags':
-      return json(res, 200, engine.snapshot().streamTags);
-
     case 'GET /api/leaderboard':
       return json(res, 200, leveling.leaderboard(Number(url.searchParams.get('limit')) || 50));
 
     case 'GET /api/logs':
       return json(res, 200, getRecentLogs(Number(url.searchParams.get('limit')) || 200));
 
-    case 'POST /api/actions/run': {
-      const body = await readJson(req);
-      await engine.testAction(body.id);
-      return json(res, 200, { ok: true });
-    }
-
-    // Inject synthetic activity so you can lay out a chat dock or alert
-    // overlay without waiting to go live. Localhost only — this drives the
+    // Inject synthetic activity so you can try the bot's features without
+    // waiting to go live. Localhost only — this drives the
     // real pipeline, so it must not be reachable from the network.
     case 'POST /api/test/chat': {
       requireLocal(req);
@@ -310,9 +276,7 @@ async function handleApi(req, res, url) {
         avatar: b.avatar,
         isMod: Boolean(b.isMod),
         highlighted: Boolean(b.highlighted),
-        // Lets the reward-with-text path be exercised without a real
-        // redemption: a chat line carrying this is the duplicate a surface
-        // showing the event is expected to drop.
+        // Tags the chat line as a channel-point reward's text (see platforms/twitch.js).
         rewardId: b.rewardId || null,
         isSub: Boolean(b.isSub),
         isVip: Boolean(b.isVip),
@@ -342,10 +306,11 @@ async function handleApi(req, res, url) {
 
 // ------------------------------------------------------------------ assets
 //
-// User-supplied images, used today as Dock Actions button backgrounds. They
-// are written into `assetsDir` and served from /media/, so a button stores a
-// short path rather than a data URL — a handful of inlined images would
-// otherwise bloat the config that every client receives in full on connect.
+// User-supplied images, used for Discord page pictures and the welcome post
+// and card. They are written into `assetsDir` and served from /media/, so a
+// setting stores a short path rather than a data URL — a handful of inlined
+// images would otherwise bloat the config that every client receives in full
+// on connect.
 
 /** What may be uploaded, and how big each kind may be (shared/asset-kinds.js, which the screen checks too). */
 const ASSET_KINDS = Object.fromEntries(Object.entries(KINDS).map(([kind, spec]) => [kind, { exts: new Set(spec.exts), max: spec.max }]));
@@ -387,8 +352,7 @@ function safeAssetName(raw) {
  * A stylesheet declaring every uploaded font.
  *
  * Generated rather than wired through each surface: one link in the page
- * head makes uploaded fonts work on the overlay, the dock, the alerts and
- * the canvas at once, and a font uploaded later needs no client change to
+ * head makes uploaded fonts work on every page at once, and a font uploaded later needs no client change to
  * be usable — a reload picks it up.
  */
 function fontFaceCss() {
@@ -496,7 +460,7 @@ function deleteAsset(rawName) {
 function serveDevHint(res) {
   const html = `<!doctype html>
 <meta charset="utf-8">
-<title>SimonSays server is running</title>
+<title>SimonBot server is running</title>
 <style>
   :root { color-scheme: dark }
   body { background:#09090b; color:#e4e4e7; font:16px/1.6 system-ui,sans-serif;
@@ -509,7 +473,7 @@ function serveDevHint(res) {
   .ok { color:#4ade80 }
 </style>
 <main>
-  <h1>SimonSays server is running</h1>
+  <h1>SimonBot server is running</h1>
   <p class="ok">The backend is healthy. It just has no UI build to serve yet.</p>
   <ul>
     <li><strong>In development</strong>, the interface is on
@@ -565,8 +529,8 @@ function serveStatic(res, root, pathname, req) {
     An address with nothing behind it gets the app all the same, which then
     says the page does not exist — with a 404, so a browser and anything
     checking a link know it too. The app itself is only ever at / (and
-    /index.html, a file): every page OBS shows is /?mode=, and every sign-in
-    comes back to the address it left from.
+    /index.html, a file), and every sign-in comes back to the address it left
+    from.
   */
   if (!fs.existsSync(target) || fs.statSync(target).isDirectory()) {
     serveFile(res, path.join(root, 'index.html'), undefined, { req, status: 404 });
@@ -579,20 +543,18 @@ function serveStatic(res, root, pathname, req) {
  * Send a file, and let a browser that already has it keep it.
  *
  * Every response used to carry the bytes, with nothing to say the file had not
- * changed — so an overlay showing a clip on a follow alert re-downloaded the
- * whole thing on every follow, off whatever machine is running the server, on
- * every surface drawing alerts at once. A twenty-megabyte clip makes that
- * obvious; it was true of every image already.
+ * changed, so a picture was downloaded again on every page that drew it. A
+ * twenty-megabyte video makes that obvious; it was true of every image already.
  *
  * Revalidation rather than a long life, because an uploaded file keeps its own
- * name: replacing alert.gif writes over the old one at the same address, so a
+ * name: replacing logo.gif writes over the old one at the same address, so a
  * browser told to keep it for a year would show the old one for a year. A
  * conditional request answers in a couple of hundred bytes instead of twenty
  * megabytes, and a replaced file appears immediately.
  *
  * @param {number} freshFor Seconds a browser may reuse it without asking at
- *        all. Small: it saves the round trip for alerts firing back to back,
- *        and is the longest anybody waits to see a file they just replaced.
+ *        all. Small: it saves the round trip for a picture drawn twice in a
+ *        row, and is the longest anybody waits to see a file they just replaced.
  * @param {number} status 200, or 404 for the app sent in place of a page
  *        that does not exist — never answered as "unchanged", since that
  *        would say the address is fine.

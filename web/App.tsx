@@ -2,88 +2,36 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { 
-  Layout, Package, MessageSquare, ListOrdered, MessageCircleQuestion, Menu, X, Terminal, Share2, Zap, Monitor, Bell, Settings as SettingsIcon, GitBranch, ShieldCheck, Tag, 
-  Wifi, WifiOff, LogOut, Send, Bot, User, Check, Eye, EyeOff, Ghost, Link as LinkIcon, Loader2, Copy, ExternalLink,
-  HelpCircle, Info, AlertTriangle, List, ChevronDown, Shield, Trash2, Clock, MousePointerClick, DoorOpen, GripHorizontal, Trophy, Newspaper, Coins, History
-, Smile, LayoutGrid, Sword, Gem, Star, Video, Radio, Layers, Gamepad2, Palette, Users, BarChart3, Gift, Headphones, Megaphone, Mic, Sparkles, Inbox, Cast, BookOpen
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import {
+  Menu, X, Share2, Settings as SettingsIcon, ShieldCheck, Bot, Loader2, HelpCircle, Shield, MousePointerClick, DoorOpen,
+  GripHorizontal, Trophy, Newspaper, Coins, BarChart3, Gift, Headphones, Megaphone, Inbox, BookOpen, MessageCircleQuestion, Youtube,
 } from 'lucide-react';
 import { NavSections, StatusRow, NavSearch, SearchButton, ScreenTabs, PhoneBar, type NavSection, type SearchEntry } from './components/NavMenu';
 import { useReloadAfterUpdate } from './components/UpdatesPanel';
-import { formatLayout } from '../shared/layout-formats.js';
-import { Button } from './components/Button';
 import { NotFoundPage } from './components/NotFoundPage';
 import { SignInPage } from './components/SignInPage';
-import { MessageModMenu, ChatModes, AutomodQueue } from './components/ModTools';
-import { pageLink, setLinkKey } from './page-link';
-
-/** Back from Twitch's sign-in page with a token for signing in (components/SignInPage.tsx), read once as the page loads. */
-/**
- * The streamer's own screens, which a moderator does not see (2.0.0): the
- * connections — their accounts — the PNGtuber and pixel avatar editors (the
- * avatars still show in the overlays), and the Guides, which are for setting
- * the app up.
- */
-const MOD_HIDDEN_VIEWS = new Set<AppView>(['gallery', 'guides', 'pngtuber', 'pixel-avatars', 'moderators']);
-
-const FINISHING_SIGN_IN = typeof window !== 'undefined' && /(?:^|&)state=signin/.test(`${window.location.hash.slice(1)}&${window.location.search.slice(1)}`);
-import { EmojiPicker } from './components/EmojiPicker';
-import { Omnibar } from './components/Omnibar';
-import { TallOmnibar } from './components/TallOmnibar';
-import { Countdown, countdownFor } from './components/Countdown';
-import { ViewerCount } from './components/ViewerCount';
-import { Stopwatch } from './components/Stopwatch';
-import { OmnibarBarPicker } from './components/OmnibarBarPicker';
-import { ProfileSwitcher } from './components/ProfileSwitcher';
-import { AppView, Command, StreamAction, ActionStep, ActionTrigger, TriggerCategory, TriggerType, ActionStepType, AlertConfig, ActiveAlert, AlertType, ChatMessage } from './types';
-import { THEMES, TRANSLATIONS, CHAT_THEMES, CHAT_RANKS } from './constants';
-import { liveLayout } from '../shared/live-layout.js';
-import { moveInTree } from '../shared/list-order.js';
-import { DEFAULT_CHAT_TRIGGER } from '../shared/chat-match.js';
-import { parseMessageWithEmotes, getRgbValues, insertAtCursor } from './utils';
-
-// Import "The Brain"
+import { AppView } from './types';
+import { THEMES, TRANSLATIONS } from './constants';
+import { getRgbValues } from './utils';
+import { fill } from './words';
 import { useStreamSystem } from './hooks/useStreamSystem';
-
-// Import Views
-import { CommandEditorModal } from './components/CommandEditorModal';
-import { DockDeck } from './components/DockDeck';
-import { DockPlan } from './components/DockPlan';
-import { DockQuestions } from './components/DockQuestions';
-import { EventFeed } from './components/EventFeed';
-
-/**
- * When the last YouTube message arrived, from the chat already on screen: the
- * server says what the connection is doing, and this says whether anything
- * has actually come through it.
- */
-const lastYoutubeMessageAt = (messages: any[]) => {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i]?.platform === 'youtube') return Number(messages[i].at) || 0;
-  }
-  return 0;
-};
-import { SendToPicker } from './components/SendToPicker';
-import { refusalWords, fill } from './words';
-import { DockTabs, DockTab } from './components/DockTabs';
-import { ScreenControls, HoldAwake } from './components/ScreenControls';
-import { useSideways } from './hooks/useSideways';
 import type { GuidesTab } from './components/views/GuidesView';
+import botFace from '../art/simonbot/bot-avatar-mint-circle-512.png';
+
 /** The guides module, fetched by the dashboard when it opens (see `guides` below). */
 type GuidesModule = typeof import('../shared/guides.js');
-import { ChatMessageRow, ChatStyle, PlatformMark } from './components/ChatMessageRow';
-import { AlertOverlay } from './components/AlertOverlay';
-import { CanvasStage } from './components/CanvasStage';
-import { SpotifyPlayer, SpotifyIcon as SpotifyIconComponent } from './components/SpotifyPlayer'; // Import Player for standalone mode
+
+/** The streamer's own screens, which a moderator does not see: their connections, the moderators, and the Guides, which are for setting the bot up. */
+const MOD_HIDDEN_VIEWS = new Set<AppView>(['gallery', 'guides', 'moderators']);
+
+/** Back from Twitch's sign-in page with a token for signing in (components/SignInPage.tsx), read once as the page loads. */
+const FINISHING_SIGN_IN = typeof window !== 'undefined' && /(?:^|&)state=signin/.test(`${window.location.hash.slice(1)}&${window.location.search.slice(1)}`);
 
 /*
   The dashboard's screens, loaded when the dashboard opens one rather than
-  with the page. Every page OBS shows — the canvas, the alerts, the dock —
-  is this same app, and before this each one downloaded every screen of the
-  dashboard too: one 2.9 MB script for a page that draws a chat. The
-  dashboard fetches the rest in the background once it is up (SCREENS),
-  so moving between screens there stays instant.
+  with the page, and fetched in the background once it is up (SCREENS), so
+  moving between screens stays instant.
 */
 const SCREENS: Array<() => Promise<unknown>> = [];
 
@@ -98,50 +46,24 @@ function screen<M, K extends keyof M>(load: () => Promise<M>, name: K): M[K] {
   SCREENS.push(load);
   return lazy(() => load().then((m) => ({ default: m[name] as any }))) as unknown as M[K];
 }
-const ViewersView = screen(() => import('./components/views/ViewersView'), 'ViewersView');
-const CountdownView = screen(() => import('./components/views/CountdownView'), 'CountdownView');
-const TimerView = screen(() => import('./components/views/TimerView'), 'TimerView');
-const OmnibarView = screen(() => import('./components/views/OmnibarView'), 'OmnibarView');
-const LayoutsView = screen(() => import('./components/views/LayoutsView'), 'LayoutsView');
-const AlertsView = screen(() => import('./components/views/AlertsView'), 'AlertsView');
-const DashboardView = screen(() => import('./components/views/DashboardView'), 'DashboardView');
+const BotHomeView = screen(() => import('./components/views/BotHomeView'), 'BotHomeView');
 const SettingsView = screen(() => import('./components/views/SettingsView'), 'SettingsView');
-const RoadmapView = screen(() => import('./components/views/RoadmapView'), 'RoadmapView');
 const ModeratorsView = screen(() => import('./components/views/ModeratorsView'), 'ModeratorsView');
-const StudioView = screen(() => import('./components/views/StudioView'), 'StudioView');
-const DockActionsView = screen(() => import('./components/views/DockActionsView'), 'DockActionsView');
-const ActionsView = screen(() => import('./components/views/ActionsView'), 'ActionsView');
 const ConnectionsView = screen(() => import('./components/views/ConnectionsView'), 'ConnectionsView');
-const TagsView = screen(() => import('./components/views/TagsView'), 'TagsView');
-const ChatDockView = screen(() => import('./components/views/ChatDockView'), 'ChatDockView');
-const PlanView = screen(() => import('./components/views/PlanView'), 'PlanView');
-const GameView = screen(() => import('./components/views/GameView'), 'GameView');
-const PeopleView = screen(() => import('./components/views/PeopleView'), 'PeopleView');
-const LibraryView = screen(() => import('./components/views/LibraryView'), 'LibraryView');
 const QuestionsView = screen(() => import('./components/views/QuestionsView'), 'QuestionsView');
-const PlayersView = screen(() => import('./components/views/PlayersView'), 'PlayersView');
-const RemotePlayersView = screen(() => import('./components/views/RemotePlayersView'), 'RemotePlayersView');
 const GuidesView = screen(() => import('./components/views/GuidesView'), 'GuidesView');
 const PollsView = screen(() => import('./components/views/PollsView'), 'PollsView');
 const GiveawayView = screen(() => import('./components/views/GiveawayView'), 'GiveawayView');
 const DiscordPagesView = screen(() => import('./components/views/DiscordPagesView'), 'DiscordPagesView');
 const PointsView = screen(() => import('./components/views/PointsView'), 'PointsView');
-const StreamsView = screen(() => import('./components/views/StreamsView'), 'StreamsView');
 const RequestsView = screen(() => import('./components/views/RequestsView'), 'RequestsView');
 const VoiceView = screen(() => import('./components/views/VoiceView'), 'VoiceView');
 const GoLiveView = screen(() => import('./components/views/GoLiveView'), 'GoLiveView');
-const PngtuberView = screen(() => import('./components/views/PngtuberView'), 'PngtuberView');
-const PixelAvatarsView = screen(() => import('./components/views/PixelAvatarsView'), 'PixelAvatarsView');
-const TwitchView = screen(() => import('./components/views/TwitchView'), 'TwitchView');
-const EventsDockView = screen(() => import('./components/views/EventsDockView'), 'EventsDockView');
 const RoleManagementViewConnected = screen(() => import('./components/views/RoleManagementView'), 'RoleManagementViewConnected');
 const ReactionRolesView = screen(() => import('./components/views/ReactionRolesView'), 'ReactionRolesView');
 const WelcomeGoodbyeView = screen(() => import('./components/views/WelcomeGoodbyeView'), 'WelcomeGoodbyeView');
 const DiscordButtonsView = screen(() => import('./components/views/DiscordButtonsView'), 'DiscordButtonsView');
-const SpotifyOverlayView = screen(() => import('./components/views/SpotifyOverlayView'), 'SpotifyOverlayView');
 const LevelsView = screen(() => import('./components/views/LevelsView'), 'LevelsView');
-const BotHomeView = screen(() => import('./components/views/BotHomeView'), 'BotHomeView');
-import botFace from '../art/simonbot/bot-avatar-mint-circle-512.png';
 
 // --- Custom Components ---
 const Logo = ({ className = "" }: { className?: string }) => (
@@ -163,442 +85,85 @@ const DiscordIcon = ({ size = 24, className = "" }: { size?: number, className?:
   </svg>
 );
 
-/**
- * Which profile group each screen belongs to.
- *
- * Commands, actions and dock actions share one entry on purpose: a dock
- * button names an action and an action names the command that triggers it, so
- * they are one profile between them and switching from any of the three moves
- * all three.
- *
- * A screen absent from here has no profiles, which is the answer for Discord —
- * reaction roles and the welcome message describe one server and do not change
- * with what is being streamed.
- */
-const PROFILE_GROUP_FOR_VIEW: Record<string, string> = {
-  studio: 'automation',
-  actions: 'automation',
-  'dock-actions': 'automation',
-  alerts: 'alerts',
-  layouts: 'overlays',
-  omnibar: 'overlays',
-  viewers: 'overlays',
-  // The chat dock screen, called 'assets' for historical reasons, is in none:
-  // the dock keeps its own settings, outside every profile.
-};
-
 /*
-  Every page there is: the dashboard, at / with no mode, and the pages OBS
-  shows, each by its ?mode=. Any other mode or path is a page that does not
-  exist (NotFoundPage) — never the dashboard in its place.
+  The one page there is: the dashboard, at /. Any ?mode= or other path is a
+  page that does not exist (NotFoundPage) — never the dashboard in its place.
 */
-const PAGE_MODES = ['dashboard', 'alerts', 'dock-actions', 'timer', 'countdown', 'viewers', 'canvas', 'omnibar', 'spotify', 'overlay', 'dock'];
+const PAGE_MODES = ['dashboard'];
 const APP_PATHS = ['/', '/index.html'];
+
+/** This browser's own memory of the guides and the requests board. */
+const GUIDES_SEEN = 'simonbot.guides-seen';
+const GUIDES_TICKED = 'simonbot.guides-ticked';
+const REQUESTS_SEEN = 'simonbot.requests-seen';
 
 export default function App() {
   // --- Initialize "The Brain" ---
   const system = useStreamSystem();
   // After an update started here, the page reloads into the new version once the server is back as it.
   useReloadAfterUpdate((system.data as any).serverVersion || '', (system.data as any).updates || null);
-  
-  // --- UI State (Non-Persistent / View-Specific) ---
+
   const [showIntro, setShowIntro] = useState(true);
   const [view, setView] = useState<AppView>('bot-home');
   // A moderator never lands on a screen that is the streamer's (MOD_HIDDEN_VIEWS), however it was asked for.
-  useEffect(() => { if (system.auth.isMod && MOD_HIDDEN_VIEWS.has(view)) setView('dashboard'); }, [system.auth.isMod, view]);
-  /** Which omnibar the Omnibar screen is editing: 'main', or another bar's id. */
-  const [omnibarBar, setOmnibarBar] = useState('main');
+  useEffect(() => { if (system.auth.isMod && MOD_HIDDEN_VIEWS.has(view)) setView('bot-home'); }, [system.auth.isMod, view]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [messageInput, setMessageInput] = useState('');
-  // Emoji picker for the standalone dock, mirroring the in-app preview.
-  const [pickerState, setPickerState] = useState<{ open: boolean, top: number, left: number } | null>(null);
-  const handlePickerOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
 
-    // Keep the picker on screen. It is 320x400, and anchoring it to the
-    // button's left edge pushed it off the right side of a narrow dock, so
-    // clamp both axes and fall back to opening downwards if there is no room
-    // above.
-    const W = 320, H = 400, M = 8;
-
-    let top = rect.top - H - M;
-    if (top < M) top = Math.min(rect.bottom + M, window.innerHeight - H - M);
-    top = Math.max(M, top);
-
-    let left = rect.left;
-    if (left + W > window.innerWidth - M) left = window.innerWidth - W - M;
-    left = Math.max(M, left);
-
-    setPickerState({ open: true, top, left });
-  };
-
-  // Modals & Forms UI State
-  const [isCommandModalOpen, setIsCommandModalOpen] = useState(false);
-  const [currentCommand, setCurrentCommand] = useState<Partial<Command>>({});
-  const [tempTriggers, setTempTriggers] = useState('');
-
-  const [isActionModalOpen, setIsActionModalOpen] = useState(false);
-  const [currentAction, setCurrentAction] = useState<Partial<StreamAction>>({});
-
-  const [activeAlertCategory, setActiveAlertCategory] = useState<string | null>('follows');
-  const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
-
-  const [showInsecureModal, setShowInsecureModal] = useState(false);
-  const [insecureAcknowledgeMode, setInsecureAcknowledgeMode] = useState<'info' | 'guide' | 'nope'>('info');
-  const [hasInsecureBlocked, setHasInsecureBlocked] = useState(false);
-
-  // Derived Constants
   const searchParams = new URLSearchParams(window.location.search);
   const mode = searchParams.get('mode');
   const unknownPath = !APP_PATHS.includes(window.location.pathname);
   const notFound = unknownPath || (mode !== null && !PAGE_MODES.includes(mode));
   const activeTheme = useMemo(() => THEMES.find(t => t.id === system.settings.activeThemeId) || THEMES[0], [system.settings.activeThemeId]);
-  // The dashboard, once up, fetches every screen in the background so moving between them is instant;
-  // the pages OBS shows never do.
+  // The dashboard, once up, fetches every screen in the background so moving between them is instant.
   useEffect(() => {
-    if (notFound || (mode && mode !== 'dashboard')) return undefined;
+    if (notFound) return undefined;
     const later = setTimeout(() => { for (const load of SCREENS) load().catch(() => {}); }, 1500);
     return () => clearTimeout(later);
   }, []);
 
-  /**
-   * Accent colour classes. Declared before the early returns because the
-   * dock, overlay and alert modes return above the main render — they were
-   * emitting `bg-current-accent` with no rule behind it, so anything using
-   * the theme accent came out unstyled in OBS.
-   */
+  /** Accent colour classes, from the theme chosen in Settings. */
   const accentStyles = <style>{` :root { --current-accent: ${activeTheme.primary}; } .text-current-accent { color: var(--current-accent); } .bg-current-accent { background-color: var(--current-accent); } .border-current-accent { border-color: var(--current-accent); } .bg-current-accent\\/10 { background-color: rgba(${getRgbValues(activeTheme.primary)}, 0.1); } `}</style>;
   const t = useMemo(() => TRANSLATIONS[system.settings.language], [system.settings.language]);
-  // The pages OBS shows on stream speak the stream's language, whatever this device's is.
-  const streamT = TRANSLATIONS.es;
-  const viewNames: Record<AppView, string> = { 
+  const viewNames: Record<AppView, string> = {
     'bot-home': 'SimonBot',
-    twitch: t.twitchNav || 'Twitch',
-    dashboard: t.dashboard, 
-    viewers: t.navViewerCount || 'Viewer count',
-    layouts: t.layouts,
-    alerts: t.alerts,
-    assets: t.chatDock,
-    plan: t.planNav || 'Stream plan',
-    run: t.gameNav || 'Game',
-    people: t.navPeopleOnStream || 'People on stream',
-    library: t.navLooks || 'Looks',
     questions: t.questionsNav || 'Questions',
-    players: t.navGameNight || 'Game night',
-    'remote-players': t.remotePlayersNav || 'Remote players',
-    polls: t.pollsNav || 'Polls', 
+    polls: t.pollsNav || 'Polls',
     giveaway: t.giveawayNav || 'Giveaways',
     points: t.pointsNav || 'Points',
-    streams: t.streamsNav || 'Streams',
     requests: t.requestsNav || 'Game requests',
-    events: t.eventsDock, 
-    studio: t.commands, 
-    actions: t.actions, 
     gallery: t.connections,
-    tags: t.navStreamLabels || 'Stream labels',
-    settings: t.settings, 
+    settings: t.settings,
     voice: t.voiceNav || 'Voice call',
     'go-live': t.goLiveNav || 'Go live',
-    pngtuber: t.pngtuberNav || 'PNGtuber',
-    'pixel-avatars': t.pixelAvatarsNav || 'Pixel avatars',
     'role-management': t.roleManagement,
     'reaction-roles': t.reactionRoles,
     'discord-buttons': t.discordButtons || 'Discord Buttons',
     'welcome-goodbye': t.welcomeGoodbye || 'Welcome & Goodbye',
     'discord-pages': t.discordPagesNav || 'Discord pages',
-    'spotify-overlay': t.spotifyOverlay || 'Spotify Overlay',
-    'dock-actions': t.dockActions,
-    countdown: t.countdown || 'Countdown',
-    timer: t.timer || 'Timer',
-    omnibar: t.omnibar || 'Omnibar',
     levels: t.levels || 'Levels & XP',
     guides: t.guidesNav || 'Guides',
-    roadmap: t.roadmapNav || 'Roadmap',
     moderators: t.moderatorsNav || 'Moderators',
   };
 
-  // The browser tab says which screen it is; a page OBS shows keeps the app's name.
-  const screenTitle = notFound ? (t.notFoundTab || 'Page not found') : !mode || mode === 'dashboard' ? viewNames[view] : '';
+  // The browser tab says which screen it is.
+  const screenTitle = notFound ? (t.notFoundTab || 'Page not found') : viewNames[view];
   useEffect(() => {
     document.title = screenTitle && screenTitle !== 'SimonBot' ? `${screenTitle} · SimonBot` : 'SimonBot';
   }, [screenTitle]);
 
-  // URL Generation Helpers
-  const getBaseUrl = () => { const url = new URL(window.location.href); url.search = ''; return url; };
-  const appendConfigToUrl = useCallback((url: URL, targetMode: 'dock' | 'alerts') => { 
-      url.searchParams.set('mode', targetMode); 
-      if (system.connections.twitchChannel) url.searchParams.set('channel', system.connections.twitchChannel); 
-      // Security: Pass generic token params if needed, mostly handled by localStorage in real usage or new tab
-      if (system.connections.tiktokUrl) url.searchParams.set('tiktokUser', system.connections.tiktokUrl); 
-      if (system.connections.tiktokProxyUrl) url.searchParams.set('tiktokProxy', system.connections.tiktokProxyUrl); 
-      
-      /*
-        Appearance is no longer spelled out here.
-
-        It used to be, because each browser source had its own localStorage and
-        anything absent from the URL simply never reached it. Now the dock's
-        settings live on the server, and a URL carrying them would be a second,
-        stale copy. The chat on stream is a layer with its own settings, which
-        change with the overlay profile.
-      */
-      return url.toString();
-  }, [system.connections, system.settings]);
-
-  // The page key, for the links to the pages OBS shows (page-link.ts): set before anything below draws a link.
-  const linkKey = system.auth.state?.pageKey || '';
-  setLinkKey(linkKey);
-  const dockUrl = useMemo(() => appendConfigToUrl(getBaseUrl(), 'dock'), [appendConfigToUrl]);
-  const alertsUrl = useMemo(() => pageLink(appendConfigToUrl(getBaseUrl(), 'alerts')), [appendConfigToUrl, linkKey]);
-
-  // Effects
   useEffect(() => { const timer = setTimeout(() => setShowIntro(false), 9000); return () => clearTimeout(timer); }, []);
-  useEffect(() => { 
-      if (system.status.obsError && (system.status.obsError.name === 'SecurityError' || system.status.obsError.message?.includes('insecure'))) {
-          setShowInsecureModal(true); 
-      } 
-  }, [system.status.obsError]);
 
-  // --- Handlers for UI Interaction ---
-
-  /*
-    Why the last message typed at the dock did not go, in words, or ''.
-
-    The box clears the moment you send, the way a chat does; a message that
-    fails comes back into it — unless you have started typing something else
-    since — with the reason beside it, for long enough to read.
-  */
-  const [sendError, setSendError] = useState('');
-  useEffect(() => {
-    if (!sendError) return;
-    const timer = setTimeout(() => setSendError(''), 8000);
-    return () => clearTimeout(timer);
-  }, [sendError]);
-  const sendErrorWords = (err: any) => {
-    switch (err?.code) {
-      case 'twitch_command': return t.sendErrorCommand;
-      case 'twitch_offline': return t.sendErrorOffline;
-      case 'bot_offline': return t.sendErrorBotOffline;
-      case 'too_long': return t.sendErrorTooLong;
-      // YouTube's, through the same words every screen uses for a refusal.
-      case 'youtube_offline': case 'youtube_sign_in_again': case 'youtube_not_live': case 'youtube_too_long': case 'youtube_quota':
-        return refusalWords(t, err);
-      default: return `${t.sendErrorOther} ${err?.message || ''}`.trim();
-    }
-  };
-  /*
-    Whether a message can go anywhere: to Twitch, or to YouTube when the box
-    is set to send there and its live chat is open. It was Twitch or nothing,
-    so a stream on YouTube alone had a box that could not be typed in.
-  */
-  const chatSendTo = (system.settings as any).sendTo || 'twitch';
-  const chatSendable = system.status.twitch === 'connected' || (chatSendTo !== 'twitch' && Boolean((system.connections as any).youtubeLive));
-  const chatInputRef = useRef<HTMLInputElement | null>(null);
-  const handleSendMessage = () => {
-    const text = messageInput;
-    if (!text.trim()) return;
-    setMessageInput('');
-    setSendError('');
-    system.actions.sendMessage(text).then((res: any) => {
-      // Sent to both, and one of the two did not take it: said, with why.
-      if (res?.failed) {
-        // The one that did go, after why the other did not.
-        const other = res.failed.platform === 'youtube' ? 'Twitch' : 'YouTube';
-        setSendError(String(t.sendPartly || '{why} It did go to {other}.').split('{why}').join(sendErrorWords(res.failed)).split('{other}').join(other));
-      }
-    }).catch((err: any) => {
-      setMessageInput((now: string) => (now ? now : text));
-      setSendError(sendErrorWords(err));
-    });
-  };
-
-  // Commands
-  // Set when the editor is opened from somewhere that needs the result — the
-  // Actions screen creating a command mid-edit wants to select it immediately,
-  // and the id is known before the save because it is minted on open.
-  const commandModalOnSaved = useRef<((id: string) => void) | null>(null);
-
-  const handleOpenCommandModal = (cmd?: Command, onSaved?: (id: string) => void) => { commandModalOnSaved.current = onSaved ?? null; if (cmd) { setCurrentCommand(cmd); setTempTriggers(cmd.triggers.join('\n')); } else { setCurrentCommand({ id: Math.random().toString(36).substr(2, 9), name: 'New Command', triggers: [], permissions: { anyone: true, vips: true, subscribers: true, moderators: true, broadcaster: true }, enabled: true }); setTempTriggers(''); } setIsCommandModalOpen(true); };
-  const handleCloseCommandModal = () => { commandModalOnSaved.current = null; setIsCommandModalOpen(false); };
-  const handleSaveCommand = () => { if (!currentCommand.name) { alert("Please enter a command name."); return; } const triggersArray = tempTriggers.split('\n').map(t => t.trim().replace(/\s/g, '')).filter(t => t.length > 0); if (triggersArray.length === 0) { alert("Please enter at least one trigger."); return; } const finalCommand = { ...currentCommand, triggers: triggersArray } as Command; system.actions.saveCommand(finalCommand); const onSaved = commandModalOnSaved.current; commandModalOnSaved.current = null; setIsCommandModalOpen(false); onSaved?.(finalCommand.id); };
-  
-  // Actions
-  const handleOpenActionModal = (action?: StreamAction) => { if (action) { setCurrentAction(action); } else { setCurrentAction({ id: Math.random().toString(36).substr(2, 9), name: 'New Interaction', enabled: true, trigger: { id: Math.random().toString(36).substr(2, 9), category: 'command', type: 'command_trigger', config: {} }, actions: [] }); } setIsActionModalOpen(true); };
-  const handleSaveAction = () => { if (!currentAction.name) { alert("Please give your action a name."); return; } if (!currentAction.trigger) { alert("Please select a trigger."); return; } system.actions.saveAction(currentAction as StreamAction); setIsActionModalOpen(false); };
-  
-  // Recursive Action Helpers
-  const addActionStep = (type: ActionStepType, parentId?: string, branch?: 'then' | 'else') => {
-    /**
-     * A step whose editor SHOWS a default must be SAVED with it.
-     *
-     * The camera step's dropdown renders `config.droidcamOperation || 'torch'`,
-     * so a freshly added step displayed "Toggle flash" while its config was
-     * empty. Nobody changes a dropdown that already says what they want, so
-     * onChange never fired, nothing was stored, and the step ran with no
-     * operation at all — it looked configured and did nothing.
-     */
-    const defaultConfig: Partial<Record<ActionStepType, any>> = {
-        // One check to start from, in the list form the editor shows and the server reads.
-        condition: { logic: { matchType: 'AND', conditions: [{ id: 'c1', variable: 'user.isSub', operator: 'isTrue', value: '' }] } },
-        droidcam_control: { droidcamOperation: 'torch' },
-        // The run card steps start as a mod command would use them: whatever
-        // follows the command word goes on the card.
-        run_set_game: { value: '{input}' },
-        run_set_platform: { value: '{input}' },
-        run_set_year: { value: '{input}' },
-        run_set_category: { value: '{input}' },
-        run_set_estimate: { value: '{input}' },
-        run_set_runner: { name: '{input}' },
-        run_set_host: { name: '{input}' },
-        run_set_commentator: { seat: 1, name: '{input}' },
-        run_clear: { clearWhat: 'all' },
-        plan_add: { text: '{input}', where: 'end' },
-        text_layer_set: { text: '{input}' },
-        goal_change: { value: '{input}', goalMode: 'auto' },
-        deaths_change: { value: '{input}', deathsOp: 'auto' },
-        timer_control: { timerOp: 'toggle' },
-        countdown_control: { countdownOp: 'start', timer: '', value: '1:00' },
-        layout_switch: { layoutId: '', transition: '' },
-        remote_on_screen: { player: '1', sceneType: '' },
-        question_add: { text: '{input}' },
-        players_join: { name: '{user}', colour: '{input}' },
-        players_state: { name: '{input}', playerState: 'out' },
-        players_remove: { name: '{input}' },
-        players_reset: {},
-        players_clear: {},
-        poll_open: { text: '{input}' },
-        discord_send: { channelId: '', message: '', card: false },
-        poll_close: {},
-        poll_reset: {},
-        avatar_face: { face: 'happy', seconds: 5 },
-        avatar_action: { action: 'drink' },
-        youtube_set_title: { title: '{input}' },
-        youtube_set_description: { description: '' },
-        youtube_toggle_category: { categoryA: '20', categoryB: '22' },
-        wait: { seconds: 5 },
-        repeat: { times: 3, waitSeconds: 1 },
-        later: { mode: 'after', amount: 5, unit: 'minutes' },
-        random_choice: { weight: 1 },
-        play_sound: { soundUrl: '', soundVolume: 1 },
-        web_request: { method: 'GET', url: '', body: '', headers: '' },
-    };
-
-    const stepId = () => Math.random().toString(36).substr(2, 9);
-    const newStep: ActionStep = {
-        id: stepId(),
-        type,
-        config: { ...(defaultConfig[type] || {}) },
-    };
-    // The steps that hold steps start with their list, and a random pick with two choices to pick from.
-    if (type === 'repeat' || type === 'later' || type === 'random_choice') newStep.thenActions = [];
-    if (type === 'random_pick') {
-        newStep.thenActions = [1, 2].map(() => ({ id: stepId(), type: 'random_choice' as ActionStepType, config: { weight: 1 }, thenActions: [] }));
-    }
-
-    if (!parentId) {
-        // Add to root
-        setCurrentAction(prev => ({ ...prev, actions: [...(prev.actions || []), newStep] }));
-        return;
-    }
-
-    // Add nested
-    const addToTree = (steps: ActionStep[]): ActionStep[] => {
-        return steps.map(step => {
-            if (step.id === parentId) {
-                if (branch === 'then') return { ...step, thenActions: [...(step.thenActions || []), newStep] };
-                if (branch === 'else') return { ...step, elseActions: [...(step.elseActions || []), newStep] };
-                return step;
-            }
-            return {
-                ...step,
-                thenActions: step.thenActions ? addToTree(step.thenActions) : undefined,
-                elseActions: step.elseActions ? addToTree(step.elseActions) : undefined
-            };
-        });
-    };
-    setCurrentAction(prev => ({ ...prev, actions: prev.actions ? addToTree(prev.actions) : [] }));
-  };
-
-  const removeActionStep = (stepId: string) => {
-      const removeFromTree = (steps: ActionStep[]): ActionStep[] => {
-          return steps.filter(s => s.id !== stepId).map(s => ({
-              ...s,
-              thenActions: s.thenActions ? removeFromTree(s.thenActions) : undefined,
-              elseActions: s.elseActions ? removeFromTree(s.elseActions) : undefined
-          }));
-      };
-      setCurrentAction(prev => ({ ...prev, actions: prev.actions ? removeFromTree(prev.actions) : [] }));
-  };
-
-  /** A step dragged to a gap in its own list — the action's steps, or a condition's then or else. */
-  const moveActionStep = (stepId: string, gap: number) => {
-      setCurrentAction(prev => (prev.actions ? { ...prev, actions: moveInTree(prev.actions, stepId, gap) } : prev));
-  };
-
-  const updateActionStepConfig = (stepId: string, key: string, value: any) => {
-      const updateTree = (steps: ActionStep[]): ActionStep[] => {
-          return steps.map(s => {
-              if (s.id === stepId) {
-                  // Special handling for deep logic updates
-                  if (key.startsWith('logic.')) {
-                      const logicKey = key.split('.')[1];
-                      return { ...s, config: { ...s.config, logic: { ...s.config.logic!, [logicKey]: value } } };
-                  }
-                  return { ...s, config: { ...s.config, [key]: value } };
-              }
-              return {
-                  ...s,
-                  thenActions: s.thenActions ? updateTree(s.thenActions) : undefined,
-                  elseActions: s.elseActions ? updateTree(s.elseActions) : undefined
-              };
-          });
-      };
-      setCurrentAction(prev => ({ ...prev, actions: prev.actions ? updateTree(prev.actions) : [] }));
-  };
-
-  // A calendar trigger starts with its time zone: this browser's, since the phone the server runs on may keep UTC.
-  // A chat message trigger starts as the server reads one with nothing set (shared/chat-match.js), so what shows is what is saved.
-  const triggerDefaults = (type: TriggerType) => (type === 'timer_schedule'
-    ? { days: [1], time: '18:00', tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }
-    : type === 'chat_message'
-      ? { ...DEFAULT_CHAT_TRIGGER } as ActionTrigger['config']
-      : {});
-  const updateTrigger = (category: TriggerCategory, type: TriggerType) => { setCurrentAction(prev => ({ ...prev, trigger: { ...prev.trigger!, category, type, config: triggerDefaults(type) } })); };
-  const updateTriggerConfig = (key: string, value: any) => { setCurrentAction(prev => ({ ...prev, trigger: { ...prev.trigger!, config: { ...prev.trigger!.config, [key]: value } } })); };
-
-
-  // Misc
-  /*
-    Which panel the dock is showing.
-
-    Per browser rather than on the server: two docks open at once are two
-    people at two desks, and the one watching chat should not be moved to
-    the buttons because somebody else pressed one. Storage can be missing or
-    refused outright in a browser source, so it is read behind a guard and a
-    failure just means the dock opens on chat.
-  */
-  const [dockTab, setDockTabRaw] = useState<string>(() => {
-    try { return localStorage.getItem('dock_tab') || 'chat'; } catch { return 'chat'; }
-  });
-  // A phone held sideways: the dock's tabs stand in a column at the left (see DockTabs).
-  const dockSideways = useSideways();
-  const setDockTab = (id: string) => {
-    setDockTabRaw(id);
-    try { localStorage.setItem('dock_tab', id); } catch { /* nothing to do about it */ }
-  };
   const waitingQuestions = (((system.data as any).questions?.items || []) as any[]).filter((q) => q.status === 'pending').length;
 
   /*
     Guides (shared/guides.js): which tab and guide are open, and the setup
-    steps — worked out here, since the menu counts what is left of them and
-    the dashboard shows them too. What is only true while something is open
-    (the stream page in OBS, an account connected) stays ticked once seen;
-    what the app cannot see is ticked by hand. Both are this browser's.
+    steps — worked out here, since the menu counts what is left of them. What
+    is only true while something is open (an account connected) stays ticked
+    once seen; what the app cannot see is ticked by hand. Both are this
+    browser's.
   */
   const [guidesTab, setGuidesTab] = useState<GuidesTab>('start');
   const [openGuide, setOpenGuide] = useState<string | null>(null);
-  const GUIDES_SEEN = 'simonsays.guides-seen';
-  const GUIDES_TICKED = 'simonsays.guides-ticked';
   const readIds = (key: string): string[] => {
     try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v.map(String) : []; } catch { return []; }
   };
@@ -609,19 +174,16 @@ export default function App() {
     setGuidesTicked(next);
     try { localStorage.setItem(GUIDES_TICKED, JSON.stringify(next)); } catch { /* this visit only */ }
   };
-  /*
-    The guides and their setup steps: the dashboard's, fetched when it opens
-    rather than with every page OBS shows (71 KB of text none of them uses).
-  */
+  // The guides and their setup steps, fetched once the dashboard is up.
   const [guides, setGuides] = useState<GuidesModule | null>(null);
   useEffect(() => {
-    if (notFound || (mode && mode !== 'dashboard')) return undefined;
+    if (notFound) return undefined;
     let alive = true;
     import('../shared/guides.js').then((m) => { if (alive) setGuides(m); }).catch(() => {});
     return () => { alive = false; };
   }, []);
   // Not before the server has said what it has: until then everything would read as not done.
-  const guidesReady = Boolean((system.data as any).surfaces) && Boolean(guides);
+  const guidesReady = Boolean((system.data as any).serverVersion) && Boolean(guides);
   const setupProgress = guides
     ? guides.setupState({ status: system.status, data: system.data, connections: system.connections, auth: system.auth }, { seen: guidesSeen, ticked: guidesTicked })
     : { items: [] as ReturnType<GuidesModule['setupState']>['items'], left: 0, needed: 0 };
@@ -653,13 +215,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   // Two screens that are one thing, as tabs: the menu goes back to whichever of them was last open.
-  const PAIRS: Record<string, AppView[]> = { timers: ['countdown', 'timer'], roleMenus: ['reaction-roles', 'discord-buttons'] };
+  const PAIRS: Record<string, AppView[]> = { roleMenus: ['reaction-roles', 'discord-buttons'] };
   const [lastOfPair, setLastOfPair] = useState<Record<string, AppView>>({});
   useEffect(() => {
     for (const [pair, views] of Object.entries(PAIRS)) if (views.includes(view)) setLastOfPair((p) => (p[pair] === view ? p : { ...p, [pair]: view }));
   }, [view]);
   // Requests posted since the board was last looked at.
-  const REQUESTS_SEEN = 'simonsays.requests-seen';
   const [requestsSeen, setRequestsSeen] = useState<number>(() => {
     try {
       const known = Number(localStorage.getItem(REQUESTS_SEEN));
@@ -682,7 +243,7 @@ export default function App() {
     left out — it is meant to go when the stream does. Seen on the
     Connections screen, what is off is taken as meant.
   */
-  const WATCHED: [keyof typeof system.status, string][] = [['twitch', 'Twitch'], ['twitchBot', 'Twitch Bot'], ['discord', 'Discord'], ['obs', 'OBS'], ['spotify', 'Spotify'], ['youtube', 'YouTube']];
+  const WATCHED: [keyof typeof system.status, string][] = [['twitch', 'Twitch'], ['twitchBot', 'Twitch Bot'], ['discord', 'Discord'], ['youtube', 'YouTube']];
   const wasOn = useRef<Set<string>>(new Set());
   const [dropped, setDropped] = useState<string[]>([]);
   const statusKey = WATCHED.map(([k]) => system.status[k]).join('|');
@@ -692,381 +253,26 @@ export default function App() {
     const lost = WATCHED.filter(([k]) => wasOn.current.has(String(k)) && system.status[k] !== 'connected' && system.status[k] !== 'connecting').map(([, name]) => name);
     setDropped((prev) => (prev.join() === lost.join() ? prev : lost));
   }, [statusKey, view]);
-  const DOCK_TABS: DockTab[] = [
-    { id: 'chat', label: t.chat || 'Chat', icon: MessageSquare },
-    { id: 'actions', label: t.dockTabActions || 'Actions', icon: Zap },
-    // Where the stream has got to, and the two presses that move it.
-    { id: 'plan', label: t.dockTabPlan || 'Plan', icon: ListOrdered },
-    // The question queue, to run a Q&A without leaving OBS; the number is what is waiting.
-    { id: 'questions', label: t.questionsNav || 'Questions', icon: MessageCircleQuestion, count: waitingQuestions },
-    // What viewers have done, this stream's totals, and the presses that answer them.
-    { id: 'events', label: t.dockTabEvents || 'Events', icon: List },
-  ];
-  const panel = DOCK_TABS.some((x) => x.id === dockTab) ? dockTab : 'chat';
-
-  const handleAcknowledgeInsecure = (blocked: boolean) => { if (!blocked) { window.location.reload(); } else { setHasInsecureBlocked(false); localStorage.setItem('insecure_content_acknowledged', 'true'); setShowInsecureModal(false); } };
-
-  /**
-   * Whether the reader has scrolled back through the log, and how much has
-   * arrived since they did.
-   *
-   * The list is `flex-col-reverse`, so the newest message sits at scrollTop 0
-   * and scrolling back gives *negative* values — measured in Chromium, which
-   * is what OBS embeds. The browser also re-anchors on its own as messages
-   * arrive, so nothing here has to fight it: this only decides whether to
-   * offer the way back.
-   */
-  const chatScrollRef = useRef<HTMLDivElement | null>(null);
-  const [chatPinned, setChatPinned] = useState(true);
-  const [missedCount, setMissedCount] = useState(0);
-  const chatPinnedRef = useRef(true);
-
-  const onChatScroll = useCallback(() => {
-    const el = chatScrollRef.current;
-    if (!el) return;
-    // A few pixels of slack: a trackpad rarely lands exactly on zero.
-    const pinned = el.scrollTop > -24;
-    chatPinnedRef.current = pinned;
-    setChatPinned(pinned);
-    if (pinned) setMissedCount(0);
-  }, []);
-
-  const jumpToNewest = useCallback(() => {
-    chatScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    chatPinnedRef.current = true;
-    setChatPinned(true);
-    setMissedCount(0);
-  }, []);
-
-  // Count what arrives while the reader is away, so the pill can say how much
-  // they are behind.
-  useEffect(() => {
-    if (chatPinnedRef.current) return;
-    setMissedCount((n) => n + 1);
-  }, [system.data.chatMessages.length]);
-
-  /**
-   * Start a reply to whoever was clicked.
-   *
-   * Appends rather than replaces: half a sentence already typed is worth more
-   * than the mention, and a second click should not wipe it. The trailing
-   * space means you can carry on typing.
-   */
-  const mentionUser = (name: string) => {
-    setMessageInput((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')} @${name} ` : `@${name} `));
-  };
-
-  // Chat rendering moved to <ChatMessageRow/> so surfaces other than App can
-  // draw a message. Kept as a function because ChatDockView takes it as a prop.
-  const renderChatMessageHelper = (chat: ChatMessage, idx: number) => (
-    // With the moderation menu beside it, for a Twitch message (components/ModTools.tsx): the dock and the Chat dock screen only.
-    <div key={chat.id} className="group relative flex items-start gap-1" data-chat-line>
-      <div className="flex-1 min-w-0">
-        <ChatMessageRow
-          chat={chat}
-          idx={idx}
-          settings={system.settings}
-          t={t}
-          onMention={mentionUser}
-          // The dock: nothing expires, since a message disappearing out from under
-          // you while you read it would be a bug, and it speaks this device's language.
-          // The chat on stream is a layer, drawn by the canvas with its own settings.
-          autoHide={false}
-          onStream={false}
-        />
-      </div>
-      <MessageModMenu chat={chat} ask={system.actions.twitchMod} t={t} />
-    </div>
-  );
-
-  
-  /*
-    Who the chat box sends as. A moderator's "main account" is themselves
-    (server/platforms/twitch.js sayAsUser), never the streamer's: so it says
-    so, with their own name.
-  */
-  const chatT = system.auth.isMod ? { ...t, mainAccount: t.chatAsYou || 'You' } : t;
-  const chatTwitchUser = system.auth.isMod ? { display_name: system.auth.me?.name || system.auth.me?.login || '' } : system.connections.twitchUser;
 
   // An address with no page behind it.
   if (notFound) return <>{accentStyles}<NotFoundPage asked={unknownPath ? window.location.pathname : `?mode=${mode}`} t={t} /></>;
 
-  /*
-    Signing in (server/api/auth.js): back from Twitch with a sign-in to
-    finish, or a server that wants to know who this is first. The dashboard
-    and the docks ask; a page OBS shows draws nothing until its key works,
-    rather than a sign-in card on stream.
-  */
+  // Signing in (server/api/auth.js): back from Twitch with a sign-in to finish, or a server that wants to know who this is first.
   if (FINISHING_SIGN_IN || system.auth.signIn) {
-    const asks = !mode || mode === 'dashboard' || mode === 'dock' || mode === 'dock-actions';
-    if (!asks) return <style>{'body, html { background: transparent !important; }'}</style>;
     return <>{accentStyles}<SignInPage t={t} refused={!FINISHING_SIGN_IN && system.auth.signIn === 'refused'} optional={!system.auth.signIn} /></>;
   }
 
-  // Standalone Modes
-  if (mode === 'alerts') { return ( <div className="min-h-screen bg-transparent overflow-hidden relative"> <style>{`body, html { background-color: transparent !important; background-image: none !important; overflow: hidden; }`}</style>{accentStyles} {system.data.currentAlert && <AlertOverlay alert={system.data.currentAlert} playSound={Boolean(system.data.currentAlert.audible)} />} </div> ); }
-  
-  // Spotify Standalone Overlay
-  // A standalone button grid: an OBS custom browser dock, a phone propped up
-  // beside the keyboard, or a window on a second monitor.
-  if (mode === 'dock-actions') {
-    /*
-      The shape comes from the server rather than from ?cols= on this URL.
-
-      It was a URL parameter while this was the only place the grid was drawn.
-      The chat dock draws it too now, and a number pinned into one browser
-      source is a number the other cannot see — so the two would disagree and
-      the screen where you set it could only ever fix one of them.
-    */
-    return (
-      <div className={`h-dvh bg-[#0a0a0a] font-sans ${dockSideways ? 'overflow-hidden p-2' : 'overflow-auto p-3'}`}>
-        <style>{'body, html { background-color: #0a0a0a !important; background-image: none !important; }'}</style>
-        {accentStyles}
-        <HoldAwake />
-        <DockDeck
-          grid={system.data.dockGrid}
-          remember="dock_page_deck"
-          buttons={system.data.dockButtons}
-          streamActions={system.data.streamActions}
-          runDockAction={system.actions.runDockAction}
-          stats={(system.data as any).stats}
-          columns={system.data.dockGrid.columns}
-          rows={system.data.dockGrid.rows}
-          t={t}
-          railExtras={<ScreenControls t={t} />}
-        />
-      </div>
-    );
-  }
-
-  // The run timer on its own, for a browser source outside a layout.
-  if (mode === 'timer') {
-    return (
-      <div className="min-h-screen bg-transparent overflow-hidden flex items-center justify-center">
-        <style>{`body, html { background-color: transparent !important; background-image: none !important; overflow: hidden; margin: 0; }`}</style>
-        {accentStyles}
-        <div className="w-screen h-screen"><Stopwatch state={(system.data as any).stopwatch} /></div>
-      </div>
-    );
-  }
-
-  if (mode === 'countdown') {
-    return (
-      <div className="min-h-screen bg-transparent overflow-hidden flex items-center justify-center">
-        <style>{`body, html { background-color: transparent !important; background-image: none !important; overflow: hidden; margin: 0; }`}</style>
-        {accentStyles}
-        {/* ?timer= names a saved timer, as a countdown layer can. */}
-        <Countdown state={countdownFor(system.data.countdown, searchParams.get('timer'))} t={streamT} />
-      </div>
-    );
-  }
-
-  if (mode === 'viewers') {
-    return (
-      <div className="min-h-screen bg-transparent overflow-hidden flex items-center justify-center">
-        <style>{`body, html { background-color: transparent !important; background-image: none !important; overflow: hidden; margin: 0; }`}</style>
-        {accentStyles}
-        <ViewerCount
-          config={(system.data as any).viewers}
-          stats={(system.data as any).stats}
-          status={system.status}
-          t={streamT}
-        />
-      </div>
-    );
-  }
-
-  /**
-   * Several overlays on one canvas, for a single browser source.
-   *
-   * Two ways to choose what it shows. Naming a layout in the URL pins it, which
-   * is what a second, special-purpose source wants. Naming nothing follows the
-   * active OBS scene, which is the point of the whole thing: one source, added
-   * to every scene, showing whatever that scene is bound to — instead of a
-   * browser source per overlay per scene.
-   */
-  if (mode === 'canvas') {
-    const layouts = (system.data as any).layouts || [];
-    const wanted = searchParams.get('layout');
-    const currentScene = system.connections.obsData?.currentScene || '';
-    const omni = (system.data as any).omnilayer;
-
-    // In order: an explicit layout always wins; then whichever is on stream —
-    // the scene binding, or the first layout while nobody binds any (liveLayout).
-    const chosenLayout = wanted
-      ? layouts.find((l: any) => l.id === wanted)
-      : liveLayout(layouts, currentScene, omni);
-    // On OBS's vertical canvas, the same layout's vertical side (shared/layout-formats.js).
-    const layout = formatLayout(chosenLayout, searchParams.get('format') === 'vertical' ? 'vertical' : 'horizontal');
-    return (
-      <div className="min-h-screen bg-transparent overflow-hidden">
-        <style>{`body, html { background-color: transparent !important; background-image: none !important; overflow: hidden; margin: 0; height: 100%; }`}</style>
-        {accentStyles}
-        <div className="fixed inset-0">
-          {layout ? (
-            <CanvasStage
-              layout={layout} system={system} t={t} showGuides={searchParams.get('guides') === 'true'}
-              // The Omnilayer wipe, on the source that follows what is live — not on one pinned to a layout.
-              moving={!wanted && omni?.enabled ? omni.moving : null}
-            />
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  if (mode === 'omnibar') {
-    const wantedBar = searchParams.get('bar');
-    const omni = (wantedBar && ((system.data as any).omnibars || []).find((b: any) => b.id === wantedBar)) || system.data.omnibar;
-    return (
-      <div className="min-h-screen bg-transparent overflow-hidden">
-        <style>{`body, html { background-color: transparent !important; background-image: none !important; overflow: hidden; margin: 0; }`}</style>
-        {accentStyles}
-        <div className={`fixed inset-x-0 ${omni?.style?.position === 'top' ? 'top-0' : 'bottom-0'}`}>
-          {/* Drawn by whichever component the bar's kind says. */}
-          {React.createElement((omni as any)?.kind === 'tall' ? TallOmnibar : Omnibar, {
-            config: omni as any,
-            stats: (system.data as any).stats,
-            tags: system.data.streamTags,
-            leaderboard: system.data.leaderboard,
-            track: system.spotify.state.track,
-            upNext: system.spotify.state.upNext,
-            countdown: system.data.countdown,
-            commands: system.data.commands,
-            subscribers: (system.data as any).subscribers,
-            events: (system.data as any).viewerEvents,
-            t: streamT,
-          } as any)}
-        </div>
-      </div>
-    );
-  }
-
-  if (mode === 'spotify') {
-      const showProgress = searchParams.get('showProgress') !== 'false';
-      const showControls = searchParams.get('showControls') !== 'false';
-      const showBlur = searchParams.get('showBlur') !== 'false';
-      const transparentCard = searchParams.get('transparentCard') === 'true';
-      const enableAnimation = searchParams.get('enableAnimation') !== 'false';
-
-      return (
-          <div className="min-h-screen bg-transparent overflow-hidden relative flex items-center justify-center">
-              <style>{`body, html { background-color: transparent !important; background-image: none !important; overflow: hidden; }`}</style>{accentStyles}
-              <div className="w-full max-w-sm p-4">
-                  <SpotifyPlayer 
-                      spotify={system.spotify}
-                      config={{
-                          showProgress,
-                          showControls,
-                          showBlur,
-                          transparentCard,
-                          enableAnimation
-                      }}
-                  />
-              </div>
-          </div>
-      );
-  }
-
-  /*
-    The chat overlay page, retired: every chat on stream is a layer on a layout
-    now, with its own settings. A browser source still pointed here draws
-    nothing rather than the whole dashboard, on stream.
-  */
-  if (mode === 'overlay') return <style>{'body, html { background: transparent !important; }'}</style>;
-
-  if (mode === 'dock') { return ( <div className={`min-h-dvh font-sans ${system.settings.transparentBackground ? 'bg-transparent' : ''} overflow-hidden`} style={{ backgroundColor: system.settings.transparentBackground ? 'transparent' : system.settings.dockBackgroundColor }}> <style>{` body, html { background-color: ${system.settings.transparentBackground ? 'transparent' : system.settings.dockBackgroundColor} !important; ${system.settings.transparentBackground ? 'background-image: none !important;' : ''} height: 100%; overflow: hidden; } `}</style> {accentStyles}<div className={`flex ${dockSideways ? 'flex-row gap-2' : 'flex-col'} h-dvh p-2 relative`}> <HoldAwake /> {pickerState && (<><div className="fixed inset-0 z-[9990] bg-transparent" onClick={() => setPickerState(null)} /><EmojiPicker style={{ top: pickerState.top, left: pickerState.left }} onSelect={(emoji: string) => setMessageInput(insertAtCursor(chatInputRef.current, messageInput, emoji))} onClose={() => setPickerState(null)} /></>)}
-      {mode === 'dock' && <DockTabs tabs={DOCK_TABS} active={panel} onPick={setDockTab} vertical={dockSideways} footer={dockSideways ? <ScreenControls t={t} /> : null} />}
-      {/* The panels, in a column of their own: beside the tabs when the phone is sideways, under them otherwise. */}
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-      {/* No alerts here: the dock is chat. Alerts belong to the alerts page and the alerts layer on a layout. */} <div className="flex-1 min-h-0 flex relative" style={mode === 'dock' && panel !== 'chat' ? { display: 'none' } : undefined}><div className="flex-1 overflow-y-auto flex flex-col-reverse relative scroll-smooth" ref={chatScrollRef} onScroll={onChatScroll} style={{ gap: `${system.settings.messageGap}px` }}> {<ChatStyle settings={system.settings} />} {/* The placeholders are for somebody looking at the dock. On stream they were a caption nobody asked for, in English, and "Connecting…" took the place of the whole chat whenever the page loaded or the server restarted. */}{(mode === 'dock' && system.status.twitch === 'disconnected' && system.status.tiktok === 'disconnected' && system.status.discord === 'disconnected' && system.status.youtube !== 'connected') ? ( <div className="flex flex-col items-center justify-center h-full text-center p-4"> <div className="w-12 h-12 bg-zinc-800/50 rounded-full flex items-center justify-center mb-4 border border-zinc-700/50"> <WifiOff size={24} className="text-zinc-500" /> </div> <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.connecting}</p> </div> ) : (mode === 'dock' && system.data.chatMessages.length === 0) ? ( <div className="flex flex-col items-center justify-center h-full text-center p-4"> <Loader2 className="w-8 h-8 text-current-accent animate-spin mb-4" /> <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t.noMessages}</p> </div> ) : ( system.data.chatMessages.map((chat, idx) => renderChatMessageHelper(chat, idx)) )} </div> {mode === 'dock' && !chatPinned && (
-        <button onClick={jumpToNewest} className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-full bg-current-accent text-white text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 hover:brightness-110 transition-all">
-          <ChevronDown size={12} />
-          {missedCount > 0 ? `${missedCount} ${t.newMessages}` : t.jumpToNewest}
-        </button>
-      )}</div>
-      {mode === 'dock' && panel === 'actions' && (
-        <div className="flex-1 min-h-0 overflow-y-auto" data-dock="panel" data-dock-panel="actions">
-          <DockDeck
-            grid={system.data.dockGrid}
-            remember="dock_page_tab"
-            buttons={system.data.dockButtons}
-            streamActions={system.data.streamActions}
-            runDockAction={system.actions.runDockAction}
-            stats={(system.data as any).stats}
-            columns={system.data.dockGrid.columns}
-            rows={system.data.dockGrid.rows}
-            compact
-            t={t}
-          />
-        </div>
-      )}
-      {mode === 'dock' && panel === 'events' && (
-        <div className="flex-1 min-h-0 flex flex-col p-1" data-dock="panel" data-dock-panel="events">
-          <EventFeed
-            compact
-            events={(system.data as any).viewerEvents || []}
-            totals={(system.data as any).eventTotals}
-            run={system.actions.events}
-            shoutout={(login: string) => system.actions.twitchExtras({ op: 'shoutout', target: login })}
-            language={system.settings.language}
-            t={t}
-          />
-        </div>
-      )}
-      {mode === 'dock' && panel === 'questions' && (
-        <div className="flex-1 min-h-0 overflow-y-auto" data-dock="panel" data-dock-panel="questions">
-          <DockQuestions
-            questions={(system.data as any).questions}
-            setStatus={system.actions.setQuestionStatus}
-            show={system.actions.showQuestion}
-            control={system.actions.questions}
-            t={t}
-          />
-        </div>
-      )}
-      {mode === 'dock' && panel === 'plan' && (
-        <div className="flex-1 min-h-0 overflow-y-auto" data-dock="panel" data-dock-panel="plan">
-          <DockPlan
-            plan={(system.data as any).plan}
-            planGoto={system.actions.planGoto}
-            runDockAction={system.actions.runDockAction}
-            t={t}
-          />
-        </div>
-      )}
-      {mode === 'dock' && panel === 'chat' && ( <div className="mt-2 pt-3 border-t border-white/10 flex flex-col"> <div className="mb-2"><AutomodQueue held={(system.data as any).automodHeld || []} ask={system.actions.twitchMod} t={t} /></div> <div className="flex items-center gap-2 px-1 mb-1.5"> <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 opacity-60">{t.sendingAs}:</span>{system.status.twitchBot === 'connected' ? ( <div className="flex bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-800 shadow-sm"> <button onClick={() => system.settings.setSenderRole('main')} className={`px-3 py-1 rounded-md text-[7px] font-black uppercase tracking-widest transition-all ${system.settings.senderRole === 'main' ? 'bg-current-accent text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}> {chatT.mainAccount} </button> <button onClick={() => system.settings.setSenderRole('bot')} className={`px-3 py-1 rounded-md text-[7px] font-black uppercase tracking-widest transition-all ${system.settings.senderRole === 'bot' ? 'bg-blue-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}> {t.botAccount} </button> </div> ) : ( <span className="text-[8px] font-black uppercase tracking-widest text-current-accent opacity-60"> {chatT.mainAccount} {chatTwitchUser?.display_name ? `(${chatTwitchUser.display_name})` : ''} </span> )} <SendToPicker value={(system.settings as any).sendTo} set={(system.settings as any).setSendTo} authorised={Boolean((system.connections as any).youtubeAuthorised)} live={Boolean((system.connections as any).youtubeLive)} unitsUsed={(system.data as any).stats?.youtubeUnitsUsed} t={t} /> <div className="ml-auto flex items-center gap-1"><ChatModes ask={system.actions.twitchMod} t={t} />
-          <button onClick={system.data.clearChat} title={t.clearChat} className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"><Trash2 size={13} /></button>
-        </div> </div> {sendError && <p role="alert" data-dock="send-error" className="px-1 mb-1.5 text-[10px] font-bold leading-snug text-red-400">{sendError}</p>} <div className="flex gap-2 items-stretch"> <div className="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 flex items-center px-4 pr-1 relative"> <input ref={chatInputRef} type="text" value={messageInput} onChange={(e) => setMessageInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSendMessage(); }} placeholder={chatSendable ? t.typeGlobal : t.connecting} disabled={!chatSendable} className="bg-transparent border-none outline-none w-full text-xs font-bold text-zinc-400 disabled:opacity-50 pr-8 py-3" /> <button onClick={handlePickerOpen} className="p-2 text-zinc-500 hover:text-white transition-colors" title={t.addEmoji || 'Add emoji'}> <Smile size={14} /> </button> </div> <Button onClick={handleSendMessage} icon={<Send size={16} />} className="font-extrabold px-4" disabled={!chatSendable || !messageInput.trim()}> <span className="hidden xs:inline">{t.send}</span> </Button> </div> </div> )} </div> </div> </div> ); }
-
-  /**
-   * The sidebar's markup — a plain function that is called, rather than a
-   * component rendered as an element.
-   *
-   * As a component it was declared inside App, so every App render produced a
-   * new component type. React cannot know the new type is "the same" as the
-   * old one, so it unmounted the whole sidebar and built it again from
-   * scratch — and a fresh DOM node has scrollTop 0. With the server pushing a
-   * frame every few seconds, the nav scrolled itself back to the top roughly
-   * once a second, and again on every click.
-   *
-   * Called as a function, the elements are reconciled in place and the
-   * scroller keeps its DOM node, and therefore its scroll position. It must
-   * stay hook-free for that reason: hooks here would belong to App.
-   */
   const goTo = (next: AppView) => { setView(next); setIsMobileMenuOpen(false); };
   const pollOpen = (system.data as any).poll?.mode === 'open';
   const giveawayOpen = (system.data as any).giveaway?.mode === 'open';
-  const remoteSending = ((system.data as any).remotePlayers?.seats || []).some((s: any) => s.status?.state === 'live');
   // A newer version out (server/engine/updater.js), unless it is the one that would not start.
   const updates = (system.data as any).updates;
   const updateOut = updates?.enabled && updates.available && updates.latest && !(updates.failed || []).includes(updates.latest.version) ? updates.latest.version : '';
   const I = 18;
   /*
-    By when a screen is used: live, the community, what is on screen,
-    Discord, automation, setup. Each is the screen's own name and icon; a
-    pair that is one thing (the clocks, the role menus) is one entry, opened
-    on whichever of the two was last used, with tabs between them.
+    The bot first, then its community, then setting it up. Each is the
+    screen's own name and icon; the role menus, which are one thing, are one
+    entry, opened on whichever of the two was last used, with tabs between them.
   */
   const navSections: NavSection[] = [
     { id: 'bot', label: 'SimonBot', items: [
@@ -1074,35 +280,20 @@ export default function App() {
       { view: 'welcome-goodbye', label: t.welcomeGoodbye || 'Welcome & Goodbye', icon: <DoorOpen size={I} /> },
       { view: 'discord-pages', label: t.discordPagesNav || 'Discord pages', icon: <Newspaper size={I} /> },
       { view: 'role-management', label: t.roleManagement, icon: <Shield size={I} />, keywords: 'link accounts loyalty mod log' },
-      { view: lastOfPair.roleMenus || 'reaction-roles', also: ['reaction-roles', 'discord-buttons'], label: t.navRoleMenus || 'Role menus', icon: <MousePointerClick size={I} />, keywords: `${t.reactionRoles || ''} ${t.discordButtons || ''}` },
+      { view: lastOfPair.roleMenus || 'reaction-roles', also: ['reaction-roles', 'discord-buttons'], label: t.navRoleMenus || 'Role menus', icon: <MousePointerClick size={I} />, keywords: `${t.reactionRoles || 'Reaction Roles'} ${t.discordButtons || 'Discord Buttons'}` },
       { view: 'voice', label: t.voiceNav || 'Voice call', icon: <Headphones size={I} /> },
       { view: 'go-live', label: t.goLiveNav || 'Go live', icon: <Megaphone size={I} />, keywords: 'announce highlights dms anuncio' },
     ] },
     { id: 'community', label: t.navCommunity || 'Community', items: [
       { view: 'levels', label: t.levels || 'Levels & XP', icon: <Trophy size={I} />, keywords: 'xp ranks niveles' },
-      { view: 'points', label: t.pointsNav || 'Points', icon: <Coins size={I} />, keywords: 'shop tienda puntos' },
+      { view: 'points', label: t.pointsNav || 'Points', icon: <Coins size={I} />, keywords: 'puntos' },
       { view: 'giveaway', label: t.giveawayNav || 'Giveaways', icon: <Gift size={I} />, dot: giveawayOpen ? 'on' : undefined, hint: giveawayOpen ? (t.navRunning || 'Running now') : undefined },
       { view: 'polls', label: t.pollsNav || 'Polls', icon: <BarChart3 size={I} />, dot: pollOpen ? 'on' : undefined, hint: pollOpen ? (t.navRunning || 'Running now') : undefined },
       { view: 'questions', label: t.questionsNav || 'Questions', icon: <MessageCircleQuestion size={I} />, number: waitingQuestions || undefined },
       { view: 'requests', label: t.requestsNav || 'Game requests', icon: <Inbox size={I} />, number: newRequests || undefined, hint: newRequests ? fill(t.navNewRequests || '{count} new since you last looked', { count: newRequests }) : undefined },
     ] },
-    { id: 'live', label: t.navLive || 'Live', items: [
-      { view: 'dashboard', label: t.dashboard, icon: <Layout size={I} /> },
-      { view: 'assets', label: t.chatDock, icon: <Package size={I} />, keywords: 'chat' },
-      { view: 'events', label: t.eventsDock, icon: <List size={I} />, keywords: 'events thank eventos' },
-      { view: 'streams', label: t.streamsNav || 'Streams', icon: <History size={I} />, keywords: 'history vod chapters historial' },
-    ] },
-    { id: 'automation', label: t.navAutomation || 'Automation', items: [
-      { view: 'studio', label: t.commands, icon: <Terminal size={I} /> },
-      { view: 'actions', label: t.actions, icon: <Zap size={I} /> },
-    ] },
-    { id: 'screen', label: t.navOnScreen || 'On screen', items: [
-      { view: 'layouts', label: t.layouts || 'Overlays', icon: <Layers size={I} />, keywords: 'layouts canvas scenes' },
-      { view: 'alerts', label: t.alerts || 'Alerts', icon: <Bell size={I} /> },
-    ] },
     { id: 'setup', label: t.navSetup || 'Setup', items: [
       { view: 'gallery', label: t.connections, icon: <Share2 size={I} />, dot: dropped.length ? 'alert' : undefined, hint: dropped.length ? fill(t.navDropped || '{names} dropped since it was on', { names: dropped.join(', ') }) : undefined },
-      { view: 'twitch', label: t.twitchNav || 'Twitch', icon: <TwitchIcon size={I} />, keywords: 'raid shoutout hype clips schedule' },
       // Who has signed in as a moderator, and what they did: the streamer's own (server/api/ws.js MODERATORS).
       { view: 'moderators', label: t.moderatorsNav || 'Moderators', icon: <ShieldCheck size={I} />, keywords: 'mods moderadores sign in access sesión acceso log' },
       { view: 'settings', label: t.settings, icon: <SettingsIcon size={I} />, keywords: 'language theme idioma version versión about acerca backup update actualizar', dot: updateOut ? 'news' : undefined, hint: updateOut ? fill(t.updatesAvailable || 'Version {version} is out', { version: updateOut }) : undefined },
@@ -1116,20 +307,18 @@ export default function App() {
   const shownSections = system.auth.isMod
     ? navSections.map((sec) => ({ ...sec, items: sec.items.filter((item) => !MOD_HIDDEN_VIEWS.has(item.view)) })).filter((sec) => sec.items.length)
     : navSections;
-  // Every screen for the search, the paired ones each under its own name too.
+  // Every screen for the search, the role menus each under its own name too.
   const searchEntries: SearchEntry[] = [
     ...shownSections.flatMap((sec) => sec.items.map((item) => ({ view: item.view, label: item.label, section: sec.label, icon: item.icon, keywords: item.keywords }))),
-    { view: 'countdown', label: t.countdown || 'Countdown', section: t.navOnScreen || 'On screen', icon: <Clock size={I} /> },
-    { view: 'timer', label: t.timer || 'Timer', section: t.navOnScreen || 'On screen', icon: <Clock size={I} />, keywords: 'run' },
-    { view: 'reaction-roles', label: t.reactionRoles, section: t.navDiscord || 'Discord', icon: <MousePointerClick size={I} /> },
-    { view: 'discord-buttons', label: t.discordButtons || 'Discord Buttons', section: t.navDiscord || 'Discord', icon: <GripHorizontal size={I} /> },
+    { view: 'reaction-roles', label: t.reactionRoles, section: 'SimonBot', icon: <MousePointerClick size={I} /> },
+    { view: 'discord-buttons', label: t.discordButtons || 'Discord Buttons', section: 'SimonBot', icon: <GripHorizontal size={I} /> },
     // Each guide by its title, opened where it is.
     ...(system.auth.isMod ? [] : guides?.GUIDES || []).map((g: any) => ({
       view: 'guides' as AppView,
       label: (system.settings.language === 'es' ? g.es : g.en).title,
       section: t.guidesNav || 'Guides',
       icon: <BookOpen size={I} />,
-      // Found by its name in either language, the screens it is about, and what it is ("omnilayer", "remote players").
+      // Found by its name in either language, and the screens it is about.
       keywords: `${g.id.split('-').join(' ')} ${g.en.title} ${g.es.title} ${g.screens.map((s: string) => viewNames[s as AppView] || '').join(' ')}`,
       onChoose: () => openGuideAt(g.id),
     })),
@@ -1139,18 +328,21 @@ export default function App() {
     { id: 'twitchBot', name: 'Twitch Bot', icon: <Bot size={13} />, ok: system.status.twitchBot === 'connected' },
     { id: 'tiktok', name: 'TikTok', icon: <TikTokIcon size={13} />, ok: system.status.tiktok === 'connected' },
     { id: 'discord', name: 'Discord', icon: <DiscordIcon size={13} />, ok: system.status.discord === 'connected' },
-    { id: 'obs', name: 'OBS', icon: <Monitor size={13} />, ok: system.status.obs === 'connected' },
-    { id: 'spotify', name: 'Spotify', icon: <SpotifyIconComponent size={13} />, ok: system.status.spotify === 'connected' },
-    { id: 'youtube', name: 'YouTube', icon: <PlatformMark platform="youtube" size={13} plain />, ok: system.status.youtube === 'connected' },
+    { id: 'youtube', name: 'YouTube', icon: <Youtube size={13} />, ok: system.status.youtube === 'connected' },
   ];
-  // The phone's bar: what is pressed mid-stream.
-  const phoneItems = [
-    navSections[0].items[0],
-    { ...navSections[2].items[1], label: t.chat || 'Chat' },
-    navSections[1].items[2],
-    navSections[1].items[4],
-  ];
+  // The phone's bar: the bot's home, going live, and what wants answering.
+  const menuItems = navSections.flatMap((sec) => sec.items);
+  const phoneItems = (['bot-home', 'go-live', 'giveaway', 'questions'] as AppView[])
+    .map((v) => menuItems.find((item) => item.view === v))
+    .filter((item): item is NavSection['items'][number] => Boolean(item));
 
+  /**
+   * The sidebar's markup — a plain function that is called, rather than a
+   * component rendered as an element: declared inside App, a component would
+   * be a new type on every render, and the whole sidebar (and its scroll
+   * position) would be built again each time the server sends a frame. It
+   * must stay hook-free for that reason: hooks here would belong to App.
+   */
   const renderSidebar = (isMobile?: boolean) => (
     <>
       <div className={`shrink-0 p-6 flex items-center gap-3 ${isMobile ? 'justify-between' : ''}`}>
@@ -1178,39 +370,22 @@ export default function App() {
     <div className={`h-dvh ${activeTheme.bgClass} ${activeTheme.textClass} font-sans flex overflow-hidden relative transition-colors duration-500`}>
       {accentStyles}
 
-      {/* Rendered above the view switch so the Actions screen can open it too. */}
-      <CommandEditorModal
-        isCommandModalOpen={isCommandModalOpen}
-        setIsCommandModalOpen={handleCloseCommandModal}
-        currentCommand={currentCommand}
-        setCurrentCommand={setCurrentCommand}
-        tempTriggers={tempTriggers}
-        setTempTriggers={setTempTriggers}
-        handleSaveCommand={handleSaveCommand}
-        activeTheme={activeTheme}
-        t={t}
-      />
-
       {showIntro && ( <div className="fixed inset-0 z-50 bg-[#0F0913] flex items-center justify-center font-sans overflow-hidden"> <div className="relative flex flex-col items-center"> <div className="absolute -inset-10 bg-[#66AD4F]/20 blur-[100px] rounded-full animate-pulse"></div> <img src={botFace} alt="" className="relative w-40 h-40 mb-8 [image-rendering:pixelated] animate-[pulse_2s_ease-in-out_infinite]" /> <h1 className="relative text-4xl md:text-6xl font-black tracking-tighter text-white mb-4 animate-[slide-up_0.8s_ease-out]"> SIMON<span className="text-[#66AD4F]">BOT</span> </h1> <div className="relative h-1 w-24 bg-gradient-to-r from-transparent via-[#66AD4F] to-transparent rounded-full"></div> </div> </div> )}
       {isMobileMenuOpen && ( <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm md:hidden animate-fade-in" onClick={() => setIsMobileMenuOpen(false)} /> )}
-      
+
       <aside className={`fixed inset-y-0 left-0 z-[70] w-72 ${activeTheme.bgClass} border-r ${activeTheme.borderClass} md:hidden transform transition-transform duration-300 ease-out flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full shadow-none'}`}> {renderSidebar(true)} </aside>
       <aside className={`w-64 shrink-0 h-full min-h-0 border-r ${activeTheme.borderClass} ${activeTheme.id === 'light' ? 'bg-white' : 'bg-zinc-950/50'} hidden md:flex flex-col transition-colors duration-300`}> {renderSidebar()} </aside>
 
       <main ref={mainRef} className="flex-1 overflow-y-auto relative pt-0">
         {/*
-          The bar is for phones only.
-
-          All it holds is the menu button and the name of the screen you are
-          on. On a desktop the sidebar is already open beside you with that
-          screen lit up, so the bar was 64px of height repeating it. On a phone
-          the sidebar is hidden behind that menu button, so both earn their
-          place there.
+          The bar is for phones only: the menu button and the name of the
+          screen you are on. On a desktop the sidebar is already open beside
+          you with that screen lit up.
         */}
         <div className={`md:hidden sticky top-0 z-40 h-16 ${activeTheme.bgClass}/80 backdrop-blur-md border-b ${activeTheme.borderClass} flex items-center justify-between px-4 md:px-8 transition-colors duration-300`}>
            <div className="flex items-center gap-4">
               <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 -ml-2 text-zinc-400 hover:text-white transition-colors" aria-label="Open Menu"> <Menu size={24} /> </button>
-              <div className={`text-sm ${activeTheme.id === 'light' ? 'text-zinc-500' : 'text-zinc-400'} breadcrumbs truncate`}> <span className="opacity-50 uppercase tracking-widest text-[10px] font-bold hidden xs:inline">{t.commandCenter}</span> <span className="mx-2 hidden xs:inline">/</span> <span className={`${activeTheme.id === 'light' ? 'text-zinc-900' : 'text-white'} font-extrabold uppercase tracking-tight`}>{viewNames[view]}</span> </div>
+              <div className={`text-sm ${activeTheme.id === 'light' ? 'text-zinc-500' : 'text-zinc-400'} breadcrumbs truncate`}> <span className={`${activeTheme.id === 'light' ? 'text-zinc-900' : 'text-white'} font-extrabold uppercase tracking-tight`}>{viewNames[view]}</span> </div>
            </div>
            {screenGuide && (
              <button type="button" onClick={() => openGuideAt(screenGuide.id)} className="p-2 -mr-2 text-zinc-500 hover:text-white" title={fill(t.guidesForScreen || 'Guide: {title}', { title: (system.settings.language === 'es' ? screenGuide.es : screenGuide.en).title })} data-screen-guide-phone={screenGuide.id}>
@@ -1219,21 +394,9 @@ export default function App() {
            )}
         </div>
 
-        {/*
-          The width cap is for reading, not for editing.
-
-          Long lines of form are hard to read, which is what max-w-7xl is for
-          on every other screen. The overlay editor is a canvas, and capping it
-          left 379px of a 1659px area — 23% — as empty margin either side while
-          the canvas it was squeezing sat at 42% scale. The pixel avatar
-          editor is a canvas too.
-        */}
         {/* The 4rem is the bar above, which only a phone still has. */}
-        <div className={`${view === 'layouts' || view === 'pixel-avatars' ? '' : 'max-w-7xl'} relative mx-auto p-4 sm:p-6 md:p-10 h-[calc(100dvh-4rem)] md:h-dvh`}>
-          {/*
-            The screen's guide, a press away: in the margin above it, where no
-            screen puts anything, so it never covers a screen's own buttons.
-          */}
+        <div className="max-w-7xl relative mx-auto p-4 sm:p-6 md:p-10 h-[calc(100dvh-4rem)] md:h-dvh">
+          {/* The screen's guide, a press away: in the margin above it, where no screen puts anything. */}
           {screenGuide && (
             <button
               type="button"
@@ -1246,55 +409,27 @@ export default function App() {
               {fill(t.guidesForScreen || 'Guide: {title}', { title: (system.settings.language === 'es' ? screenGuide.es : screenGuide.en).title })}
             </button>
           )}
-          {/*
-            The profile bar for whichever section is open.
-
-            Rendered here rather than inside each view because one group spans
-            several screens — commands, actions and dock actions share a profile
-            — and because a view should not have to know profiles exist to have
-            one. Views not in the map simply get no bar.
-          */}
-          {/* Two screens that are one thing: tabs between them, at the top of each. */}
-          {(view === 'countdown' || view === 'timer') && (
-            <ScreenTabs view={view} go={goTo} tabs={[{ view: 'countdown', label: t.countdown || 'Countdown' }, { view: 'timer', label: t.timer || 'Timer' }]} />
-          )}
+          {/* The role menus, two screens that are one thing: tabs between them, at the top of each. */}
           {(view === 'reaction-roles' || view === 'discord-buttons') && (
             <ScreenTabs view={view} go={goTo} tabs={[{ view: 'reaction-roles', label: t.reactionRoles }, { view: 'discord-buttons', label: t.discordButtons || 'Discord Buttons' }]} />
           )}
-          {/* A moderator's dock and deck are their own (server/engine/mod-decks.js): said where they are changed. */}
-          {system.auth.isMod && (view === 'assets' || view === 'dock-actions') && (
-            <p className="mb-6 glass-panel rounded-2xl border border-current-accent/30 px-4 py-3 text-[11px] text-zinc-300 leading-relaxed" data-mod-own-dock>
-              {t.modOwnDock || 'This dock is your own: what you change here changes yours only, and the streamer’s stays as it is.'}
-            </p>
-          )}
-          {PROFILE_GROUP_FOR_VIEW[view] && (
-            <div className="mb-6">
-              <ProfileSwitcher
-                group={PROFILE_GROUP_FOR_VIEW[view]}
-                profiles={(system.data as any).profiles || []}
-                actions={system.actions}
-                looking={system.auth.isMod ? (PROFILE_GROUP_FOR_VIEW[view] === 'overlays' ? 'browse' : 'fixed') : undefined}
-                t={t}
-              />
-            </div>
-          )}
           <Suspense fallback={<ScreenLoading t={t} />}>
-           {view === 'settings' && ( 
-             <SettingsView 
-               activeTheme={activeTheme} 
-               activeThemeId={system.settings.activeThemeId} 
-               setActiveThemeId={system.settings.setActiveThemeId} 
-               language={system.settings.language} 
-               setLanguage={system.settings.setLanguage} 
+           {view === 'bot-home' && <BotHomeView system={system} t={t} go={goTo} language={system.settings.language} />}
+           {view === 'settings' && (
+             <SettingsView
+               activeTheme={activeTheme}
+               activeThemeId={system.settings.activeThemeId}
+               setActiveThemeId={system.settings.setActiveThemeId}
+               language={system.settings.language}
+               setLanguage={system.settings.setLanguage}
                exportConfig={system.actions.exportConfig}
                importConfig={system.actions.importConfig}
                serverVersion={(system.data as any).serverVersion}
                updates={(system.data as any).updates}
                updatesAct={system.actions.updates}
-               openRoadmap={() => goTo('roadmap')}
                auth={system.auth}
-               t={t} 
-             /> 
+               t={t}
+             />
            )}
            {view === 'moderators' && (
              <ModeratorsView
@@ -1305,17 +440,6 @@ export default function App() {
                t={t}
              />
            )}
-           {view === 'roadmap' && (
-             <RoadmapView
-               t={t}
-               activeTheme={activeTheme}
-               language={system.settings.language}
-               updates={(system.data as any).updates}
-               openUpdates={() => goTo('settings')}
-             />
-           )}
-           {view === 'bot-home' && <BotHomeView system={system} t={t} go={goTo} language={system.settings.language} />}
-           {view === 'dashboard' && ( <DashboardView activeTheme={activeTheme} t={t} setView={setView} spotify={system.spotify} setup={guidesReady ? setupProgress : null} isMod={system.auth.isMod} system={system} language={system.settings.language} openGuide={openGuideAt} dropped={dropped} updateOut={updateOut} /> )}
            {view === 'guides' && (
              <GuidesView
                t={t}
@@ -1331,124 +455,6 @@ export default function App() {
                setOpenGuide={setOpenGuide}
              />
            )}
-           
-           {view === 'studio' && (
-             <StudioView
-               commands={system.data.commands}
-               setCommands={() => {}} // CRUD actions are used instead
-               handleDeleteCommand={system.actions.deleteCommand}
-               handleOpenCommandModal={handleOpenCommandModal}
-               activeTheme={activeTheme}
-               t={t}
-             />
-           )}
-
-           {view === 'actions' && (
-             <ActionsView
-                avatarActions={((system.data as any).pixelAvatars || []).flatMap((p: any) => (p.actions || []).map((a: any) => a.name))}
-                omnibarSlots={(() => {
-                  const bars: any[] = (system.data as any).omnibars || [];
-                  const named = (bar: string, i: any) => (bars.length ? { ...i, name: `${bar}: ${i.name || i.label || i.text || i.id}` } : i);
-                  return [
-                    ...(system.data.omnibar?.items || []).filter((i: any) => i.type === 'text').map((i: any) => named(t.omnibarBarMain || 'Main', i)),
-                    ...bars.flatMap((b) => (b.items || []).filter((i: any) => i.type === 'text').map((i: any) => named(b.name, i))),
-                  ];
-                })()}
-                layouts={(system.data as any).layouts || []}
-                sceneTypes={(system.data as any).omnilayer?.types || []}
-                goalSlots={(() => {
-                  // Every goal slot on every bar, named by bar and by what it is for.
-                  const bars: any[] = [{ name: t.omnibarBarMain || 'Main', items: system.data.omnibar?.items || [] }, ...((system.data as any).omnibars || [])];
-                  return bars.flatMap((b) => (b.items || []).filter((i: any) => i.type === 'goal').map((i: any) => ({
-                    id: i.id, bar: b.name, name: i.text || i.name || i.label || i.id, source: i.goalSource || 'followers',
-                  })));
-                })()}
-                countdownPresets={((system.data as any).countdown?.presets || []).map((p: any) => ({ id: p.id, name: p.name }))}
-                seatNames={((system.data as any).remotePlayers?.seats || []).map((s: any) => s.name || '')}
-                voice={(system.data as any).voice}
-                regulars={(system.data as any).people?.regulars || []}
-                listServerMembers={system.status.discord === 'connected' ? (system.actions as any).listServerMembers : undefined}
-                streamActions={system.data.streamActions}
-                laterSteps={(system.data as any).laterSteps || []}
-                laterControl={(system.actions as any).laterControl}
-                uploadAsset={system.actions.uploadAsset}
-                setStreamActions={() => {}} // CRUD
-                isActionModalOpen={isActionModalOpen}
-                setIsActionModalOpen={setIsActionModalOpen}
-                currentAction={currentAction}
-                setCurrentAction={setCurrentAction}
-                commands={system.data.commands}
-                obsData={system.connections.obsData}
-                availableRewards={system.connections.availableRewards}
-                fetchTwitchRewards={system.actions.fetchTwitchRewards}
-                handleSaveAction={handleSaveAction}
-                handleDeleteAction={system.actions.deleteAction}
-                handleTestAction={system.actions.testAction}
-                handleOpenActionModal={handleOpenActionModal}
-                handleOpenCommandModal={handleOpenCommandModal}
-                addActionStep={addActionStep}
-                removeActionStep={removeActionStep}
-                moveActionStep={moveActionStep}
-                updateActionStepConfig={updateActionStepConfig}
-                updateTrigger={updateTrigger}
-                updateTriggerConfig={updateTriggerConfig}
-                activeTheme={activeTheme}
-                discordEmojis={system.connections.discordEmojis} 
-                discordChannels={system.connections.discordChannels}
-                discordRoles={(system.data as any).discordRoles}
-                t={t}
-                searchCategories={system.actions.searchCategories} // Updated
-             />
-           )}
-
-
-
-           {view === 'tags' && (
-             <TagsView 
-               streamTags={system.data.streamTags}
-               tagOutputs={system.data.tagOutputs}
-               setTagOutputs={system.actions.setTagOutputs}
-               fetchTwitchTags={system.actions.fetchTwitchTags}
-               syncTagOutputs={system.actions.syncTagOutputs}
-               obsStatus={system.status.obs}
-               obsData={system.connections.obsData}
-               setView={setView}
-               activeTheme={activeTheme}
-               t={t}
-             />
-           )}
-
-           {view === 'twitch' && (
-             <TwitchView
-               settings={(system.data as any).twitchExtras}
-               hype={(system.data as any).hypeTrain}
-               schedule={(system.data as any).twitchSchedule}
-               scopes={(system.data as any).twitchScopes}
-               request={(system.actions as any).twitchExtras}
-               t={t}
-             />
-           )}
-
-           {view === 'pngtuber' && (
-             <PngtuberView
-               settings={(system.data as any).micSettings}
-               talk={(system.data as any).micTalk}
-               level={(system.data as any).micLevel}
-               asked={(system.data as any).avatarFace}
-               sources={(system.connections as any).obsData?.sources || []}
-               obsConnected={system.status.obs === 'connected'}
-               save={(system.actions as any).setMic}
-               meter={(system.actions as any).micMeter}
-               face={(system.actions as any).avatarFace}
-               dress={(system.actions as any).avatarDress}
-               undress={(system.actions as any).avatarUndress}
-               dressed={(system.data as any).avatarDress}
-               act={(system.actions as any).avatarAction}
-               acted={(system.data as any).avatarAction}
-               pixelAvatars={(system.data as any).pixelAvatars || []}
-               t={t}
-             />
-           )}
 
            {view === 'go-live' && (
              <GoLiveView
@@ -1457,7 +463,6 @@ export default function App() {
                roles={(system.data as any).discordRoles}
                save={(system.actions as any).setAnnounce}
                test={(system.actions as any).testAnnounce}
-               testRecap={(system.actions as any).testRecap}
                scheduleEvents={(system.data as any).scheduleEvents}
                saveScheduleEvents={(system.actions as any).setScheduleEvents}
                syncScheduleEvents={(system.actions as any).syncScheduleEvents}
@@ -1475,50 +480,18 @@ export default function App() {
 
            {view === 'voice' && (
              <VoiceView
-               pixelAvatars={(system.data as any).pixelAvatars || []}
                voice={(system.data as any).voice}
                channels={system.connections.discordChannels}
                setVoice={(system.actions as any).setVoice}
                botConnected={system.status.discord === 'connected'}
-               listAssets={system.actions.listAssets}
-               uploadAsset={system.actions.uploadAsset}
-               layouts={(system.data as any).layouts || []}
-               listServerMembers={(system.actions as any).listServerMembers}
                t={t}
              />
            )}
 
-           {view === 'role-management' && (
-             <RoleManagementViewConnected 
-               activeTheme={activeTheme}
-               t={t}
-               system={system}
-             />
-           )}
-
-           {view === 'reaction-roles' && (
-             <ReactionRolesView
-               activeTheme={activeTheme}
-               t={t}
-               system={system}
-             />
-           )}
-
-           {view === 'discord-buttons' && (
-             <DiscordButtonsView 
-               activeTheme={activeTheme}
-               t={t}
-               system={system}
-             />
-           )}
-
-           {view === 'welcome-goodbye' && (
-             <WelcomeGoodbyeView
-               activeTheme={activeTheme}
-               t={t}
-               system={system}
-             />
-           )}
+           {view === 'role-management' && <RoleManagementViewConnected activeTheme={activeTheme} t={t} system={system} />}
+           {view === 'reaction-roles' && <ReactionRolesView activeTheme={activeTheme} t={t} system={system} />}
+           {view === 'discord-buttons' && <DiscordButtonsView activeTheme={activeTheme} t={t} system={system} />}
+           {view === 'welcome-goodbye' && <WelcomeGoodbyeView activeTheme={activeTheme} t={t} system={system} />}
 
            {view === 'discord-pages' && (
              <DiscordPagesView
@@ -1537,172 +510,10 @@ export default function App() {
              />
            )}
 
-           {view === 'timer' && (
-             <TimerView
-                state={(system.data as any).stopwatch}
-                control={(system.actions as any).stopwatch}
-                activeTheme={activeTheme}
-                t={t}
-             />
-           )}
-
-           {view === 'countdown' && (
-             <CountdownView
-                state={system.data.countdown}
-                control={system.actions.countdown}
-                activeTheme={activeTheme}
-                t={t}
-             />
-           )}
-
-           {view === 'viewers' && (
-             <ViewersView
-                config={(system.data as any).viewers}
-                setViewers={(system.actions as any).setViewers}
-                stats={(system.data as any).stats}
-                status={system.status}
-                activeTheme={activeTheme}
-                t={t}
-             />
-           )}
-
-           {view === 'omnibar' && (() => {
-             const bars: any[] = (system.data as any).omnibars || [];
-             const bar = omnibarBar === 'main' ? null : bars.find((b) => b.id === omnibarBar) || null;
-             // How many layers show each bar, so deleting one can say what it changes.
-             const usedBy: Record<string, number> = {};
-             for (const layout of ((system.data as any).layouts || [])) {
-               for (const layer of (layout.layers || [])) {
-                 if (layer.type === 'omnibar' && layer.config?.bar) usedBy[layer.config.bar] = (usedBy[layer.config.bar] || 0) + 1;
-               }
-             }
-             return (
-             <>
-             <OmnibarBarPicker
-                main={system.data.omnibar}
-                bars={bars}
-                selected={bar ? bar.id : 'main'}
-                onSelect={setOmnibarBar}
-                setOmnibars={system.actions.setOmnibars}
-                usedBy={usedBy}
-                t={t}
-             />
-             <OmnibarView
-                /* A different bar is a different screen's worth of open rows and drafts. */
-                key={bar ? bar.id : 'main'}
-                barId={bar?.id}
-                config={bar || system.data.omnibar}
-                stats={(system.data as any).stats}
-                setOmnibar={bar
-                  ? (next: any) => system.actions.setOmnibars(bars.map((b) => (b.id === bar.id ? { ...next, id: b.id, name: b.name } : b)))
-                  : system.actions.setOmnibar}
-                tags={system.data.streamTags}
-                leaderboard={system.data.leaderboard}
-                track={system.spotify.state.track}
-                upNext={system.spotify.state.upNext}
-                countdown={system.data.countdown}
-                commands={system.data.commands}
-                subscribers={(system.data as any).subscribers}
-                events={(system.data as any).viewerEvents}
-                listAssets={system.actions.listAssets}
-                uploadAsset={system.actions.uploadAsset}
-                activeTheme={activeTheme}
-                t={t}
-             />
-             </>
-             );
-           })()}
-
-           {view === 'alerts' && (
-             <AlertsView
-                alerts={system.data.alertConfigs}
-                saveAlert={system.actions.saveAlertConfig}
-                deleteAlert={system.actions.deleteAlert}
-                testAlert={system.actions.testAlert}
-                alertGate={(system.data as any).alertGate}
-                alertControl={(system.actions as any).alertControl}
-                rewards={system.connections.availableRewards}
-                fetchRewards={system.actions.fetchTwitchRewards}
-                uploadAsset={system.actions.uploadAsset}
-                activeTheme={activeTheme}
-                t={t}
-             />
-           )}
-
-           {view === 'pixel-avatars' && (
-             <PixelAvatarsView
-               avatars={(system.data as any).pixelAvatars || []}
-               request={(system.actions as any).pixelAvatars}
-               listAssets={system.actions.listAssets}
-               uploadAsset={system.actions.uploadAsset}
-               t={t}
-             />
-           )}
-
-           {view === 'library' && (
-             <LibraryView
-               layouts={(system.data as any).layouts || []}
-               setLayouts={system.actions.setLayouts}
-               system={system}
-               readOnly={system.auth.isMod}
-               t={t}
-             />
-           )}
-
-           {view === 'layouts' && (
-             <LayoutsView
-                listAssets={system.actions.listAssets}
-                uploadAsset={system.actions.uploadAsset}
-                layouts={(system.data as any).layouts || []}
-                setLayouts={system.actions.setLayouts}
-                system={system}
-                readOnly={system.auth.isMod}
-                obsScenes={(system.connections.obsData?.scenes || []).map((s: any) => s.sceneName).filter(Boolean)}
-                obsCurrentScene={system.connections.obsData?.currentScene || ''}
-                obsConnected={system.status.obs === 'connected'}
-                activeTheme={activeTheme}
-                t={t}
-             />
-           )}
-
-           {view === 'dock-actions' && (
-             <DockActionsView
-                pixelAvatars={(system.data as any).pixelAvatars || []}
-                dockButtons={system.data.dockButtons}
-                streamActions={system.data.streamActions}
-                setDockButtons={system.actions.setDockButtons}
-                dockGrid={system.data.dockGrid}
-                setDockGrid={system.actions.setDockGrid}
-                runDockAction={system.actions.runDockAction}
-                stats={(system.data as any).stats}
-                listAssets={system.actions.listAssets}
-                uploadAsset={system.actions.uploadAsset}
-                activeTheme={activeTheme}
-                t={t}
-             />
-           )}
-
-           {view === 'spotify-overlay' && (
-             <SpotifyOverlayView
-                activeTheme={activeTheme}
-                t={t}
-                spotify={system.spotify}
-             />
-           )}
-
-           {view === 'levels' && (
-             <LevelsView 
-                activeTheme={activeTheme}
-                t={t}
-                system={system}
-             />
-           )}
+           {view === 'levels' && <LevelsView activeTheme={activeTheme} t={t} system={system} />}
 
            {view === 'gallery' && (
               <ConnectionsView
-                droidcamSettings={(system.connections as any).droidcam}
-                droidcamProbe={(system.actions as any).droidcamProbe}
-                setDroidcamSettings={(system.actions as any).setDroidcamSettings}
                 youtube={(system as any).youtube}
                 youtubeStatus={(system.status as any).youtube}
                 youtubeClientId={(system.connections as any).youtubeClientId}
@@ -1710,7 +521,6 @@ export default function App() {
                 youtubeAuthorised={(system.connections as any).youtubeAuthorised}
                 youtubeCanEdit={(system.connections as any).youtubeCanEdit}
                 youtubeHealth={(system.connections as any).youtubeHealth}
-                youtubeLastMessageAt={lastYoutubeMessageAt(system.data.chatMessages)}
                 youtubeChannel={(system.connections as any).youtubeChannel}
                 twitchUser={system.connections.twitchUser}
                 twitchStatus={system.status.twitch}
@@ -1723,14 +533,10 @@ export default function App() {
                 handleTwitchBotLogout={system.actions.handleTwitchBotLogout}
                 tiktokUrl={system.connections.tiktokUrl}
                 setTiktokUrl={system.actions.setTiktokUrl}
-                tiktokProxyUrl={system.connections.tiktokProxyUrl}
-                setProxyUrl={system.actions.setTiktokProxyUrl}
                 tiktokStatus={system.status.tiktok}
                 handleTikTokConnect={system.actions.handleTikTokConnect}
                 tiktokError={system.status.tiktokError}
                 tiktokWatch={(system.status as any).tiktokWatch}
-                
-                // Discord Props
                 discordToken={system.connections.discordToken}
                 setDiscordToken={system.actions.setDiscordToken}
                 discordChannelId={system.connections.discordChannelId}
@@ -1739,64 +545,34 @@ export default function App() {
                 connectDiscord={system.actions.connectDiscord}
                 disconnectDiscord={system.actions.disconnectDiscord}
                 discordUser={system.connections.discordUser}
-                
-                // Passed from useDiscord hook via useStreamSystem
-                guilds={system.connections.discordGuilds} 
+                guilds={system.connections.discordGuilds}
                 channels={system.connections.discordChannels}
                 fetchChannels={system.actions.fetchDiscordChannels}
-                // NEW: Connect specific channel
                 handleDiscordConnect={system.actions.connectDiscordChannel}
                 discordCommandsEverywhere={(system.connections as any).discordCommandsEverywhere !== false}
                 setDiscordCommandsEverywhere={(system.actions as any).setDiscordCommandsEverywhere}
                 discordGuildId={system.connections.discordGuildId}
                 setDiscordGuildId={system.actions.setDiscordGuildId}
-
                 relayConfig={system.settings.relayConfig}
                 setRelayConfig={system.settings.setRelayConfig}
-
-                obsStatus={system.status.obs}
-                obsHost={system.connections.obsHost}
-                setObsHost={system.actions.setObsHost}
-                obsPort={system.connections.obsPort}
-                setObsPort={system.actions.setObsPort}
-                obsPassword={system.connections.obsPassword}
-                setObsPassword={system.actions.setObsPassword}
-                handleObsConnect={system.actions.handleObsConnect}
-                obsData={system.connections.obsData}
-                obsError={system.status.obsError}
-                hasInsecureBlocked={hasInsecureBlocked}
-                setInsecureAcknowledgeMode={setInsecureAcknowledgeMode}
-                setShowInsecureModal={setShowInsecureModal}
-                
-                spotify={system.spotify}
-                spotifyClientId={system.connections.spotifyClientId}
-                setSpotifyClientId={system.actions.setSpotifyClientId}
-                spotifyClientSecret={system.connections.spotifyClientSecret}
-                setSpotifyClientSecret={system.actions.setSpotifyClientSecret}
-                spotifyHasSecret={system.connections.spotifyHasSecret}
                 discordBotToken={system.connections.discordBotToken} setDiscordBotToken={system.actions.setDiscordBotToken}
                 discordHasBotToken={system.connections.discordHasBotToken}
                 discordClientSecret={system.connections.discordClientSecret} setDiscordClientSecret={system.actions.setDiscordClientSecret}
                 discordHasClientSecret={system.connections.discordHasClientSecret}
                 tiktokSignKey={system.connections.tiktokSignKey} setTiktokSignKey={system.actions.setTiktokSignKey}
                 tiktokHasSignKey={system.connections.tiktokHasSignKey}
-                geminiKey={system.connections.geminiKey} setGeminiKey={system.actions.setGeminiKey}
-                hasGeminiKey={system.connections.hasGeminiKey}
-
                 twitchClientId={system.connections.twitchClientId}
                 setTwitchClientId={system.actions.setTwitchClientId}
-
                 activeTheme={activeTheme}
                 t={t}
               />
            )}
-           
+
            {view === 'questions' && (
               <QuestionsView
                 questions={(system.data as any).questions || { items: [], showingId: '' }}
                 settings={(system.data as any).questionSettings}
                 setStatus={system.actions.setQuestionStatus}
-                show={system.actions.showQuestion}
                 clear={system.actions.clearQuestions}
                 control={system.actions.questions}
                 fromDiscord={(system.data as any).discordQuestions}
@@ -1814,7 +590,6 @@ export default function App() {
                 language={system.settings.language}
                 poll={(system.data as any).poll}
                 control={(system.actions as any).poll}
-                players={(system.data as any).players}
                 t={t}
               />
             )}
@@ -1823,18 +598,11 @@ export default function App() {
               <RequestsView state={(system.data as any).gameRequests} control={(system.actions as any).gameRequests} channels={system.connections.discordChannels || []} botConnected={system.status.discord === 'connected'} t={t} />
            )}
 
-           {view === 'streams' && (
-              <StreamsView streams={(system.actions as any).streams} t={t} />
-           )}
-
            {view === 'points' && (
               <PointsView
                 settings={(system.data as any).pointsSettings}
                 control={(system.actions as any).points}
-                actions={(system.data.streamActions || []).map((a: any) => ({ id: a.id, name: a.name }))}
-                channels={system.connections.discordChannels || []}
                 emojis={system.connections.discordEmojis || []}
-                botConnected={system.status.discord === 'connected'}
                 t={t}
               />
            )}
@@ -1850,105 +618,6 @@ export default function App() {
                 t={t}
               />
             )}
-
-           {view === 'remote-players' && (
-              <RemotePlayersView
-                remote={(system.data as any).remotePlayers}
-                control={(system.actions as any).remotePlayers}
-                obsConnected={system.status.obs === 'connected'}
-                obsSources={(((system.connections as any)?.obsData?.sources || []) as any[]).map((i) => i.inputName).filter(Boolean)}
-                discordConnected={system.status.discord === 'connected'}
-                voice={(system.data as any).voice}
-                regulars={(system.data as any).people?.regulars || []}
-                listServerMembers={system.status.discord === 'connected' ? (system.actions as any).listServerMembers : undefined}
-                t={t}
-              />
-            )}
-
-           {view === 'players' && (
-              <PlayersView
-                players={(system.data as any).players || { items: [] }}
-                setPlayers={(system.actions as any).setPlayers}
-                t={t}
-              />
-            )}
-
-           {/* Two screens, one record: both edit the run the card, the plates and the couch read. */}
-           {view === 'run' && (
-             <GameView
-               run={(system.data as any).run || {}}
-               setRun={system.actions.setRun}
-               deaths={(system.data as any).counters?.deaths ?? 0}
-               changeDeaths={(op, value) => system.actions.counter('deaths', op, value)}
-               layouts={(system.data as any).layouts || []}
-               t={t}
-             />
-           )}
-           {view === 'people' && (
-             <PeopleView
-               run={(system.data as any).run || {}}
-               setRun={system.actions.setRun}
-               layouts={(system.data as any).layouts || []}
-               people={(system.data as any).people}
-               peopleControl={system.actions.people}
-               voice={(system.data as any).voice}
-               shoutout={(login: string) => system.actions.twitchExtras({ op: 'shoutout', target: login })}
-               t={t}
-             />
-           )}
-
-           {view === 'plan' && (
-              <PlanView
-                plan={(system.data as any).plan || { items: [], currentId: '', showDone: true }}
-                setPlan={system.actions.setPlan}
-                planGoto={system.actions.planGoto}
-                saved={(system.data as any).planSaved || []}
-                savedControl={system.actions.planSaved}
-                searchCategories={system.actions.searchCategories}
-                language={system.settings.language}
-                t={t}
-              />
-            )}
-
-           {view === 'assets' && (
-              <ChatDockView
-                chat={system.settings}
-                patchChat={(system.settings as any).patchChat}
-                dockUrl={dockUrl}
-                twitchStatus={system.status.twitch}
-                tiktokStatus={system.status.tiktok}
-                chatMessages={system.data.chatMessages}
-                senderRole={system.settings.senderRole} setSenderRole={system.settings.setSenderRole}
-                sendToPicker={<SendToPicker value={(system.settings as any).sendTo} set={(system.settings as any).setSendTo} authorised={Boolean((system.connections as any).youtubeAuthorised)} live={Boolean((system.connections as any).youtubeLive)} unitsUsed={(system.data as any).stats?.youtubeUnitsUsed} t={t} />}
-                twitchBotStatus={system.status.twitchBot}
-                twitchUser={chatTwitchUser}
-                messageInput={messageInput} setMessageInput={setMessageInput}
-                handleSendMessage={handleSendMessage}
-                renderChatMessageHelper={renderChatMessageHelper}
-                setView={setView}
-                activeTheme={activeTheme}
-                discordStatus={system.status.discord}
-                youtubeStatus={system.status.youtube}
-                canSend={chatSendable || system.status.discord === 'connected'}
-                sendError={sendError}
-                modTools={{ held: (system.data as any).automodHeld || [], ask: system.actions.twitchMod }}
-                t={chatT}
-              />
-           )}
-
-           {view === 'events' && (
-              <EventsDockView
-                events={(system.data as any).viewerEvents || []}
-                totals={(system.data as any).eventTotals}
-                settings={(system.data as any).eventsDockSettings}
-                run={system.actions.events}
-                shoutout={(login: string) => system.actions.twitchExtras({ op: 'shoutout', target: login })}
-                clearHistory={system.actions.clearEventHistory}
-                activeTheme={activeTheme}
-                language={system.settings.language}
-                t={t}
-              />
-           )}
           </Suspense>
           {/* Room at the end of every screen for the phone's bar, so it never covers the last of it. */}
           <div className="h-20 md:hidden" aria-hidden data-phone-bar-room />

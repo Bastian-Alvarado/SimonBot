@@ -23,20 +23,15 @@ test('no picture picker shows its uploads moving: every list of uploads is still
   // A screen that lists the uploads to pick from, drawing one as it is.
   const raw = /<img\b[^>]*\bsrc=\{(?:\w+\()?\w+\.url\)?\}/;
   const pickers = components().filter((f) => /listAssets|uploads\.map|assets\.map/.test(read(f)));
-  assert.ok(pickers.length >= 10, `too few pickers found: ${pickers.length}`);
+  assert.ok(pickers.length >= 5, `too few pickers found: ${pickers.length}`);
   for (const f of pickers) assert.ok(!raw.test(read(f)), `${f.replace('../../web/components/', '')} shows its uploads moving`);
 });
 
 test('and the picture chosen is a still too, in every picker', () => {
   const chosen = {
-    'ImageLayerPanel.tsx': '<StillImg src={src} width={32}',
-    'OmnibarLogoPanel.tsx': '<StillImg src={logo} width={56}',
-    'PngtuberLayerPanel.tsx': '<StillImg src={value} width={96}',
-    'VoicePicturesEditor.tsx': '<StillImg src={entry[kind]} width={160}',
     'WelcomeCardLayers.tsx': '<StillImg src={l.src} width={48}',
     'PicturePick.tsx': '<StillImg src={pictureSrc(value)}',
     'views/GoLiveView.tsx': '<StillImg src={events.coverPicture} width={90}',
-    'views/VoiceView.tsx': '<StillImg src={entry.quiet || entry.talking || entry.muted} width={28}',
   };
   for (const [file, still] of Object.entries(chosen)) assert.ok(read(`../../web/components/${file}`).includes(still), `${file} shows the picture chosen moving`);
 });

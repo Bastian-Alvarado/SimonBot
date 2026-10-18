@@ -9,8 +9,8 @@
  *
  * "!perfil" (or another word) in any chat answers it. In Discord it is a
  * picture, drawn by the same renderer as the welcome card; Twitch, YouTube and
- * TikTok cannot show one, so there it is a line. The shop's message in
- * Discord carries a "Mi perfil" button that answers privately.
+ * TikTok cannot show one, so there it is a line. A "Mi perfil" button in
+ * Discord, pressed from a slash command's answer, answers privately.
  */
 
 import satori from 'satori';
@@ -22,7 +22,6 @@ import * as leveling from '../leveling/index.js';
 import * as discord from '../platforms/discord.js';
 import * as twitch from '../platforms/twitch.js';
 import * as youtube from '../platforms/youtube.js';
-import * as commands from './commands.js';
 import * as history from './viewer-history.js';
 import * as points from './points.js';
 import * as roleSync from './role-sync.js';
@@ -207,7 +206,6 @@ async function onChat(chat) {
   const said = String(chat.msg ?? '').trim();
   const [first, ...rest] = said.split(/\s+/);
   if ((first || '').toLowerCase() !== cfg.word.toLowerCase()) return;
-  if (commands.ownCommandAnswers(collection('commands', []).get(), collection('actions', []).get(), said, chat.platform)) return;
   const now = Date.now();
   const me = `${chat.platform}:${chat.userId}`;
   if (now - (asked.get(me) || 0) < PERSON_EVERY_MS) return;
@@ -232,7 +230,7 @@ async function onChat(chat) {
   await send(p ? profileLine(p) : `${named || chat.user} todavía no tiene perfil.`);
 }
 
-/** The shop's "Mi perfil" button: their profile, as a picture only they see. */
+/** The "Mi perfil" button: their profile, as a picture only they see. */
 async function onInteraction(i) {
   if (i?.data?.custom_id !== 'profile:me') return;
   const member = i.member?.user || i.user;

@@ -8,16 +8,16 @@
  * Nothing here answers anything new. Each command goes down a path the bot
  * already has:
  *
- *   Buttons     /perfil, /puntos, /sorteo and /avisame are the buttons the
- *               bot already posts ("Mi perfil", "Participar", …). The command
+ *   Buttons     /perfil, /sorteo and /avisame are the buttons the bot
+ *               already answers ("Mi perfil", "Participar", …). The command
  *               is handed on as a press of that button, and the button's own
  *               code answers it, privately.
- *   Chat words  /rango, /top, /pregunta and /comando are the words typed in
- *               chat. The command is handed on as that message, said where
- *               the command was used; whatever answers the word answers it,
- *               and the answer (a reply to that message) becomes the
- *               command's reply instead (see `intercept`).
- *   The shop    /tienda shows the shop's message, only to whoever asked.
+ *   Chat words  /rango, /top and /pregunta are the words typed in chat. The
+ *               command is handed on as that message, said where the command
+ *               was used; whatever answers the word answers it, and the
+ *               answer (a reply to that message) becomes the command's reply
+ *               instead (see `intercept`).
+ *   Points      /puntos says your balance, only to you.
  *
  * Registered on the server the app is set to (guild commands show up at
  * once; global ones can take an hour), every time the bot connects, so a
@@ -51,8 +51,6 @@ export const COMMANDS = [
     options: [{ type: USER, name: 'persona', description: 'El rango de otra persona', required: false }] },
   { name: 'top', description: 'Quién va arriba en niveles',
     description_localizations: { 'en-US': 'Who leads the levels', 'en-GB': 'Who leads the levels' } },
-  { name: 'tienda', description: 'Gasta tus puntos: sonidos, TTS, efectos, canciones',
-    description_localizations: { 'en-US': 'Spend your points: sounds, TTS, effects, songs', 'en-GB': 'Spend your points: sounds, TTS, effects, songs' } },
   { name: 'puntos', description: 'Cuántos puntos tienes',
     description_localizations: { 'en-US': 'How many points you have', 'en-GB': 'How many points you have' } },
   { name: 'sorteo', description: 'Entra al sorteo abierto, desde aquí',
@@ -65,9 +63,6 @@ export const COMMANDS = [
   { name: 'pregunta', description: 'Manda una pregunta para el directo',
     description_localizations: { 'en-US': 'Send a question for the stream', 'en-GB': 'Send a question for the stream' },
     options: [{ type: STRING, name: 'texto', description: 'Tu pregunta', required: true, max_length: 300 }] },
-  { name: 'comando', description: 'Usa cualquier comando del canal (como !outfit o !tomar)',
-    description_localizations: { 'en-US': 'Run any channel command (like !outfit)', 'en-GB': 'Run any channel command (like !outfit)' },
-    options: [{ type: STRING, name: 'texto', description: 'El comando, con o sin "!"', required: true, max_length: 300 }] },
 ];
 
 let appId = '';
@@ -174,15 +169,12 @@ async function onCommand(i) {
     }
     case 'top': return say(i, leveling.getConfig().chat.topWord);
     case 'pregunta': return say(i, `${questions.getSettings().ask.trigger} ${option(i, 'texto') || ''}`.trim());
-    case 'comando': {
-      const t = String(option(i, 'texto') || '').trim();
-      return say(i, t.startsWith('!') ? t : `!${t}`);
+    case 'puntos': {
+      const cfg = points.getPoints();
+      const uid = leveling.personFor('discord', u.id, nameOf(i));
+      const unit = `${cfg.emoji ? `${cfg.emoji} ` : ''}${cfg.name}`;
+      return answer(i, { flags: EPHEMERAL, content: `Tienes ${points.balanceOf(uid).toLocaleString('es-MX')} ${unit}.` });
     }
-    case 'tienda': {
-      const shop = points.shopMessage();
-      return answer(i, { flags: EPHEMERAL, embeds: [discord.toEmbed(shop.embed)], components: shop.components });
-    }
-    case 'puntos': return press(i, 'shop:balance');
     case 'sorteo': return press(i, `giveaway:enter:${giveaway.getState().openedAt}`);
     case 'avisame': {
       const where = option(i, 'donde');

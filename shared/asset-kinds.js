@@ -6,10 +6,9 @@
  * server, which enforces it, and the screen, which says so before sending a
  * file that would only be turned away.
  *
- * Was images only, which quietly broke two things an alert needs: a sound to
- * play, and a transparent webm, which is what an alert people actually notice
- * is usually made of. The caps differ by kind because a 25MB png is a mistake
- * while a 25MB video clip is ordinary.
+ * Was images only, which left out a sound to play and a short transparent
+ * video. The caps differ by kind because a 25MB png is a mistake while a 25MB
+ * video clip is ordinary.
  */
 export const ASSET_KINDS = {
   /*
@@ -21,10 +20,10 @@ export const ASSET_KINDS = {
   audio: { exts: ['.mp3', '.ogg', '.wav', '.m4a'], max: 10 * 1024 * 1024 },
   video: { exts: ['.webm', '.mp4'], max: 25 * 1024 * 1024 },
   /*
-    A typeface is what makes an overlay look like somebody's rather than like
+    A typeface is what makes a page look like somebody's rather than like
     this app's. Small on purpose: a woff2 of a display face is tens of
     kilobytes, and anything approaching this cap is a whole family in one
-    file, which an overlay does not need.
+    file, which a page does not need.
   */
   font: { exts: ['.woff2', '.woff', '.ttf', '.otf'], max: 2 * 1024 * 1024 },
 };

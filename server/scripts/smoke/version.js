@@ -52,7 +52,7 @@ test('the changelog has the version, newest first, dated', () => {
 
 test('the server says its version: health, log, backups, and to every page', () => {
   assert.ok(read('../api/http.js').includes('version: VERSION,'), 'the health check');
-  assert.ok(read('../index.js').includes('log.info(`SimonSays ${VERSION} — headless server starting`);'), 'the start-up log');
+  assert.ok(read('../index.js').includes('log.info(`SimonBot ${VERSION} — headless server starting`);'), 'the start-up log');
   assert.ok(read('../api/ws.js').includes('serverVersion: VERSION,'), 'the snapshot every page gets');
   const bundle = backup.buildBundle();
   assert.equal(bundle.meta.appVersion, VERSION, 'a backup says which app wrote it');
@@ -103,6 +103,26 @@ test('npm run bump moves the version everywhere at once, and only the app’s ow
       assert.throws(() => bump(arg), (err) => err.status === 1, `"${arg}" was taken`);
     }
     assert.ok(fs.readFileSync(path.join(dir, 'shared/version.js'), 'utf8').includes(`export const VERSION = '${maj}.${min + 1}.1';`));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('npm run bump makes the work in progress the release\'s entry', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-bump-unreleased-'));
+  try {
+    for (const file of ['shared/version.js', 'scripts/bump.mjs', ...PACKAGES]) {
+      fs.mkdirSync(path.join(dir, path.dirname(file)), { recursive: true });
+      fs.copyFileSync(path.join(repo, file), path.join(dir, file));
+    }
+    fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased] — 9.9.9\n\n- Built so far.\n\n## [${VERSION}] — 2026-10-10\n\n- Before.\n`);
+    const said = execFileSync(process.execPath, [path.join(dir, 'scripts/bump.mjs'), 'minor'], { encoding: 'utf8', stdio: 'pipe' });
+    const log = fs.readFileSync(path.join(dir, 'CHANGELOG.md'), 'utf8');
+    const [maj, min] = VERSION.split('.').map(Number);
+    const next = `${maj}.${min + 1}.0`;
+    assert.ok(!log.includes('[Unreleased]'), 'the Unreleased heading was left');
+    assert.match(log, new RegExp(`## \\[${next.split('.').join('\\.')}\\] — \\d{4}-\\d{2}-\\d{2}\\n\\n- Built so far\\.`), 'the notes written so far were not carried into the release');
+    assert.ok(said.includes('read it over'), 'the bump did not say the notes were carried');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

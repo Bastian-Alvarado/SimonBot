@@ -18,20 +18,18 @@
  * result stays up, the chat command — and the last few results, to look back
  * at and run again.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { BarChart3, Plus, Trash2, Play, Square, RotateCcw, Timer, Users, Check, Settings2, History, CornerUpLeft } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { BarChart3, Plus, Trash2, Play, Square, RotateCcw, Timer, Check, Settings2, History, CornerUpLeft } from 'lucide-react';
 import { Button } from '../Button';
 import { CommittedInput } from '../CommittedInput';
 import { MAX_OPTIONS, MIN_OPTIONS, MAX_QUESTION, MAX_OPTION, RESULT_SECONDS, DEFAULT_POLL_SETTINGS, cleanOptions, percentOf } from '../../../shared/polls.js';
 import { PLATFORMS } from '../../../shared/platforms.js';
-import { PollState, pollTimeLeft } from '../PollLayer';
-import { formatRemaining } from '../Countdown';
+import { PollState, pollTimeLeft, formatRemaining } from '../pollTime';
 
 export interface PollSettings {
   resultSeconds: number;
   announceOpen: boolean;
   announceClose: boolean;
-  hideVotes: boolean;
   command: { enabled: boolean; trigger: string };
 }
 export interface PastPoll {
@@ -44,7 +42,6 @@ interface Props {
   settings?: PollSettings;
   history?: PastPoll[];
   control: (op: string, value?: any) => void;
-  players?: { items?: { name: string; state: string }[] };
   language: string;
   t: any;
 }
@@ -84,7 +81,7 @@ const Toggle = ({ on, onClick, text, hint }: { on: boolean; onClick: () => void;
   </div>
 );
 
-export const PollsView = ({ poll, settings, history = [], control, players, language, t }: Props) => {
+export const PollsView = ({ poll, settings, history = [], control, language, t }: Props) => {
   const mode = poll?.mode || 'idle';
   const open = mode === 'open';
   const draft = poll?.draft || { question: poll?.question || '', options: poll?.options || [] };
@@ -137,7 +134,6 @@ export const PollsView = ({ poll, settings, history = [], control, players, lang
   const total = poll?.total || 0;
   const leaders = new Set(poll?.leaders || []);
   const left = pollTimeLeft(poll);
-  const stillIn = (players?.items || []).filter((p) => p.state === 'in').map((p) => p.name);
   // "Open again" only when what is set up is what just ran.
   const sameAsLast = question.trim() === (poll?.question || '') && JSON.stringify(clean) === JSON.stringify(poll?.options || []);
 
@@ -193,7 +189,7 @@ export const PollsView = ({ poll, settings, history = [], control, players, lang
         {/* What is typed here is the next poll; the one running keeps its own. */}
         {mode !== 'idle' && (
           <p className="text-[10px] text-zinc-500 leading-relaxed" data-poll-draft-note>
-            {t.pollDraftNote || 'Set up the next poll here — the one on screen keeps its question and answers until you open this one.'}
+            {t.pollDraftNote || 'Set up the next poll here — the one running keeps its question and answers until you open this one.'}
           </p>
         )}
 
@@ -240,14 +236,6 @@ export const PollsView = ({ poll, settings, history = [], control, players, lang
           <Button size="sm" variant="secondary" icon={<Plus size={14} />} disabled={options.length >= MAX_OPTIONS} onClick={addAnswer}>
             {t.pollAddAnswer || 'Add answer'}
           </Button>
-          {stillIn.length >= MIN_OPTIONS && (
-            <Button
-              size="sm" variant="secondary" icon={<Users size={14} />}
-              onClick={() => { const next = stillIn.slice(0, MAX_OPTIONS); setOptions(next); commitOptions(next); }}
-            >
-              {t.pollFromPlayers || 'Answers from the players still in'}
-            </Button>
-          )}
           <label className="ml-auto flex items-center gap-2">
             <span className={label}>{t.pollDuration || 'Runs for'}</span>
             <select
@@ -281,7 +269,7 @@ export const PollsView = ({ poll, settings, history = [], control, players, lang
           ))}
         </div>
         <p className="text-[10px] text-zinc-600 leading-relaxed">
-          {t.pollHowTo || 'Chat votes on every platform at once — Twitch, YouTube, TikTok and Discord. "!vote 2" or "!voto red" always counts; one vote per person on each platform. Add a Poll layer to a layout to show it on stream.'}
+          {t.pollHowTo || 'Chat votes on every platform at once — Twitch, YouTube, TikTok and Discord. "!vote 2" or "!vote red" always counts; one vote per person on each platform.'}
         </p>
       </div>
 
@@ -319,7 +307,7 @@ export const PollsView = ({ poll, settings, history = [], control, players, lang
       <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-4" data-poll-settings>
         <div className="flex items-center gap-2">
           <Settings2 size={15} className="text-current-accent" />
-          <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300">{t.pollSettings || 'Around the poll'}</span>
+          <span className="text-[11px] font-black uppercase tracking-widest text-zinc-300">{t.pollSettings || 'Settings'}</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Toggle
@@ -333,19 +321,14 @@ export const PollsView = ({ poll, settings, history = [], control, players, lang
             hint={t.pollAnnounceCloseHint || 'The winner with its votes and percentage — or the tie — when the poll closes.'}
           />
           <Toggle
-            on={s.hideVotes} onClick={() => setSettings({ hideVotes: !s.hideVotes })}
-            text={t.pollHideVotes || 'Keep votes out of the chat on stream'}
-            hint={t.pollHideVotesHint || 'Votes still count and still show in the dock; the chat viewers see just leaves them out.'}
-          />
-          <Toggle
             on={s.command.enabled} onClick={() => setSettings({ command: { ...s.command, enabled: !s.command.enabled } })}
             text={`${t.pollCommandToggle || 'Mods can open one from chat'} · ${s.command.trigger}`}
-            hint={String(t.pollCommandHint || '{trigger} Question | answer | answer opens that poll, {trigger} alone opens the one set up here, and {trigger} cerrar closes it. A command of your own with the same word answers instead.').split('{trigger}').join(s.command.trigger)}
+            hint={String(t.pollCommandHint || '{trigger} Question | answer | answer opens that poll, {trigger} alone opens the one set up here, and {trigger} cerrar closes it.').split('{trigger}').join(s.command.trigger)}
           />
         </div>
         <div className="flex flex-wrap items-end gap-4">
           <label className="space-y-1 block">
-            <span className={label}>{t.pollResultStays || 'The result stays on screen'}</span>
+            <span className={label}>{t.pollResultStays || 'The result stays up'}</span>
             <select
               value={s.resultSeconds}
               onChange={(e) => setSettings({ resultSeconds: Number(e.target.value) })}

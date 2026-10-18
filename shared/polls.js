@@ -168,8 +168,6 @@ export const DEFAULT_POLL_SETTINGS = {
   announceOpen: true,
   /** …and who won when it closes. */
   announceClose: true,
-  /** Leave votes out of the chat on stream, so "3", "3", "3" does not bury it. */
-  hideVotes: true,
   /** "!encuesta Pregunta | a | b" opens one from chat, for mods. */
   command: { enabled: true, trigger: '!encuesta' },
 };
@@ -190,32 +188,9 @@ export function cleanPollSettings(incoming, before = DEFAULT_POLL_SETTINGS) {
     resultSeconds: Number.isFinite(seconds) ? Math.min(600, Math.max(0, seconds)) : 0,
     announceOpen: pick('announceOpen') !== false,
     announceClose: pick('announceClose') !== false,
-    hideVotes: pick('hideVotes') !== false,
     command: {
       enabled: command.enabled !== false,
       trigger: cleanTrigger(command.trigger, was.command?.trigger),
     },
   };
 }
-
-/**
- * Whether a chat message was a vote in this poll: said while it was open, and
- * read as a vote by its rules. Worked out from the message's own time, so a
- * vote stays a vote after the poll closes, and an overlay that reloads knows
- * which of the messages it is replayed were votes.
- */
-export function wasVote(message, poll) {
-  if (!poll?.openedAt || !Array.isArray(poll.options) || !poll.options.length) return false;
-  const at = Number(message?.at);
-  if (!Number.isFinite(at) || at < poll.openedAt) return false;
-  if (poll.closedAt && at > poll.closedAt) return false;
-  if (message?.isEvent) return false;
-  return readVote(message?.msg, poll.options, poll.rules || DEFAULT_RULES) >= 0;
-}
-
-/** The chat as the stream shows it: without the votes, when the poll screen says so. */
-export const withoutVotes = (messages, poll, settings) => (
-  settings?.hideVotes === false || !poll?.openedAt
-    ? messages
-    : (messages || []).filter((m) => !wasVote(m, poll))
-);

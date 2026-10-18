@@ -2,10 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Smoke tests: the Voice call screen's audit. Somebody kept off stream is in
- * no list the stream reads; a name for the stream in place of a Discord one;
- * the call that follows one person; the bot only in a call with somebody in
- * it; statuses and upload refusals in the screen's language.
+ * Smoke tests: the Voice call screen's audit. The call that follows one
+ * person; the bot only in a call with somebody in it; a dropped gateway;
+ * statuses in the screen's language; the server's members, listed.
  *
  * Builds on the call discord-voice.js set up (server g1, channels vc1 and vc2).
  * Runs in order with the other feature files, on the one engine the harness
@@ -13,7 +12,6 @@
  */
 
 import { SCRIPT_URL, assert, bus, fs, test } from './harness.js';
-import { fillTemplate } from './layers.js';
 
 const read = (path) => fs.readFileSync(new URL(path, SCRIPT_URL), 'utf8');
 const voice = await import('../../platforms/discord-voice.js');
@@ -25,40 +23,10 @@ const member = (id, name) => ({ user: { id, username: name.toLowerCase(), global
 const state = (id, channelId, name) => bus.emit('discord:voice_state', { guild_id: 'g1', user_id: id, channel_id: channelId, member: member(id, name) });
 
 // A call of three on vc1.
-voice.setVoice({ channelId: 'vc1', listen: false, follow: null, persons: {} });
+voice.setVoice({ channelId: 'vc1', listen: false, follow: null });
 state('500001', 'vc1', 'Ana');
 state('500002', 'vc1', 'Bo');
 state('500003', 'vc1', 'Cy');
-
-// ------------------------------------------------------------ off stream, and names on stream
-
-voice.setVoice({ persons: {
-  500002: { name: 'Bo', offStream: true },
-  500003: { name: 'Cy', streamName: '  CyTTV  ' },
-  500001: { name: 'Ana' },
-  nope: { offStream: true },
-} });
-const withSettings = voice.getState();
-
-test('somebody kept off stream is in no list the stream reads, and the screen still lists them', () => {
-  const ids = withSettings.members.map((m) => m.id);
-  assert.ok(!ids.includes('500002'), 'somebody who asked not to be shown is on the list overlays draw');
-  assert.deepEqual(withSettings.offStream.map((m) => [m.id, m.offStream]), [['500002', true]]);
-  // Text values and the layer condition read the same list.
-  assert.ok(!fillTemplate('{voiceTalking}', { voice: { ...withSettings, members: withSettings.members.map((m) => ({ ...m, speaking: true })) } }).includes('Bo'));
-  assert.equal(fillTemplate('{voiceCount}', { voice: withSettings }), String(withSettings.members.length));
-  // Somebody with nothing set is not kept; nor is an id that is not Discord's.
-  assert.deepEqual(Object.keys(withSettings.persons).sort(), ['500002', '500003']);
-});
-
-test('a name for the stream replaces the Discord one there, and the screen keeps both', () => {
-  const cy = withSettings.members.find((m) => m.id === '500003');
-  assert.deepEqual([cy.name, cy.discordName], ['CyTTV', 'Cy']);
-  const ana = withSettings.members.find((m) => m.id === '500001');
-  assert.equal(ana.name, 'Ana');
-  // Somebody nobody could name is named in the stream's language.
-  assert.ok(read('../platforms/discord-voice.js').includes("name: own.streamName || who.name || 'Alguien',"));
-});
 
 // ------------------------------------------------------------ following one person
 
@@ -132,36 +100,25 @@ test('the call\'s statuses and every upload refusal have words in both languages
     ...read('../platforms/discord-voice.js').matchAll(/'(voice_[a-z_]+)'/g),
     ...read('../api/http.js').matchAll(/\.code = '([a-z_]+)'/g),
   ].map((m) => m[1]));
-  assert.ok(codes.size >= 8, `only ${codes.size} codes`);
+  assert.ok(codes.size >= 4, `only ${codes.size} codes`);
   for (const code of codes) assert.ok(bothLanguages(refusalKey(code)), `${code} is not in both languages`);
-  assert.ok(bothLanguages('uploading'), '"Uploading…" was never translated');
   // The upload's code reaches the screen, and every upload button looks its words up.
   assert.ok(read('../../web/hooks/useStreamSystem.ts').includes('if (body?.code) err.code = body.code;'));
-  for (const f of ['VoicePicturesEditor.tsx', 'ImageLayerPanel.tsx', 'OmnibarLogoPanel.tsx', 'PngtuberLayerPanel.tsx', 'FontUploadButton.tsx', 'views/DockActionsView.tsx']) {
-    assert.ok(read(`../../web/components/${f}`).includes('refusalWords(t, err)'), `${f} shows an upload refusal in English`);
-  }
 });
 
-test('the Voice call screen: a channel or a person, off stream, a name, and the avatar shown where there is no picture', () => {
-  const view = read('../../web/components/views/VoiceView.tsx');
-  assert.ok(view.includes('data-voice-follow') && view.includes('data-voice-off-stream-toggle'));
-  assert.ok(view.includes('<VoicePixel look={entry.look} accent={accent} pixelAvatars={pixelAvatars} /></span>'), 'somebody drawn as the pixel avatar shows a broken picture');
-  assert.ok(read('../../web/components/VoicePicturesEditor.tsx').includes('data-voice-stream-name'));
-  const keys = new Set();
-  for (const f of ['views/VoiceView.tsx', 'VoicePicturesEditor.tsx']) {
-    for (const m of read(`../../web/components/${f}`).matchAll(/\bt\??\.([a-zA-Z]+)/g)) keys.add(m[1]);
-  }
-  assert.ok(keys.size >= 35, `only ${keys.size} strings found`);
+test('the Voice call screen is in both languages', () => {
+  const keys = new Set([...read('../../web/components/views/VoiceView.tsx').matchAll(/\bt\??\.([a-zA-Z]+)/g)].map((m) => m[1]));
+  assert.ok(keys.size >= 15, `only ${keys.size} strings found`);
   for (const key of keys) assert.ok(bothLanguages(key), `${key} is not in both languages`);
 });
 
-voice.setVoice({ persons: {}, follow: null, listen: false });
+voice.setVoice({ follow: null, listen: false });
 
 // ------------------------------------------------------------ the server's members
 
 /*
-  Everybody in the server, not only whoever is in a call, so a regular can be
-  set up before they join one. Discord hands the list out a thousand at a
+  Everybody in the server, not only whoever is in a call, so anybody can be
+  found on the Roles screen. Discord hands the list out a thousand at a
   time; the paging is awaited here, and what it did asserted below.
 */
 const discordPlatform = await import('../../platforms/discord.js');
@@ -177,7 +134,7 @@ await discordPlatform.allPages(async (after) => {
   return Array.from({ length: 1000 }, (_, i) => ({ user: { id: String(Number(after) + i + 1) } }));
 });
 
-test('the server\'s members are listed, to set somebody up before they join a call', () => {
+test('the server\'s members are listed, to find somebody on the Roles screen', () => {
   // Page after page, each asked for after the last one's id, until one comes back short.
   assert.equal(paged.length, 1001);
   assert.deepEqual(pagesAsked, ['0', '1999']);
@@ -202,14 +159,5 @@ test('the server\'s members are listed, to set somebody up before they join a ca
   assert.ok(read('../../server/platforms/discord.js').includes('/guilds/${guildId}/members?limit=1000&after=${after}'));
   assert.ok(/const INTENTS = [^;]*\(1 << 1\)/.test(read('../../server/platforms/discord.js')), 'the bot no longer asks for the Server Members intent');
 
-  // On the screen: asked for once as it opens, not at every change of state; searched; and a click opens their settings.
-  const view = read('../../web/components/views/VoiceView.tsx');
-  assert.ok(view.includes('listServer.current = listServerMembers;') && view.includes('}, [botConnected]);'), 'the list is asked for again at every change of state');
-  assert.ok(view.includes('data-voice-server-search') && view.includes('[p.name, p.username].some((s) => fold(s).includes(fold(serverQuery.trim())))'));
-  assert.ok(view.includes('onClick={() => setEditing(editing === p.id ? null : p.id)}'));
-  assert.ok(view.includes('server?.find((p) => p.id === editing)?.name'), 'somebody from the server\'s list is edited without their name');
-  assert.ok(read('../../web/App.tsx').includes('listServerMembers={(system.actions as any).listServerMembers}'));
-  for (const key of ['voiceServerTitle', 'voiceServerLoading', 'voiceServerNoBot', 'voiceServerFailed', 'voiceServerSearch', 'voiceServerNone', 'voiceServerMore', 'voiceServerSetUp', 'voiceServerInCall']) {
-    assert.ok(bothLanguages(key), `${key} is not in both languages`);
-  }
+  assert.ok(read('../../web/hooks/useStreamSystem.ts').includes("(await req(C2S.DISCORD, { op: 'server_members' })) || [],"));
 });

@@ -5,9 +5,9 @@
  * Is a connection coming from the machine the server runs on?
  *
  * Loopback is the obvious case, but not the common one here: the dashboard is
- * usually opened at the machine's LAN address, because that is the URL the OBS
- * docks and the phone deck use, and people bookmark one address for
- * everything. A browser on the host reaching the host by its own LAN address
+ * usually opened at the machine's LAN address, because that is the address the
+ * other devices on the network use to reach it, and people bookmark one
+ * address for everything. A browser on the host reaching the host by its own LAN address
  * arrives with that address as its source, so a loopback-only test called it a
  * remote device and refused it.
  *

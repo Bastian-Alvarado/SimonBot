@@ -12,7 +12,7 @@
  * boots — through scripts/smoke.js, never on its own. After profile-card.js.
  */
 
-import { assert, bus, collection, EVENTS, normaliseChat, normaliseEvent, test } from './harness.js';
+import { assert, bus, collection, EVENTS, normaliseChat, test } from './harness.js';
 
 const roleSync = await import('../../engine/role-sync.js');
 const sessions = await import('../../engine/stream-sessions.js');
@@ -40,9 +40,9 @@ const settingsBefore = settings.get();
 settings.set({ ...settingsBefore, guildId: '900000000000000009' });
 
 const stream = async (talk) => {
-  bus.emit(EVENTS.EVENT, normaliseEvent({ type: 'obs_stream_started' }));
+  bus.emit(EVENTS.STAT, { key: 'twitchLive', value: true });
   if (talk) bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'twitch', user: 'Leal', userId: '7777001', msg: 'hola' }));
-  bus.emit(EVENTS.EVENT, normaliseEvent({ type: 'obs_stream_stopped' }));
+  bus.emit(EVENTS.STAT, { key: 'twitchLive', value: false });
   await sessions._test.finish();
 };
 

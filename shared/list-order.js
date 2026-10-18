@@ -26,30 +26,3 @@ export function moveToGap(list, from, gap) {
 export function landedAt(from, gap) {
   return gap > from ? gap - 1 : gap;
 }
-
-/**
- * A step moved to a gap in whichever list holds it — an action's own steps,
- * or a condition's then or else — and only within that list: a drag moves a
- * step among its neighbours, never into another branch. The same array comes
- * back when nothing moved.
- */
-export function moveInTree(list, id, gap, branches = ['thenActions', 'elseActions']) {
-  if (!Array.isArray(list)) return list;
-  const at = list.findIndex((item) => item && item.id === id);
-  if (at >= 0) return moveToGap(list, at, gap);
-  let changed = false;
-  const next = list.map((item) => {
-    if (!item) return item;
-    let out = item;
-    for (const key of branches) {
-      if (!Array.isArray(item[key])) continue;
-      const moved = moveInTree(item[key], id, gap, branches);
-      if (moved === item[key]) continue;
-      if (out === item) out = { ...item };
-      out[key] = moved;
-      changed = true;
-    }
-    return out;
-  });
-  return changed ? next : list;
-}

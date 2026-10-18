@@ -1,9 +1,9 @@
 {
-  "name": "simonsays-web",
+  "name": "simonbot-web",
   "private": true,
-  "version": "2.2.1",
+  "version": "0.0.1",
   "type": "module",
-  "description": "Configuration UI and overlay renderer. Holds no authority — the server does.",
+  "description": "SimonBot's dashboard. Holds no authority — the server does.",
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",

@@ -2,10 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The Moderators screen (2.0.0), the streamer's only: who has signed in as a
+ * The Moderators screen, the streamer's only: who has signed in as a
  * moderator, who is here now, and what they did; signing one out, turning
- * one away from the dashboard (or letting them back in), and putting a
- * moderator's own dock back to the streamer's.
+ * one away from the dashboard (or letting them back in).
  *
  * Every moderator of the Twitch channel can sign in (server/api/auth.js);
  * this is for the ones who should not, and for seeing what the ones who do
@@ -13,8 +12,8 @@
  * seconds while the screen is open, so somebody arriving or a button pressed
  * shows up without reloading.
  */
-import React, { useCallback, useEffect, useState } from 'react';
-import { ShieldCheck, LogOut, Ban, Undo2, RotateCcw, Users, ScrollText } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ShieldCheck, LogOut, Ban, Undo2, Users, ScrollText } from 'lucide-react';
 import { Button } from '../Button';
 import { fill, refusalWords } from '../../words';
 
@@ -26,13 +25,12 @@ interface Moderator {
   since: number;
   seenAt: number;
   online: number;
-  ownDock: boolean;
 }
 interface Blocked { userId: string; login: string; at: number }
 interface Entry { at: number; userId: string; login: string; type: string; op?: string; what: string; times?: number }
 
 interface Props {
-  /** Ask the server (C2S.MODERATORS): { op: 'list' | 'block' | 'unblock' | 'signout' | 'reset-dock' | 'activity', … }. */
+  /** Ask the server (C2S.MODERATORS): { op: 'list' | 'block' | 'unblock' | 'signout' | 'activity', … }. */
   ask: (payload: any) => Promise<any>;
   language: string;
   light: boolean;
@@ -42,21 +40,6 @@ interface Props {
 
 /** What a request was, in words: the ones a moderator does most, by name; anything else by its own name, readably. */
 const DID: Record<string, string> = {
-  send_chat: 'modDidSendChat',
-  run_dock_action: 'modDidDeckButton',
-  run_action: 'modDidRunAction',
-  test_action: 'modDidRunAction',
-  save_action: 'modDidSaveAction',
-  delete_action: 'modDidDeleteAction',
-  save_command: 'modDidSaveCommand',
-  delete_command: 'modDidDeleteCommand',
-  save_alert: 'modDidSaveAlert',
-  delete_alert: 'modDidDeleteAlert',
-  test_alert: 'modDidTestAlert',
-  set_dock_buttons: 'modDidOwnDeck',
-  set_dock_grid: 'modDidOwnDeck',
-  set_chat_dock_settings: 'modDidOwnDock',
-  omnilayer: 'modDidLayoutLive',
   moderation: 'modDidModerate',
 };
 const readable = (type: string) => type.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
@@ -122,7 +105,7 @@ export const ModeratorsView = ({ ask, language, light, openSettings, t }: Props)
           <h3 className="text-xl font-extrabold uppercase tracking-tight">{t.moderatorsNav || 'Moderators'}</h3>
         </div>
         <p className="text-xs text-zinc-500 leading-relaxed max-w-3xl">
-          {t.modsIntro || 'Every moderator of your Twitch channel can sign in to the dashboard. Here you see who has, who is here now and what they did — and you can sign one out, turn one away, or put their dock back to yours.'}
+          {t.modsIntro || 'Every moderator of your Twitch channel can sign in to the dashboard. Here you see who has, who is here now and what they did — and you can sign one out or turn one away.'}
         </p>
         {state && !state.enabled && (
           <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3" data-mods-signin-off>
@@ -153,16 +136,9 @@ export const ModeratorsView = ({ ask, language, light, openSettings, t }: Props)
                     {m.online ? (t.modsHereNow || 'Here now') : fill(t.modsLastSeen || 'Last seen {when}', { when: ago(m.seenAt, language, t) })}
                     {' · '}
                     {fill(m.sessions === 1 ? (t.modsOneBrowser || 'signed in on 1 browser') : (t.modsBrowsers || 'signed in on {count} browsers'), { count: m.sessions })}
-                    {m.ownDock ? ` · ${t.modsOwnDock || 'their own dock'}` : ''}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {m.ownDock && (
-                    <Button size="sm" variant="secondary" icon={<RotateCcw size={12} />} disabled={Boolean(busy)} data-mod-reset-dock
-                      onClick={() => act({ op: 'reset-dock', userId: m.userId }, fill(t.modsResetDockConfirm || 'Put {name}’s dock back to yours? Their own chat look, tabs and deck are thrown away.', { name: m.name || m.login }))}>
-                      {t.modsResetDock || 'Dock back to yours'}
-                    </Button>
-                  )}
                   <Button size="sm" variant="secondary" icon={<LogOut size={12} />} disabled={Boolean(busy)} data-mod-signout
                     onClick={() => act({ op: 'signout', userId: m.userId })}>
                     {t.modsSignOut || 'Sign out'}
@@ -206,7 +182,7 @@ export const ModeratorsView = ({ ask, language, light, openSettings, t }: Props)
           </select>
         </div>
         {!entries.length ? (
-          <p className="text-xs text-zinc-500" data-mods-activity-none>{t.modsActivityNone || 'Nothing yet. When a moderator changes something, presses a button or chats from the dashboard, it shows here.'}</p>
+          <p className="text-xs text-zinc-500" data-mods-activity-none>{t.modsActivityNone || 'Nothing yet. When a moderator changes something from the dashboard, it shows here.'}</p>
         ) : (
           <ul className="divide-y divide-zinc-800/60" data-mods-activity>
             {entries.map((e, i) => (

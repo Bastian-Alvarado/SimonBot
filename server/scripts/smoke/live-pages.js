@@ -12,18 +12,19 @@
  * boots — through scripts/smoke.js, never on its own. After moments.js.
  */
 
-import { assert, bus, EVENTS, normaliseEvent, test } from './harness.js';
+import { assert, bus, EVENTS, test } from './harness.js';
 
 const pages = await import('../../engine/discord-pages.js');
 const shared = await import('../../../shared/discord-pages.js');
 const sessions = await import('../../engine/stream-sessions.js');
 const { config } = await import('../../config.js');
 
-const words = shared.fillWords('Viendo: {viewers}\n👀 {viewersAll} viendo\n{nope}\n🎵 {nowPlaying}', { stats: { twitchViewers: 12 } }, { viewersAll: '' });
+const words = shared.fillWords('Votos: {pollVotes}\n🎙️ {voiceTalking} hablando\n{nope}\n{streamTitle}', { poll: { mode: 'open', total: 12 }, voice: { members: [] } }, { streamTitle: '' });
 
 test('a page\'s {names} are filled in, a line with only empty ones goes, an unknown one stays to be seen', () => {
-  assert.equal(words, 'Viendo: 12\n{nope}');
-  assert.equal(shared.PAGE_VAR_NAMES.has('live') && shared.PAGE_VAR_NAMES.has('nowPlaying'), true);
+  assert.equal(words, 'Votos: 12\n{nope}');
+  assert.equal(shared.PAGE_VAR_NAMES.has('live') && shared.PAGE_VAR_NAMES.has('pollVotes'), true);
+  assert.equal(shared.PAGE_VAR_NAMES.has('nowPlaying') || shared.PAGE_VAR_NAMES.has('viewers'), false, 'a page still offers what only the stream tools knew');
 });
 
 // ---------------------------------------------------------------- a live status page
@@ -52,7 +53,7 @@ const offline = calls.filter((c) => c.method === 'POST')[0].body.embeds[0];
 
 let t0 = Date.now() + 60_000;
 const nothing = await pages.refreshLive(t0);
-bus.emit(EVENTS.EVENT, normaliseEvent({ type: 'obs_stream_started' }));
+bus.emit(EVENTS.STAT, { key: 'twitchLive', value: true });
 bus.emit(EVENTS.CHANNEL, { title: 'Jugando', categoryName: 'Among Us' });
 const before = calls.length;
 const wentLive = await pages.refreshLive(t0 += 60_000);
@@ -62,7 +63,7 @@ bus.emit(EVENTS.CHANNEL, { title: 'Jugando', categoryName: 'Minecraft' });
 const newGame = await pages.refreshLive(t0 += 60_000);
 const gameEdit = calls.filter((c) => c.method === 'PATCH').at(-1);
 const unchanged = await pages.refreshLive(t0 += 60_000);
-bus.emit(EVENTS.EVENT, normaliseEvent({ type: 'obs_stream_stopped' }));
+bus.emit(EVENTS.STAT, { key: 'twitchLive', value: false });
 await sessions._test.finish();
 for (const p of [status, quiet]) pages.removePage(p.id);
 globalThis.fetch = realFetch;

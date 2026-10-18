@@ -6,9 +6,8 @@
  * inline in index.html alongside the cdn.tailwindcss.com script tag.
  *
  * Why this file exists: the CDN build compiles CSS in the browser on every
- * page load by watching the DOM. That made the whole app — including the OBS
- * chat dock and alert overlay — depend on reaching a third-party host at
- * render time. A CDN hiccup meant an unstyled overlay on-air.
+ * page load by watching the DOM. That made the whole app depend on reaching a
+ * third-party host at render time: a CDN hiccup meant an unstyled dashboard.
  *
  * `content` deliberately includes constants.ts: the theme definitions there
  * hold complete class strings (`bg-zinc-900/40`, `border-amber-900/30`) that
@@ -58,23 +57,10 @@ export default {
         'float': 'float 6s ease-in-out infinite',
         'float-delayed': 'float 6s ease-in-out 3s infinite',
         'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        // Alert entrances and exits. Every stored alert config already names
-        // one of these — `animate-pop-in` and `animate-fade-out` were the
-        // defaults — but none of them existed, so no alert has ever animated.
-        // `forwards` on the exits so a finished alert stays gone rather than
-        // snapping back to full opacity for its last frame.
+        // Entrances.
         'pop-in': 'popIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
         'zoom-in': 'zoomIn 0.4s ease-out',
         'slide-down': 'slideDown 0.45s ease-out',
-        'fade-out': 'fadeOut 0.4s ease-in forwards',
-        'pop-out': 'popOut 0.35s ease-in forwards',
-        'slide-out-up': 'slideOutUp 0.4s ease-in forwards',
-        // A value too long for the omnibar, walked past and brought back.
-        // The duration is set on the element, because the pace has to be the
-        // same whether there are ten pixels too many or three hundred.
-        'bar-drift': 'barDrift 12s ease-in-out infinite',
-        // The same for a question too tall for its card, upwards: see QuestionOverlay.
-        'question-drift': 'questionDrift 12s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -111,30 +97,6 @@ export default {
         slideDown: {
           '0%': { transform: 'translateY(-28px)', opacity: '0' },
           '100%': { transform: 'translateY(0)', opacity: '1' },
-        },
-        fadeOut: {
-          '0%': { opacity: '1' },
-          '100%': { opacity: '0' },
-        },
-        popOut: {
-          '0%': { transform: 'scale(1)', opacity: '1' },
-          '100%': { transform: 'scale(0.7)', opacity: '0' },
-        },
-        slideOutUp: {
-          '0%': { transform: 'translateY(0)', opacity: '1' },
-          '100%': { transform: 'translateY(-28px)', opacity: '0' },
-        },
-        // How far to walk is the element's own business, so it says: the
-        // distance is a property set on it and read back here.
-        barDrift: {
-          '0%, 10%': { transform: 'translateX(0)' },
-          '45%, 55%': { transform: 'translateX(var(--bar-drift, 0px))' },
-          '90%, 100%': { transform: 'translateX(0)' },
-        },
-        questionDrift: {
-          '0%, 10%': { transform: 'translateY(0)' },
-          '45%, 55%': { transform: 'translateY(var(--question-drift, 0px))' },
-          '90%, 100%': { transform: 'translateY(0)' },
         },
       },
     },

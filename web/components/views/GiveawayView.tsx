@@ -5,7 +5,7 @@
  * The Giveaways screen (server/engine/giveaway.js): set one up — the prize,
  * the word to type, how long, how many win, who may enter — run it, draw it,
  * and see who is in. Entered from every chat, and from a button in Discord
- * when it is posted there; drawn live on the Giveaway layer.
+ * when it is posted there. The winners are told in chat and in Discord.
  */
 import React, { useEffect, useState } from 'react';
 import { Gift, Play, Square, Shuffle, RotateCcw, Trash2, X, Loader2 } from 'lucide-react';
@@ -78,7 +78,7 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
           </span>
         </div>
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.giveawayHint || 'Viewers enter by typing the word in any chat — Twitch, YouTube, TikTok, Kick or Discord — or with the button on the Discord post. The draw runs on the Giveaway layer: a reel of names that stops on the winner, then chat and Discord are told.'}
+          {t.giveawayHint || 'Viewers enter by typing the word in any chat — Twitch, YouTube, TikTok, Kick or Discord — or with the button on the Discord post. When you draw, chat and Discord are told who won.'}
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px] gap-4">
@@ -196,7 +196,7 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
             </select>
           )}
         </div>
-        <p className="text-[10px] text-zinc-600">{t.giveawayPostHint || 'The post says the prize and how to enter, closes when entries stop, and names the winner once the draw has played on stream. Discord winners are pinged.'}</p>
+        <p className="text-[10px] text-zinc-600">{t.giveawayPostHint || 'The post says the prize and how to enter, closes when entries stop, and names the winner as soon as they are drawn. Discord winners are pinged.'}</p>
       </div>
     </div>
   );

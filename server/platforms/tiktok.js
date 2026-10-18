@@ -4,7 +4,7 @@
  *
  * TikTok Live, via tiktok-live-connector v2.
  *
- * Two things were broken with the V2-era setup:
+ * Two things were broken in an earlier setup:
  *
  *   1. The library was pinned to 1.x, whose request-signing endpoint now
  *      returns 403. The room resolved but the connection could never be
@@ -19,20 +19,18 @@
  * names are used.
  *
  * Every attempt spends a request against the signing service's rate limit,
- * so it only looks while OBS is streaming — TikTok is where that stream is
- * also sent:
+ * so it only looks while Twitch is live (server/core/twitch-live.js) — TikTok
+ * is where that stream is also sent:
  *
- *   OBS connected, not streaming  ->  no looking at all
- *   OBS streaming                 ->  at once, every 30s for ten minutes
- *                                     (TikTok tends to go live a beat after
- *                                     OBS does), then every two minutes
+ *   Twitch not live    ->  no looking at all
+ *   Twitch live        ->  at once, every 30s for ten minutes (TikTok tends
+ *                          to go live a beat after), then every two minutes
  *
- * OBS not reachable, nobody can say whether it is streaming, and Twitch
- * being live decides (server/core/twitch-live.js), on the same timetable;
- * with neither, every config.tiktok.pollIntervalMs, so it is never blind.
+ * With Twitch not connected, nobody can say, so it looks every
+ * config.tiktok.pollIntervalMs, so it is never blind.
  *
- * A TikTok stream started without either is still found by pressing Connect.
- * Once connected it stays connected until that stream ends, whatever OBS
+ * A TikTok stream started without Twitch is still found by pressing Connect.
+ * Once connected it stays connected until that stream ends, whatever Twitch
  * does: being connected costs nothing.
  *
  * One connection at a time, and only the one kept speaks: an attempt still
@@ -67,75 +65,50 @@ let generation = 0;
 const connecting = () => connectingIn === generation;
 /*
   Whether anyone asked for TikTok. Pressing Disconnect means stay away until
-  Connect is pressed again — OBS going live must not quietly undo that.
+  Connect is pressed again — Twitch going live must not quietly undo that.
 */
 let wanted = false;
 
-/* What OBS last said: reachable, and streaming, and since when. */
-let obsLink = { connected: false, streaming: false, since: 0 };
 /* How TikTok is being looked for, for the Connections screen. */
-let watch = { mode: 'no-obs', nextTryAt: 0 };
+let watch = { mode: 'no-twitch', nextTryAt: 0 };
 
 const LIVE_FAST_MS = 30_000;
 const LIVE_FAST_FOR_MS = 10 * 60_000;
 const LIVE_SLOW_MS = 2 * 60_000;
 
-/** Which it is: OBS's say when OBS can say, otherwise Twitch's, otherwise neither. */
+/** Which it is: Twitch's say, or nobody's while Twitch is not connected. */
 const currentMode = () => {
-  if (obsLink.connected) return obsLink.streaming ? 'obs-live' : 'obs-idle';
   const tw = twitchLive();
   if (tw.known) return tw.live ? 'twitch-live' : 'twitch-idle';
-  return 'no-obs';
+  return 'no-twitch';
 };
 
 /*
-  Follows Twitch going live and stopping, which decides only while OBS
-  cannot be reached. Already on TikTok, or nobody to look for, or told to
-  stay away: nothing to decide.
+  Follows Twitch going live and stopping. Already on TikTok, or nobody to
+  look for, or told to stay away: nothing to decide.
 */
 function watchTwitch() {
   onTwitchLive((_s, { wentLive }) => {
-    if (obsLink.connected || !channel || connection || connecting() || !wanted) return;
-    schedule(currentMode(), { now: wentLive });
-  });
-}
-
-/*
-  Follows OBS through the status events it already sends — on connecting,
-  on every stream start and stop, and on losing the connection. Only a
-  change of reachable or streaming moves anything here.
-*/
-function watchObs() {
-  bus.on(EVENTS.STATUS, (s) => {
-    if (s?.platform !== 'obs') return;
-    const connected = s.status === 'connected';
-    const streaming = connected && Boolean(s.streamStatus?.active);
-    if (connected === obsLink.connected && streaming === obsLink.streaming) return;
-    const wentLive = streaming && !obsLink.streaming;
-    obsLink = { connected, streaming, since: wentLive ? Date.now() : obsLink.since };
-    // Already on TikTok (or about to be), or nobody to look for: nothing to decide.
     if (!channel || connection || connecting() || !wanted) return;
     schedule(currentMode(), { now: wentLive });
   });
 }
 
 /**
- * Look for the stream on the timetable the mode asks for — or, with OBS up
- * and not streaming, do not look at all.
+ * Look for the stream on the timetable the mode asks for — or, with Twitch
+ * not live, do not look at all.
  */
 function schedule(mode, { now = false } = {}) {
   clearTimeout(pollTimer);
   pollTimer = null;
   if (!channel || connection || connecting() || !wanted) return;
 
-  const live = mode === 'obs-live' || mode === 'twitch-live';
+  const live = mode === 'twitch-live';
   if (mode !== watch.mode) {
     const every = live ? LIVE_FAST_MS : config.tiktok.pollIntervalMs;
     log.info(mode === 'twitch-idle' ? `Twitch is not live — not looking for @${channel} until it is`
       : mode === 'twitch-live' ? `Twitch is live — looking for @${channel} every ${every / 1000}s`
-        : mode === 'obs-idle' ? `OBS is not streaming — not looking for @${channel} until it is`
-          : mode === 'obs-live' ? `OBS is live — looking for @${channel} every ${every / 1000}s`
-            : `OBS is not connected — looking for @${channel} every ${every / 1000}s`);
+        : `Twitch is not connected — looking for @${channel} every ${every / 1000}s`);
   }
 
   /*
@@ -144,14 +117,14 @@ function schedule(mode, { now = false } = {}) {
     screen said "Stop polling", so it was stopped — which switches TikTok
     off for when Twitch does go live too.
   */
-  if (mode === 'obs-idle' || mode === 'twitch-idle') {
+  if (mode === 'twitch-idle') {
     watch = { mode, nextTryAt: 0 };
     setStatus('waiting');
     return;
   }
 
-  // Fast at first, from when the stream went live — OBS's, or Twitch's when OBS cannot say.
-  const since = mode === 'twitch-live' ? twitchLive().since : obsLink.since;
+  // Fast at first, from when the stream went live.
+  const since = twitchLive().since;
   const every = live
     ? (Date.now() - since < LIVE_FAST_FOR_MS ? LIVE_FAST_MS : LIVE_SLOW_MS)
     : config.tiktok.pollIntervalMs;
@@ -168,7 +141,6 @@ function schedule(mode, { now = false } = {}) {
 export function initTikTok() {
   creds = collection('tiktok_credentials', { username: '', signApiKey: '' });
   channel = creds.get().username || null;
-  watchObs();
   watchTwitch();
   if (config.autoStart && channel) {
     wanted = true;
@@ -216,8 +188,8 @@ function buildConnection(name) {
     // returns in the initial sign response and emitting them as ordinary chat.
     // They arrive stamped with the current time (messages carry no usable
     // timestamp of their own here), so an hour-old comment looks brand new and
-    // shoves genuinely recent Twitch and Discord messages out of the dock.
-    // A live dock should start from the moment it connects.
+    // shoves genuinely recent Twitch and Discord messages out of the chat.
+    // A live chat should start from the moment it connects.
     processInitialData: false,
   };
 
@@ -238,7 +210,7 @@ export function useConnectionFactory(fn) {
   makeConnection = fn || ((name, options) => new TikTokLiveConnection(name, options));
 }
 
-/* Not live: go back to looking, on whatever timetable OBS says. */
+/* Not live: go back to looking, on whatever timetable Twitch says. */
 function startPolling() {
   if (pollTimer || !channel) return;
   schedule(currentMode());
@@ -308,9 +280,9 @@ export async function connect() {
   wanted = true;
   stopPolling();
   await disconnect({ keepChannel: true });
-  // Not live (Twitch's say, or OBS's without it): nothing to find yet, so not even one look — switched on, and waiting.
+  // Not live, as Twitch says: nothing to find yet, so not even one look — switched on, and waiting.
   const mode = currentMode();
-  if (mode === 'twitch-idle' || mode === 'obs-idle') { schedule(mode); return; }
+  if (mode === 'twitch-idle') { schedule(mode); return; }
   await attemptConnect();
 }
 
@@ -375,7 +347,7 @@ function wireEvents(conn) {
 
   on(WebcastEvent.GIFT, (d) => {
     // Streak gifts fire repeatedly while held; bank once at streak end so a
-    // 100x combo does not trigger a hundred alerts.
+    // 100x combo is counted once, not a hundred times.
     const isStreak = d.giftType === 1 || d.gift?.type === 1;
     if (isStreak && !d.repeatEnd) return;
     if (!firstTime(d)) return;
@@ -437,7 +409,7 @@ function wireEvents(conn) {
   });
 
   // A moderator deleted a message (or banned a user) upstream — drop it from
-  // our dock too, rather than leaving removed content on screen.
+  // our chat too, rather than leaving removed content on screen.
   on(WebcastEvent.IM_DELETE, (d) => {
     const msgIds = d.deleteMsgIds ?? [];
     const userIds = d.deleteUserIds ?? [];
@@ -448,8 +420,7 @@ function wireEvents(conn) {
 
   on(WebcastEvent.MEMBER, (d) => {
     if (!firstTime(d)) return;
-    // Joins are informational — surfaced as chat so the dock can show them
-    // without counting as an alertable event.
+    // Joins are informational — surfaced as chat, without counting as an event.
     bus.emit(EVENTS.CHAT, normaliseChat({
       platform: 'tiktok',
       user: nameOf(d),

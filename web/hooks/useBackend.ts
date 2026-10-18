@@ -4,40 +4,28 @@
  *
  * The single connection to the headless server.
  *
- * In V2 the browser opened six sockets and owned the platform connections
- * itself. There is now exactly one socket, and it carries no authority: the
- * server is the source of truth, this hook is a replica plus a request
- * channel. Closing the tab has no effect on anything running.
+ * Exactly one socket, and it carries no authority: the server is the source
+ * of truth, this hook is a replica plus a request channel. Closing the tab
+ * has no effect on anything running.
  */
 
 import { resolveServerUrl } from '../../shared/server-url.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { C2S, S2C } from '../../shared/protocol.js';
-import { withViewerEvent } from '../../shared/viewer-events.js';
 
 type Handler = (payload: any) => void;
 
 /** Who this page is signed in as (S2C.ME). With sign-in off, everyone is the owner. */
 export interface Me {
-  role: 'owner' | 'mod' | 'page';
+  role: 'owner' | 'mod';
   login: string;
   name: string;
-  via: 'open' | 'session' | 'owner-key' | 'page-key';
+  via: 'open' | 'session' | 'owner-key';
   /** Whether sign-in is switched on at all. */
   signIn: boolean;
 }
 
 export interface BackendSnapshot {
-  commands: any[];
-  streamActions: any[];
-  alertConfigs: any[];
-  eventHistory: any[];
-  /** A short tail of chat, so a surface that just opened is not blank. */
-  recentChat: any[];
-  omnibar?: any;
-  countdown?: any;
-  streamTags: any;
-  tagOutputs: Record<string, string>;
   relayConfig: any;
   xpConfig: any;
   leaderboard: any[];
@@ -50,23 +38,10 @@ export interface BackendSnapshot {
   roleMappings?: any;
   roleActivityLog?: any[];
   xpData?: Record<string, any>;
-  stats?: Record<string, any>;
-  viewers?: any;
-  viewerEvents?: any[];
   subscribers?: any[];
 }
 
 const EMPTY_SNAPSHOT: BackendSnapshot = {
-  commands: [],
-  streamActions: [],
-  alertConfigs: [],
-  eventHistory: [],
-  recentChat: [],
-  streamTags: {
-    latestFollower: null, latestSubscriber: null, latestDonation: null,
-    topDonation: null, latestRaid: null,
-  },
-  tagOutputs: {},
   relayConfig: { twitchToDiscord: false, tiktokToDiscord: false, kickToDiscord: false },
   xpConfig: {},
   leaderboard: [],
@@ -87,23 +62,7 @@ function serverUrl(): string {
     apiPort: (import.meta as any).env?.VITE_API_PORT ?? undefined,
   });
   if (remember) { try { localStorage.setItem(REMEMBERED, remember); } catch { /* a browser may refuse */ } }
-  return withPageKey(url);
-}
-
-/*
-  A page OBS shows cannot sign in, so its link carries the page key
-  (server/api/auth.js), and the page passes it on to the server with
-  everything it asks for. Nothing else ever puts a key in an address.
-*/
-const pageKey = () => new URLSearchParams(window.location.search).get('key') || '';
-function withPageKey(url: string): string {
-  const key = pageKey();
-  if (!key) return url;
-  try {
-    const u = new URL(url);
-    u.searchParams.set('key', key);
-    return u.toString();
-  } catch { return url; }
+  return url;
 }
 
 /**
@@ -115,24 +74,15 @@ function withPageKey(url: string): string {
  * to the server it is actually talking to.
  */
 export function httpBase(): string {
-  // Without the page key: the address is for joining a path to.
-  const u = serverUrl().replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
-  try {
-    const parsed = new URL(u);
-    parsed.searchParams.delete('key');
-    return parsed.toString().replace(/\/$/, '');
-  } catch { return u; }
+  return serverUrl().replace(/^ws:/, 'http:').replace(/^wss:/, 'https:').replace(/\/$/, '');
 }
 
 /**
- * A request to the server's HTTP API, with this page's sign-in: the cookie
- * (sent along even to the development server's other port), or an OBS
- * page's key.
+ * A request to the server's HTTP API, with this page's sign-in: the cookie,
+ * sent along even to the development server's other port.
  */
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const key = pageKey();
-  const target = key ? `${path}${path.includes('?') ? '&' : '?'}key=${encodeURIComponent(key)}` : path;
-  return fetch(`${httpBase()}${target}`, { credentials: 'include', ...init });
+  return fetch(`${httpBase()}${path}`, { credentials: 'include', ...init });
 }
 
 export function useBackend() {
@@ -174,10 +124,9 @@ export function useBackend() {
    * Fold a server push into the replicated snapshot.
    *
    * Only SNAPSHOT and CONFIG_PATCH were handled originally, so live pushes —
-   * a platform coming online, a tag changing, a new event — reached
-   * subscribers but never updated the state the views actually render. The
-   * visible symptom was a connected platform still showing "Offline" until
-   * the page was reloaded.
+   * a platform coming online — reached subscribers but never updated the
+   * state the views actually render. The visible symptom was a connected
+   * platform still showing "Offline" until the page was reloaded.
    */
   const applyToSnapshot = useCallback((type: string, p: any) => {
     if (p === undefined || p === null) return;
@@ -189,13 +138,9 @@ export function useBackend() {
           ...prev,
           ...p,
           // `serverNow` is only "now" at the instant this frame arrives, so the
-          // moment of arrival is recorded with it. Measuring clock skew later —
-          // when a component happens to mount — reads a stale timestamp as the
-          // current time and shifts the clock by the age of the frame.
-          ...(p.countdown?.serverNow ? { countdown: { ...p.countdown, clientReceivedAt: Date.now() } } : {}),
-          // The run timer measures against the server clock the same way.
-          ...(p.stopwatch?.serverNow ? { stopwatch: { ...p.stopwatch, clientReceivedAt: Date.now() } } : {}),
-          // And so does the poll's.
+          // moment of arrival is recorded with it, for the poll's clock. Measuring
+          // clock skew later — when a component happens to mount — reads a stale
+          // timestamp as the current time and shifts the clock by the age of the frame.
           ...(p.poll?.serverNow ? { poll: { ...p.poll, clientReceivedAt: Date.now() } } : {}),
         }));
         return;
@@ -210,32 +155,6 @@ export function useBackend() {
             // `detail`; the others send a flat payload to merge in place.
             [p.platform]: p.detail ?? { ...(prev.status?.[p.platform] ?? {}), ...p },
           },
-        }));
-        return;
-
-      /**
-       * Live counters — viewer counts, likes.
-       *
-       * The server has always broadcast these, but nothing consumed them, so
-       * `stats` only ever held whatever the initial snapshot carried and every
-       * number froze at page load. Harmless while nothing rendered them;
-       * fatal for a live viewer counter.
-       */
-      case S2C.STATS:
-        setSnapshot((prev) => ({ ...prev, stats: { ...(prev.stats || {}), ...p } }));
-        return;
-
-      case S2C.TAGS:
-        setSnapshot((prev) => ({ ...prev, streamTags: p }));
-        return;
-
-      case S2C.EVENT:
-        setSnapshot((prev) => ({
-          ...prev,
-          eventHistory: [p, ...(prev.eventHistory ?? [])].slice(0, 100),
-          // The viewers' list takes it too, by the server's own rules, rather than
-          // the server sending the whole list again on every follow.
-          viewerEvents: withViewerEvent(prev.viewerEvents, p),
         }));
         return;
 
@@ -254,7 +173,7 @@ export function useBackend() {
         return;
 
       default:
-        // Chat, alerts and device actions are render-state, owned by the view.
+        // Anything else is for whoever subscribed to it.
     }
   }, []);
 
@@ -325,18 +244,8 @@ export function useBackend() {
         retryRef.current = 0;
         setConnected(true);
 
-        // Identify which surface this is. The server routes audio and speech
-        // to a single client and prefers the chat dock, so it needs to know
-        // what it is talking to.
-        // A canvas also says which layout it shows: one with the alerts on it
-        // is where speech goes first, so an alert is read by the page showing it.
-        const query = new URLSearchParams(window.location.search);
-        ws.send(JSON.stringify({
-          type: C2S.HELLO,
-          // And whether it is inside OBS, which gives its pages `obsstudio`: the Guides checklist counts on it.
-          // A canvas on OBS's vertical canvas says so: it shows the vertical side, and the horizontal one keeps the sound.
-          payload: { mode: query.get('mode') || 'dashboard', layout: query.get('layout') || undefined, obs: Boolean((window as any).obsstudio), ...(query.get('format') === 'vertical' ? { format: 'vertical' } : {}) },
-        }));
+        // Hello, and the server answers with everything as it is now.
+        ws.send(JSON.stringify({ type: C2S.HELLO, payload: {} }));
 
         flushOutbox();
       };
@@ -383,15 +292,13 @@ export function useBackend() {
 
         /*
           The server's reasons (server/api/ws.js). 4401: nobody it knows —
-          the dashboard asks to sign in and waits for it; an OBS page, whose
-          key may have been changed, tries again now and then. 4403: opened
+          the dashboard asks to sign in and waits for it. 4403: opened
           from somewhere it does not take connections from, which trying
           again will not change. 4001: sign-in was switched on or off, so
           straight back, to be asked again who this is.
         */
         if (event.code === 4401) {
           setSignIn('needed');
-          if (pageKey()) retryTimer = setTimeout(connect, 30_000);
           return;
         }
         if (event.code === 4403) { setSignIn('refused'); return; }

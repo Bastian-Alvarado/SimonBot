@@ -655,7 +655,7 @@ const WelcomeScreen = ({ activeTheme, t, system }: WelcomeGoodbyeViewProps) => {
             </label>
             {isDirty && (
               <div>
-                <Button onClick={save} icon={<Save size={16} />} className="shadow-2xl shadow-current-accent/20">{t.saveConfig || 'Save'}</Button>
+                <Button onClick={save} icon={<Save size={16} />} className="shadow-2xl shadow-current-accent/20">{t.saveConfig || 'Save Configuration'}</Button>
               </div>
             )}
           </div>

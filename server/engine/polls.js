@@ -4,10 +4,9 @@
  *
  * The poll: one question at a time, voted on from every chat the app reads.
  *
- * Kept on the server for the countdown's reasons. An overlay that reloads
- * mid-poll must come back with the same votes, and the dashboard, the dock
- * and OBS must all agree on who is winning. The clock is an absolute end
- * time, measured by each surface against `serverNow`, as the countdown's is.
+ * Kept on the server, so a page that reloads mid-poll comes back with the same
+ * votes, and every open dashboard agrees on who is winning. The clock is an
+ * absolute end time, measured by each page against `serverNow`.
  *
  * Who voted for what stays here. Surfaces get the counts: a name beside each
  * vote is nobody else's business, and a busy poll's list of voters would be
@@ -30,7 +29,6 @@
 import { collection } from '../core/store.js';
 import { bus, EVENTS, normaliseEvent } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
-import * as commands from './commands.js';
 import {
   cleanOptions, cleanQuestion, cleanDuration, cleanRules, parsePollLine,
   readVote, tally, leadersOf, percentOf, cleanPollSettings,
@@ -50,10 +48,7 @@ const DEFAULT = {
   /** How long a poll runs once opened. 0 is until somebody closes it. */
   durationMs: 60 * 1000,
   endsAt: null,
-  /**
-   * When the last poll opened and closed. Kept after it is cleared, so a
-   * message can still be known as a vote in it — see wasVote.
-   */
+  /** When the last poll opened and closed. */
   openedAt: null,
   closedAt: null,
   rules: DEFAULT_RULES,
@@ -201,9 +196,9 @@ function scheduleClose(s) {
 }
 
 /**
- * A closed result that clears itself. On the server, so everything that
- * shows the poll — or moves aside for it — lets go at the same moment; a
- * layer that only hid itself left the rest waiting for somebody to clear it.
+ * A closed result that clears itself. On the server, so every page showing
+ * the poll lets go at the same moment, rather than each one hiding it alone
+ * and leaving the rest waiting for somebody to clear it.
  */
 function scheduleResultClear() {
   if (resultTimer) { clearTimeout(resultTimer); resultTimer = null; }
@@ -243,8 +238,8 @@ function close(why) {
   scheduleResultClear();
 
   /*
-    As a stream event, so an action can react — read the winner out, switch
-    a scene. {user} is the winning answer, since that is what an action most
+    As a stream event, so anything listening can react to the result. The
+    winning answer is the event's user, since that is what a listener most
     wants to say; a tie names every answer that tied.
   */
   bus.emit(EVENTS.EVENT, normaliseEvent({
@@ -261,8 +256,7 @@ function close(why) {
 /**
  * "!encuesta Pregunta | a | b" opens that poll; "!encuesta" alone opens the one
  * set up on the Polls screen; "!encuesta cerrar" closes it. Mods and the
- * streamer only — a poll anyone could open would be opened by anyone. A
- * command of the streamer's own on the same word answers instead. Returns
+ * streamer only — a poll anyone could open would be opened by anyone. Returns
  * whether the message was this command, so it is not read as a vote.
  */
 function onCommand(chat) {
@@ -272,7 +266,6 @@ function onCommand(chat) {
   const word = said.split(/\s+/)[0];
   if (word.toLowerCase() !== command.trigger) return false;
   if (!(chat.isMod || chat.isBroadcaster)) return true;
-  if (commands.ownCommandAnswers(collection('commands', []).get(), collection('actions', []).get(), said, chat.platform)) return true;
 
   const rest = said.slice(word.length).trim();
   const usage = `Escríbela así: ${command.trigger} Pregunta | respuesta | respuesta`;
@@ -380,13 +373,6 @@ export function control(op, value) {
       scheduleClose(opened);
       log.info(`poll opened: "${question}" — ${options.length} answers${opened.durationMs ? `, ${Math.round(opened.durationMs / 1000)}s` : ''}`);
       if (getSettings().announceOpen) say(openLine(opened));
-      // As a stream event too, so an action can start something with it.
-      bus.emit(EVENTS.EVENT, normaliseEvent({
-        type: 'poll_opened',
-        platform: 'system',
-        user: question,
-        data: { question, answers: options.join(' / '), count: options.length, seconds: Math.round(opened.durationMs / 1000) },
-      }));
       return getState();
     }
 
@@ -439,16 +425,4 @@ export function control(op, value) {
     default:
       throw new Error(`poll: unknown operation "${op}"`);
   }
-}
-
-/** A poll from one line of chat: "Question | answer | answer". */
-export function openFromLine(line) {
-  const parsed = parsePollLine(line);
-  // Nothing usable typed: open whatever is set up on the Polls screen.
-  if (!parsed.question && !parsed.options.length) return control('open');
-  if (parsed.options.length < MIN_OPTIONS) {
-    log.warn(`poll: "${line}" has fewer than two answers — write it as "Question | answer | answer"`);
-    return getState();
-  }
-  return control('open', parsed);
 }

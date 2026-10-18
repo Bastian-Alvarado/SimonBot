@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Smoke tests: putting lists in order by dragging a grip — where a dropped row
- * lands, steps moved inside their own branch, and every list that can be
- * reordered wired the same way.
+ * lands, and every list that can be reordered wired the same way.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own.
@@ -12,7 +11,7 @@
 
 import { SCRIPT_URL, assert, fs, test } from './harness.js';
 
-const { moveToGap, landedAt, moveInTree } = await import('../../../shared/list-order.js');
+const { moveToGap, landedAt } = await import('../../../shared/list-order.js');
 const read = (path) => fs.readFileSync(new URL(path, SCRIPT_URL), 'utf8');
 
 // ------------------------------------------------- where a row lands
@@ -44,32 +43,6 @@ test('where a dropped row ends up is where it is, so it can stay selected', () =
   }
 });
 
-// ------------------------------------------------- action steps
-
-const step = (id, then, otherwise) => ({ id, type: then ? 'condition' : 'twitch_chat', config: {}, ...(then ? { thenActions: then, elseActions: otherwise || [] } : {}) });
-const TREE = [step('one'), step('if', [step('t1'), step('t2'), step('t3')], [step('e1'), step('e2')]), step('two')];
-const ids = (list) => list.map((s) => s.id).join(' ');
-
-test('an action step is moved among the steps of its own list', () => {
-  assert.equal(ids(moveInTree(TREE, 'two', 0)), 'two one if', 'a top-level step did not move');
-  const inThen = moveInTree(TREE, 't3', 0);
-  assert.equal(ids(inThen[1].thenActions), 't3 t1 t2', 'a step inside "then" did not move');
-  assert.equal(inThen[1].elseActions, TREE[1].elseActions, 'the other branch was rebuilt for nothing');
-  assert.equal(inThen[0], TREE[0], 'a step nobody touched was rebuilt');
-  const inElse = moveInTree(TREE, 'e1', 2);
-  assert.equal(ids(inElse[1].elseActions), 'e2 e1', 'a step inside "else" did not move');
-});
-
-test('a step never leaves its branch, and a drop that moves nothing changes nothing', () => {
-  // Gap 3 in "else" is past its end: the step goes last in "else", not into "then" or the top.
-  const moved = moveInTree(TREE, 'e1', 3);
-  assert.equal(ids(moved[1].elseActions), 'e2 e1');
-  assert.equal(ids(moved[1].thenActions), 't1 t2 t3');
-  assert.equal(ids(moved), 'one if two');
-  assert.equal(moveInTree(TREE, 't1', 1), TREE, 'a drop where it already was rebuilt the action');
-  assert.equal(moveInTree(TREE, 'nobody', 0), TREE);
-});
-
 // ------------------------------------------------- the grip, everywhere
 
 test('the grip drags with a finger as well as a mouse, and only ever moves rows of its own list', () => {
@@ -86,66 +59,17 @@ test('the grip drags with a finger as well as a mouse, and only ever moves rows 
 
 test('every list that can be put in order has the grip', () => {
   const lists = [
-    // A layer's row is drawn once for the list and for a group's folder, so it is handed the list it is in.
-    ['../../web/components/views/LayoutsView.tsx', 'layerOrder', 'overlay layers', 'order'],
-    // A step draws itself, so its grip and row come from the list it is handed.
-    ['../../web/components/views/ActionsView.tsx', 'stepOrder', 'action steps', 'order'],
-    ['../../web/components/views/AlertsView.tsx', 'variationOrder', 'alert variations'],
-    ['../../web/components/views/OmnibarView.tsx', 'itemOrder', 'omnibar slots'],
     ['../../web/components/views/VoiceView.tsx', 'pinOrder', 'pinned voice people'],
-    ['../../web/components/ImageLayerPanel.tsx', 'sourceOrder', 'an image layer\'s pictures'],
-    ['../../web/components/views/PlayersView.tsx', 'playerOrder', 'players'],
+    ['../../web/components/views/DiscordPagesView.tsx', 'blockOrder', 'a Discord page\'s blocks'],
     ['../../web/components/views/DiscordButtonsView.tsx', 'buttonOrder', 'Discord buttons'],
     ['../../web/components/views/ReactionRolesView.tsx', 'mappingOrder', 'reaction roles'],
-    ['../../web/components/views/PlanView.tsx', 'stepOrder', 'the stream plan'],
-    ['../../web/components/pixel/PixelEditor.tsx', 'frameOrder', 'pixel avatar frames'],
   ];
-  for (const [path, name, what, via = name] of lists) {
+  for (const [path, name, what] of lists) {
     const src = read(path);
     assert.ok(src.includes(`const ${name} = useDragOrder(`), `${what}: no drag order`);
-    assert.ok(src.includes(`${via}.grip(`), `${what}: no grip`);
-    assert.ok(src.includes(`${via}.row(`) || src.includes(`${via}?.row(`), `${what}: the rows are not marked, so no gap can be measured`);
+    assert.ok(src.includes(`${name}.grip(`), `${what}: no grip`);
+    assert.ok(src.includes(`${name}.row(`), `${what}: the rows are not marked, so no gap can be measured`);
     assert.ok(src.includes(`ref={${name}.listRef}`), `${what}: the line has nowhere to be drawn`);
     assert.ok(src.includes(`{${name}.line}`), `${what}: nothing shows where the row would land`);
   }
-  assert.ok(read('../../web/components/pixel/PixelEditor.tsx').includes("}, { axis: 'x' });"), 'the frame strip is measured top to bottom, but it runs left to right');
-  const folder = read('../../web/components/LayerGroupFolder.tsx');
-  assert.ok(folder.includes('const memberOrder = useDragOrder(') && folder.includes('renderMember(layer, memberOrder)'), 'the layers in a group cannot be put in order');
-  assert.ok(folder.includes('ref={memberOrder.listRef}') && folder.includes('{memberOrder.line}'), 'a group\'s layers show nowhere to land');
-});
-
-test('a dragged action step is moved by the editor, through the same state as adding and removing', () => {
-  const app = read('../../web/App.tsx');
-  assert.ok(app.includes('moveInTree(prev.actions, stepId, gap)'), 'the step is moved some other way');
-  assert.ok(app.includes('moveActionStep={moveActionStep}'), 'the editor is never handed the move');
-  /*
-    The lists inside a step — a condition's then and else, a repeat's, a
-    later's, a pick's choices and each choice's — are all drawn by one
-    helper, handed the drag order of the list it draws. Each step inside is
-    the same StepRenderer with the same props, the move among them.
-  */
-  const view = read('../../web/components/views/ActionsView.tsx');
-  for (const name of ['thenOrder', 'elseOrder']) {
-    assert.ok(view.includes(`const ${name} = useDragOrder(({ id, gap }) => moveActionStep?.(id, gap));`), `${name}: no drag order`);
-  }
-  const helper = view.slice(view.indexOf('const innerList = ('), view.indexOf('const logicCard = ('));
-  assert.ok(helper.includes('ref={ord.listRef}') && helper.includes('{ord.line}'), 'a list inside a step shows nowhere to land');
-  assert.ok(helper.includes('<StepRenderer {...props} {...extra} key={subStep.id} step={subStep} index={i} order={ord} />'), 'the steps inside a step are not handed their list, or lose the move');
-  assert.ok(view.includes("innerList(step.thenActions, thenOrder, 'then')") && view.includes("innerList(step.elseActions, elseOrder, 'else')"), 'a condition\'s then or else is drawn some other way');
-  // The condition's then, a repeat, a later, a pick and a choice.
-  assert.equal(view.split('innerList(step.thenActions, thenOrder').length - 1, 5, 'not every step holding steps draws its list with the helper');
-});
-
-test('the omnibar grip is a grip now, not a picture of one', () => {
-  const view = read('../../web/components/views/OmnibarView.tsx');
-  assert.ok(!view.includes('<GripVertical size={14} className="text-zinc-700 shrink-0" />'), 'the old grip that did nothing is still there');
-});
-
-test('a dock button can be arranged with a finger too, and a mouse keeps the drag it had', () => {
-  const grid = read('../../web/components/DockActionsGrid.tsx');
-  assert.equal(grid.split('data-dock-cell={cell}').length - 1, 2, 'filled and empty cells are not both drop targets');
-  assert.ok(grid.includes("closest<HTMLElement>('[data-dock-cell], [data-dock-page]')"), 'the cell under the finger is not looked for');
-  assert.ok(grid.includes('{...touchArrange(button.id)}'), 'the buttons take no touch');
-  assert.ok(grid.includes("if (e.pointerType === 'mouse') return;"), 'a mouse would be dragged twice');
-  assert.ok(grid.includes('draggable={Boolean(arrange)}'), 'the mouse drag is gone');
 });

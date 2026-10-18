@@ -11,8 +11,7 @@
  *
  * Around the queue:
  *   - "!pregunta" is answered out of the box — each person once a minute, with
- *     a word back in chat — unless a command of the streamer's own answers to
- *     the same word;
+ *     a word back in chat;
  *   - the same person asking the same thing again while it is still waiting is
  *     the one question;
  *   - a question can be edited before it goes up, and added by hand;
@@ -25,7 +24,6 @@
 import { collection } from '../core/store.js';
 import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
-import * as commands from './commands.js';
 import { refusal } from '../core/refusal.js';
 import { pickLine } from '../../shared/pick-line.js';
 
@@ -256,8 +254,6 @@ function onChat(chat) {
   const said = String(chat?.msg ?? '').trim();
   const word = said.split(/\s+/)[0].toLowerCase();
   if (word !== ask.trigger) return;
-  // A command of the streamer's own on the same word answers instead.
-  if (commands.ownCommandAnswers(collection('commands', []).get(), collection('actions', []).get(), said, chat.platform)) return;
   const text = said.slice(said.split(/\s+/)[0].length).trim();
   if (!text) return;
   const who = `${chat.platform}:${chat.userId || chat.user}`.toLowerCase();
@@ -295,13 +291,11 @@ export function streamEnded() {
   if (atStreamEnd !== 'keep') log.info(`the stream ended — ${atStreamEnd === 'all' ? 'the queue was cleared' : 'finished questions were cleared'}`);
 }
 
-function onEvent(event) {
-  if (event?.type === 'obs_stream_stopped') streamEnded();
-}
+
 
 // ------------------------------------------------------------ requests
 
-/** The Questions screen's and the dock's requests beyond approving and showing. */
+/** The Questions screen's requests beyond approving and showing. */
 export function control(payload = {}) {
   switch (payload.op) {
     case 'add': {
@@ -310,7 +304,6 @@ export function control(payload = {}) {
       throw String(payload.text ?? '').trim()
         ? refusal('question_duplicate', 'that question is already in the queue')
         : refusal('question_empty', 'nothing to add');
-      return { ok: true };
     }
     case 'edit': edit(payload.id, payload.text); return { ok: true };
     case 'next': next(); return { ok: true };
@@ -332,18 +325,16 @@ export function initQuestions(d = {}) {
   bus.on(EVENTS.CHAT, onChat);
   /*
     And any other channel of the Discord server, as commands are (unless
-    that is turned off on Connections). Only the stream's chat channel used
-    to count, so "!pregunta" in #general did nothing at all. A questions
-    channel takes what is posted there without the word (discord-questions.js),
-    and passes over anything starting with "!" — so one asked there is not
-    added twice.
+    that is turned off on Connections). A questions channel takes what is
+    posted there without the word (discord-questions.js), and passes over
+    anything starting with "!" — so one asked there is not added twice.
   */
   bus.on('discord:message_elsewhere', (chat) => {
     if (deps.discord?.commandsEverywhere?.() === false) return;
     onChat(chat);
   });
   bus.on(EVENTS.CHAT_DELETE, onDelete);
-  bus.on(EVENTS.EVENT, onEvent);
+  bus.on('stream:off', () => streamEnded());
 }
 
 /** For the tests: ask again straight away. */

@@ -2,13 +2,11 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * What viewers did: the events the Events dock lists, the omnibar's "Recent"
- * slot reads and the stream's totals add up.
+ * What viewers did: the events a page lists, and the stream's totals add up.
  *
- * Kept apart from everything else on the event bus — a Spotify track change
- * or an OBS scene switch is an event too, and on a live channel they were 94
- * of the last 100, pushing every follow and raid out of a list meant for
- * the audience.
+ * Kept apart from everything else on the event bus, which carries things that
+ * are not a viewer's doing, such as a stream starting or ending. Left in, they
+ * would crowd every follow and raid out of a list meant for the audience.
  *
  * Shared, because the server keeps the list and the totals, and each screen
  * adds a new event to its copy as it arrives, with the same rules.

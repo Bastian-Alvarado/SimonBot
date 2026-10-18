@@ -4,10 +4,9 @@
  *
  * Smoke tests: the words the app carries are the words it uses.
  *
- * The audit before 2.0.0 found 115 translation keys nothing read any more —
- * the old TikTok and Discord "server.js" setup steps from V2, screens since
- * rewritten, labels whose screen moved on — each in both languages. This
- * keeps it that way: every key is read somewhere, by name or by a prefix or
+ * Keys nothing reads pile up as screens are rewritten and features go — the
+ * stream tools SimonBot was copied with left well over a thousand. This
+ * keeps it tidy: every key is read somewhere, by name or by a prefix or
  * suffix a screen builds it from, and both languages hold the same keys.
  *
  * Runs in order with the other feature files, through scripts/smoke.js.
@@ -38,7 +37,7 @@ const keysIn = (text) => [...text.matchAll(/^ {4}([A-Za-z_][\w]*)\s*:/gm)].map((
 const en = keysIn(constants.slice(enAt, esAt));
 const es = keysIn(constants.slice(esAt));
 
-// Keys a screen builds rather than names: t[`alertType${…}`], t[`${key}Hint`] and the like.
+// Keys a screen builds rather than names: t[`refuse${…}`], t[`${key}Hint`] and the like.
 const prefixes = new Set([
   ...code.matchAll(/t\??\.?\[`([A-Za-z_]+)\$\{/g),
   ...code.matchAll(/`([a-z][A-Za-z_]+)\$\{(?:pascal|keyPart)/g),
@@ -50,30 +49,25 @@ const built = (k) => [...prefixes].some((p) => k.startsWith(p) && k.length > p.l
   || [...suffixes].some((s) => k.endsWith(s) && k.length > s.length && named(k.slice(0, -s.length)));
 
 test('every translation key is read somewhere', () => {
-  assert.ok(en.length > 3000, `only ${en.length} keys found — has the way they are written changed?`);
-  assert.ok(prefixes.has('alertType') && prefixes.has('layerKind_') && suffixes.has('Hint'), 'the built keys are no longer recognised');
+  assert.ok(en.length > 1000, `only ${en.length} keys found — has the way they are written changed?`);
+  assert.ok(prefixes.has('refuse'), 'the built keys are no longer recognised');
   const unread = en.filter((k) => !named(k) && !built(k));
   assert.deepEqual(unread, [], `keys nothing reads: ${unread.join(' ')}`);
 });
 
 /*
-  Every page OBS shows is this same app, and each one downloaded the whole
-  dashboard with it: one 2.9 MB script for a page that draws a chat. Screens
-  load when the dashboard opens them, and what every page reads stays small:
-  the dock's chat stylesheet without the Library's every look, the guides
-  only for the dashboard.
+  Screens load when the dashboard opens them, and the guides only once the
+  dashboard wants them, so the first page — the sign-in, or not found — is
+  small.
 */
-test('the pages OBS shows load only what they draw, not the dashboard\'s screens', () => {
+test('screens and the guides load when they are opened, not with the first page', () => {
   const app = fs.readFileSync(new URL('web/App.tsx', root), 'utf8');
   const direct = [...app.matchAll(/^import \{[^}]*\} from '\.\/components\/views\/(\w+)'/gm)].map((m) => m[1]);
   assert.deepEqual(direct, [], `screens imported with the page again: ${direct.join(', ')}`);
-  assert.ok(/const ActionsView = screen\(\(\) => import\('\.\/components\/views\/ActionsView'\), 'ActionsView'\);/.test(app));
+  assert.ok(/const PollsView = screen\(\(\) => import\('\.\/components\/views\/PollsView'\), 'PollsView'\);/.test(app));
   assert.ok(app.includes('<Suspense fallback={<ScreenLoading t={t} />}>'), 'a screen loading has nothing to show meanwhile');
   assert.ok(!/^import \{[^}]*\} from '\.\.\/shared\/guides\.js'/m.test(app), 'the guides are loaded with every page again');
   assert.ok(app.includes("import('../shared/guides.js')"));
-  const system = fs.readFileSync(new URL('web/hooks/useStreamSystem.ts', root), 'utf8');
-  assert.ok(!system.includes("from '../../shared/css-presets.js'"), 'every page carries the Library\'s every look again');
-  assert.ok(system.includes("import { DOCK_CHAT_CSS } from '../../shared/dock-chat-css.js';"));
 });
 
 test('both languages hold the same keys, each once', () => {

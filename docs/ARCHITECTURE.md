@@ -5,26 +5,38 @@
 **The server owns all state. Clients are replicas.**
 
 Every design decision follows from that. If a client could own something, then
-closing that client would lose it — which is the exact failure V3 exists to
-remove.
+closing that client would lose it — and the bot has to keep running with no
+browser open.
 
 ---
 
 ## Data flow
 
 ```
-  Twitch IRC ─┐
-  EventSub   ─┤
-  TikTok     ─┼─> platforms/ ──normalise──> core/bus ──┬─> engine/    ──> actions
-  Discord    ─┤                                        ├─> leveling/  ──> XP
-  OBS        ─┤                                        ├─> relays     ──> Discord
-  Spotify    ─┘                                        └─> api/ws     ──> clients
+  Twitch IRC  ─┐
+  EventSub    ─┤
+  YouTube     ─┼─> platforms/ ──normalise──> core/bus ──┬─> engine/    ──> Discord posts, roles
+  TikTok      ─┤                                        ├─> leveling/  ──> XP and levels
+  Discord     ─┘                                        ├─> relay      ──> Discord
+                                                        └─> api/ws     ──> dashboards
 ```
 
-Platforms never call the engine. The engine never calls a platform connector
-directly — it receives a `services` object at init. Everything meets on the bus.
-That is what makes the smoke test possible: swap in stub services and the entire
-pipeline runs with no network.
+Platforms never call the engine. The engine's modules get what they need to
+talk back (saying a line in chat, posting in Discord) as services at init, or
+through the platform modules' own `service` objects. Everything meets on the
+bus. That is what makes the smoke test possible: swap in stub services and the
+whole pipeline runs with no network.
+
+### Live, and not
+
+Whether the stream is on comes from Twitch: `core/twitch-live.js` follows the
+Twitch module's minute-by-minute live check and EventSub's stream online and
+offline notices. `engine/stream-sessions.js` turns that into a stream with a
+start and an end — one that drops and comes back within minutes is the same
+stream — and says so on the bus (`stream:on`, `stream:off`). The go-live post,
+live DMs, the schedule's Discord events, questions and role sync all listen to
+those. TikTok and YouTube wait for Twitch to be live before they spend
+anything looking for a stream of their own.
 
 ---
 
@@ -35,34 +47,44 @@ pipeline runs with no network.
 - **`bus.js`** — the event bus. A listener that throws is isolated, so one bad
   subscriber cannot stop an event reaching the others. Also holds
   `normaliseChat` / `normaliseEvent`, which are why the engine can treat a
-  TikTok gift and a Twitch cheer identically.
+  TikTok gift and a Twitch cheer alike.
 - **`store.js`** — durable JSON collections. Atomic writes (temp + rename),
   debounced to coalesce bursts, synchronous flush on shutdown. A corrupt file
   falls back to defaults *independently* and is preserved as `.corrupt.<ts>`
   rather than overwritten.
-- **`queue.js`** — named, rate-limited serial queues.
-- **`logger.js`** — levelled logging with a 500-entry ring buffer exposed at
+- **`queue.js`** — named, rate-limited serial queues (Discord's REST calls go
+  through one).
+- **`twitch-live.js`** — whether Twitch says the channel is live.
+- **`logger.js`** — levelled logging with a ring buffer exposed at
   `/api/logs`.
 
 ### `engine/`
 
-The part that used to live in the browser.
+One module per feature, each with its own settings collection, an `init`
+called from `server/index.js`, and a `snapshot()` for the dashboard:
 
-- **`commands.js`** — trigger matching (longest wins, so `!top10` isn't
-  shadowed by `!top`) and permissions.
-- **`cooldowns.js`** — global and per-user, with role-based bypass. In-memory
-  by design; cooldowns should reset on restart.
-- **`conditions.js`** — condition evaluation: a list of checks, every one or
-  any of them.
-- **`variables.js`** — `{user}` interpolation and `user.isSub` / `random.1-100`
-  resolution. Unknown paths are left intact so typos are visible rather than
-  silently becoming `undefined`.
-- **`steps.js`** — the step executor. Depth-limited and cycle-guarded; a failing
-  step is logged and skipped rather than aborting the rest of the run.
-- **`alerts.js`** — matching and dispatch. Message text is rendered *server-side*
-  so every connected overlay shows identical output.
-- **`tags.js`** — stream tags, persisted and mirrored to `data/tags/*.txt`.
-- **`discord-roles.js`** — reaction roles, button roles, welcome/goodbye.
+- **Discord:** `welcome.js` and `welcome-card.js` (joins, leaves, boosts,
+  bans, and the drawn card), `discord-roles.js` (reaction roles and button
+  menus), `role-sync.js` (roles that follow Twitch and loyalty),
+  `discord-pages.js` and `banner-text.js` (standing posts built from blocks),
+  `slash-commands.js`, `moderation.js`, `relay.js` (chat into a Discord
+  channel), `bot-face.js`.
+- **Going live:** `stream-sessions.js`, `announce.js`, `live-dms.js`,
+  `schedule-events.js` with `twitch-schedule.js`, `highlights.js`.
+- **Community:** `giveaway.js`, `polls.js`, `questions.js` and
+  `discord-questions.js`, `game-requests.js`, `points.js`, `profile-card.js`,
+  `viewer-history.js`, `subscribers.js`.
+- **The app itself:** `backup.js` (export and import, sign-ins left out),
+  `updater.js`, `mod-activity.js`.
+
+`engine/index.js` is small: it starts the polls, giveaway and questions with
+the services they speak through, keeps the chat relay's settings, and builds
+the snapshot a new dashboard is sent.
+
+### `leveling/`
+
+XP and levels for every platform, and the identity links that make several
+accounts one person. `leveling/chat.js` answers `!rank` and `!top`.
 
 ### `platforms/`
 
@@ -71,7 +93,7 @@ Each module owns one integration and exports:
 - `init*()` — load credentials, optionally auto-connect
 - `getStatus()` — for the snapshot
 - `connect()` / `disconnect()`
-- `service` — the narrow surface the engine's steps are allowed to call
+- `service` — the narrow surface the engine may call
 
 Credentials live in the store, never in code, and `getCredentials()`
 deliberately returns `hasToken: boolean` rather than the token itself. Secrets
@@ -79,50 +101,36 @@ do not travel to clients.
 
 ### `api/`
 
-- **`ws.js`** — the hub. Sends a full snapshot on connect, then deltas. Handles
-  every client→server message. Dead connections are reaped by a 30s ping sweep.
-- **`http.js`** — REST for monitoring, plus static hosting of the built UI with
-  SPA fallback and a directory-traversal guard.
+- **`ws.js`** — the hub. Sends a full snapshot on connect, then changes as
+  they happen. Handles every client→server message, and checks each against
+  who sent it (`mayAsk`): a moderator may do nearly everything but the
+  streamer's accounts, backups, updates and sign-in. Dead connections are
+  reaped by a 30s ping sweep.
+- **`http.js`** — REST for monitoring and uploads, plus static hosting of the
+  built UI, with a 404 for any address that is not the app.
+- **`auth.js`** — sign-in: off until the streamer switches it on, then only
+  the streamer and their Twitch channel's moderators.
 
 ---
 
 ## Client contract
 
-`useStreamSystem` returns the identical object V2 returned:
+`useStreamSystem` gives every screen one object:
 
 ```
-{ data, settings, status, connections, actions, spotify }
+{ data, settings, status, connections, actions, youtube }
 ```
-
-`App.tsx` cannot tell the difference. Internally:
 
 - `data.*` is read from the server snapshot
 - `actions.*` are requests to the server
-- `settings.*` stay device-local (theme, font sizes, chat chrome) — two
-  overlays on two monitors should be able to look different
-- `chatMessages` and `alertQueue` are per-surface render state
+- `settings.*` stay on the device (language, colours)
 
-### Why one socket instead of six
+One WebSocket carries a typed protocol (`shared/protocol.js`), with
+request/response correlation by message id and an exponential-backoff
+reconnect.
 
-V2 opened a socket per platform hook plus a config socket. Each was a separate
-reconnect path, a separate failure mode, and a separate source of truth. V3 has
-one connection carrying a typed protocol, with request/response correlation via
-message ids and exponential-backoff reconnect.
-
----
-
-## Things that must stay in the browser
-
-Only two, and both are genuine browser capabilities:
-
-1. **Rendering.** The dock and overlay have to be displayed somewhere.
-2. **`speechSynthesis`.** No headless equivalent. The server emits a `DEVICE`
-   event that connected clients perform, and logs a warning when none are
-   attached. Gemini TTS avoids this entirely by synthesising server-side and
-   shipping audio down.
-
-OAuth *initiation* is also browser-side, because it is a user-facing redirect —
-but the resulting token is handed to the server immediately and never used from
+OAuth *initiation* is browser-side, because it is a user-facing redirect —
+but the resulting token is handed to the server at once and never used from
 the client.
 
 ---
@@ -130,11 +138,12 @@ the client.
 ## Extending it
 
 **A new platform:** add `platforms/foo.js` that emits `normaliseChat` /
-`normaliseEvent` onto the bus. The engine, leveling, relays and every client
-pick it up with no further changes.
+`normaliseEvent` onto the bus. Leveling, points, viewer history, the relay and
+every dashboard pick it up with no further changes.
 
-**A new action step:** add a `case` in `engine/steps.js` and the matching string
-to `ActionStepType` in `web/types.ts`.
-
-**A new trigger:** emit an event whose `type` matches a `TriggerType`. The
-filtering hook is `passesFilter` in `engine/index.js`.
+**A new feature:** a module in `engine/` with its settings collection, an
+`init` from `server/index.js`, its snapshot in the hello, a message in
+`shared/protocol.js` and its case in `api/ws.js`, and — if its settings should
+travel — an entry in `backup.js`'s `MANIFEST`. Then a screen in
+`web/components/views/`, in the menu in `App.tsx`, and its words in both
+languages in `web/constants.ts`.

@@ -4,17 +4,16 @@
  *
  * Unified XP / leveling.
  *
- * Identity model (carried over from V2): a `user` record holds the XP, and an
- * `accounts` map points `platform:id` keys at it. Linking two platforms is
- * therefore just repointing a key and merging the records.
+ * Identity model: a `user` record holds the XP, and an `accounts` map points
+ * `platform:id` keys at it. Linking two platforms is therefore just repointing
+ * a key and merging the records.
  *
- * The important V3 change is the input: V2 awarded XP from a `report_chat`
- * message that the *browser* sent, so XP only accrued while a tab was open.
- * We now subscribe to the bus directly.
+ * XP is awarded from the bus directly, not from a message a browser sends, so
+ * it accrues whether or not a page is open.
  */
 
 import { collection } from '../core/store.js';
-import { bus, EVENTS, normaliseEvent } from '../core/bus.js';
+import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import * as discord from '../platforms/discord.js';
 import * as twitch from '../platforms/twitch.js';
@@ -37,7 +36,7 @@ const DEFAULT_CONFIG = {
 /*
   "!rank" and "!top" in chat (leveling/chat.js): the words that ask, what is
   answered, and whether YouTube is answered at all — each answer there costs
-  50 of its 10,000 units a day. In the stream's language, like "!plan".
+  50 of its 10,000 units a day. In the stream's language.
 */
 export const DEFAULT_LEVEL_CHAT = {
   enabled: true,
@@ -146,27 +145,12 @@ async function award(chat) {
     return prev;
   });
 
-  // The board on stream follows, a few seconds behind (api/ws.js gathers these).
+  // The Levels screen's board follows, a few seconds behind (api/ws.js gathers these).
   bus.emit('xp:changed', uid);
   if (!levelledUp) return;
 
   log.info(`${chat.user} reached level ${nextLevel} (via ${chat.platform})`);
   bus.emit(EVENTS.LEVELUP, { user: chat.user, level: nextLevel, platform: chat.platform, uid });
-  /*
-    As a stream event, so an alert or an action can answer it: {user},
-    {event.level}, {event.xp}, {event.rank}. The channel's own accounts keep
-    levelling quietly — an alert for the streamer's own level is not one.
-  */
-  if (!chat.isBroadcaster && !chat.isBot && !ownUids().has(uid)) {
-    const place = rankOf(uid);
-    bus.emit(EVENTS.EVENT, normaliseEvent({
-      type: 'level_up',
-      platform: chat.platform,
-      user: chat.user,
-      avatar: chat.avatar,
-      data: { level: nextLevel, xp: nextXp, rank: place?.rank ?? '', userId: chat.userId || '' },
-    }));
-  }
 
   await grantRewards(uid, nextLevel, chat);
 }

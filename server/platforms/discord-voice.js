@@ -4,11 +4,8 @@
  *
  * Discord voice: who is in the call, and who is talking right now.
  *
- * For the overlay where each person in a voice call has an avatar that lights
- * up while they speak. Most tools build that on Discord's StreamKit, which
- * reads the local Discord client over an RPC only Discord-approved apps may
- * use — so it cannot run on the phone this server lives on. This does it
- * from the bot instead, in two layers:
+ * Kept as groundwork for the bot's own voice features: the Voice call screen
+ * picks the call, and the bot can join it. Two layers:
  *
  *   Who is in the call  from the gateway's voice states, which the bot hears
  *                       anyway. Names, avatars, muted, deafened, live.
@@ -25,22 +22,15 @@
  * state it wants sent, and we hand it the two replies Discord sends back.
  *
  * Which call: a chosen channel, or wherever one person is — follow yourself,
- * and the overlay goes where you go. The bot only sits in a call with
+ * and the bot goes where you go. The bot only sits in a call with
  * somebody in it: it joins when somebody is there, and leaves once everybody
  * has been gone for two minutes, long enough that a dropped connection or a
  * quick trip to another channel is not taken for the call ending.
- *
- * Per person, beside their pictures and pin: a name to show on stream in
- * place of their Discord one, and whether they appear on stream at all.
- * Somebody who would rather not is left out of `members` — the list every
- * overlay, text value and seat reads — and listed apart, in `offStream`, for
- * the Voice call screen only.
  */
 
 import { joinVoiceChannel, entersState, VoiceConnectionStatus } from '@discordjs/voice';
-import { voiceLook } from '../../shared/pixel-avatars.js';
 import { collection } from '../core/store.js';
-import { bus, EVENTS, normaliseEvent } from '../core/bus.js';
+import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import * as discord from './discord.js';
 
@@ -53,17 +43,6 @@ const present = new Map();
 const people = new Map();
 /** Who is talking right now. */
 const speaking = new Set();
-/** userId → when they last stopped talking, for "started talking after a pause". */
-const lastQuiet = new Map();
-/** userId → the reaction they just sent in the call, while it shows. */
-const reactions = new Map();
-let reactionCount = 0;
-/** How long a reaction stays over somebody's tile. */
-export const REACTION_MS = 5000;
-/** Talking again within this long is the same stretch of talking, not a new start (engine MIN_CALL_QUIET_S). */
-export const MIN_QUIET_MS = 10_000;
-/** While the server's whole call list is read on connecting: nobody is "joining" then. */
-let loading = false;
 
 let connection = null;
 let adapter = null;
@@ -84,7 +63,7 @@ export const EMPTY_GRACE_MS = 2 * 60 * 1000;
 /** How long the gateway may be gone before who was in the call is forgotten. */
 const STALE_MS = 60 * 1000;
 
-const DEFAULT_SETTINGS = { channelId: '', listen: false, pictures: {}, pinned: [], follow: null, persons: {} };
+const DEFAULT_SETTINGS = { channelId: '', listen: false, pinned: [], follow: null };
 
 const guildId = () => discord.getSettings().guildId || '';
 
@@ -112,9 +91,8 @@ function remember(userId, member, guild) {
 }
 
 /*
-  Everybody in the server, not only whoever is in a call: so a regular can be
-  set up — their pictures, their look, their name on stream — before they
-  ever join one. Bots left out, by name, each with the name and picture
+  Everybody in the server, not only whoever is in a call: so somebody can be
+  followed or pinned before they ever join one. Bots left out, by name, each with the name and picture
   they have here. Kept a minute, so opening the list again does not ask
   Discord again.
 */
@@ -158,51 +136,9 @@ function lookUp(userId) {
 }
 
 /*
-  Somebody's own pictures, PNGtuber style: one while they are quiet, one
-  while they talk, and one for muted if they want it. They belong to the
-  person rather than to a layer — set once, and every voice layer uses them.
-  Kept by Discord id with the name they had, so they can be listed and
-  changed while that person is not in the call.
-*/
-const MAX_PICTURED = 50;
-const PICTURE_KINDS = ['quiet', 'talking', 'muted'];
-
-/** An uploaded file, or a picture on the web. Nothing else is drawn. */
-const pictureUrl = (v) => {
-  const url = String(v ?? '').trim();
-  if (url.length > 300) return '';
-  return /^\/media\/[\w.-]+$/.test(url) || /^https?:\/\/\S+$/.test(url) ? url : '';
-};
-
-export function cleanPictures(incoming) {
-  const out = {};
-  const entries = incoming && typeof incoming === 'object' ? Object.entries(incoming) : [];
-  for (const [id, raw] of entries) {
-    if (!/^\d{5,25}$/.test(id) || !raw || typeof raw !== 'object') continue;
-    const entry = { name: String(raw.name ?? '').trim().slice(0, 40) };
-    for (const kind of PICTURE_KINDS) {
-      const url = pictureUrl(raw[kind]);
-      if (url) entry[kind] = url;
-    }
-    // Drawn as the pixel avatar (shared/avatar.js), which talks and blinks by itself, in the look chosen for them.
-    if (raw.avatar === true) entry.avatar = true;
-    // The look is kept with the pictures while the avatar is off, for turning it on again.
-    // The built-in avatar's look, or a pixel avatar's from the Pixel avatars tab.
-    const look = voiceLook(raw.look);
-    if (Object.keys(look).length) entry.look = look;
-    // Somebody with no pictures left is not somebody with pictures.
-    if (!entry.avatar && !PICTURE_KINDS.some((k) => entry[k])) continue;
-    out[id] = entry;
-    if (Object.keys(out).length >= MAX_PICTURED) break;
-  }
-  return out;
-}
-
-/*
   People who always come first — co-hosts, the regulars — in the order they
   are listed, ahead of everybody else, who follow in the order they joined.
-  Like the pictures, it belongs to the person, so every layer agrees on the
-  order; kept with a name so the list reads while they are not in the call.
+  Kept with a name so the list reads while they are not in the call.
 */
 const MAX_PINNED = 25;
 
@@ -225,32 +161,6 @@ export function cleanFollow(incoming) {
   return /^\d{5,25}$/.test(id) ? { id, name: String(incoming?.name ?? '').trim().slice(0, 40) } : null;
 }
 
-/**
- * Per person: the name to show on stream in place of their Discord one, and
- * whether they appear on stream at all. Kept by Discord id with the name they
- * had, so it holds while they are away and reads in a list.
- */
-const MAX_PERSONS = 100;
-
-export function cleanPersons(incoming) {
-  const out = {};
-  const entries = incoming && typeof incoming === 'object' ? Object.entries(incoming) : [];
-  for (const [id, raw] of entries) {
-    if (!/^\d{5,25}$/.test(id) || !raw || typeof raw !== 'object') continue;
-    const streamName = String(raw.streamName ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
-    const offStream = raw.offStream === true;
-    // Somebody with nothing set is not somebody with settings.
-    if (!streamName && !offStream) continue;
-    out[id] = {
-      name: String(raw.name ?? '').trim().slice(0, 40),
-      ...(streamName ? { streamName } : {}),
-      ...(offStream ? { offStream: true } : {}),
-    };
-    if (Object.keys(out).length >= MAX_PERSONS) break;
-  }
-  return out;
-}
-
 const botIdNow = () => discord.getStatus().botUserId;
 const isHuman = (v) => v.userId !== botIdNow() && !people.get(v.userId)?.bot;
 
@@ -264,17 +174,11 @@ function channelNow() {
 const humansIn = (channelId) => [...present.values()].filter((v) => v.channelId === channelId && isHuman(v)).length;
 
 /**
- * The call as every surface sees it: which channel, and who is in it.
- *
- * `members` is who may be shown on stream, and is all any overlay reads.
- * Whoever asked not to be shown is in `offStream` instead, for the Voice call
- * screen, where they can be let back on.
+ * The call as the Voice call screen sees it: which channel, and who is in it.
  */
 export function getState() {
   const s = settings?.get() ?? DEFAULT_SETTINGS;
-  const pictures = s.pictures || {};
   const pinned = s.pinned || [];
-  const persons = s.persons || {};
   const channelId = channelNow();
   const pinRank = new Map(pinned.map((p, i) => [p.id, i]));
   const rank = (id) => (pinRank.has(id) ? pinRank.get(id) : Infinity);
@@ -284,22 +188,16 @@ export function getState() {
     .sort((a, b) => (rank(a.userId) - rank(b.userId)) || (a.since - b.since))
     .map((v) => {
       const who = people.get(v.userId) || {};
-      const own = persons[v.userId] || {};
       return {
         id: v.userId,
-        // The name for the stream, if one was given; their Discord one otherwise.
-        name: own.streamName || who.name || 'Alguien',
-        discordName: who.name || '',
+        name: who.name || 'Alguien',
         avatar: who.avatar || avatarOf(v.userId),
         speaking: speaking.has(v.userId),
         muted: Boolean(v.selfMute || v.mute),
         deafened: Boolean(v.selfDeaf || v.deaf),
         streaming: Boolean(v.streaming),
         video: Boolean(v.video),
-        ...(pictures[v.userId] ? { pictures: pictures[v.userId] } : {}),
-        ...(reactions.has(v.userId) ? { reaction: reactions.get(v.userId) } : {}),
         ...(pinRank.has(v.userId) ? { pinned: true } : {}),
-        ...(own.offStream ? { offStream: true } : {}),
       };
     });
   // Who is in any call on the server, to choose somebody to follow.
@@ -314,11 +212,8 @@ export function getState() {
     status,
     error: lastError,
     errorCode,
-    members: everyone.filter((m) => !m.offStream),
-    offStream: everyone.filter((m) => m.offStream),
-    pictures,
+    members: everyone,
     pinned,
-    persons,
     inVoice,
   };
 }
@@ -353,90 +248,10 @@ function setStatus(next, error = '', code = '') {
 
 // ----------------------------------------------------------- who is in a call
 
-// ------------------------------------------------- what the call sets off
-
-/**
- * Who is in the call being shown, by id — humans only, the people its
- * triggers are about.
- */
-function callNow() {
-  const channelId = channelNow();
-  const ids = new Set([...present.values()].filter((v) => channelId && v.channelId === channelId && isHuman(v)).map((v) => v.userId));
-  return { channelId, ids };
-}
-
-/** Tell the actions (engine EVENTS.TRIGGER): never an alert, never in the history. */
-function trigger(type, userId, data = {}) {
-  const who = people.get(userId) || {};
-  const own = (settings?.get().persons || {})[userId] || {};
-  bus.emit(EVENTS.TRIGGER, normaliseEvent({
-    type,
-    platform: 'discord',
-    user: own.streamName || who.name || 'Alguien',
-    avatar: who.avatar || (userId ? avatarOf(userId) : undefined),
-    data: { userId: userId || '', ...data },
-  }));
-}
-
-/**
- * Somebody coming into or leaving the call being shown, and the number in it
- * changing. The call itself moving — following somebody to another channel —
- * is not everybody joining: only the count is told then.
- */
-function compareCalls(before, after) {
-  if (loading) return;
-  if (before.channelId === after.channelId && after.channelId) {
-    for (const id of after.ids) if (!before.ids.has(id)) trigger('discord_call_join', id, { count: after.ids.size });
-    for (const id of before.ids) if (!after.ids.has(id)) trigger('discord_call_leave', id, { count: after.ids.size });
-  }
-  if (before.ids.size !== after.ids.size && after.channelId) {
-    const changed = [...after.ids].find((id) => !before.ids.has(id)) || [...before.ids].find((id) => !after.ids.has(id)) || '';
-    trigger('discord_call_count', changed, { count: after.ids.size, previous: before.ids.size });
-  }
-}
-
-/**
- * Somebody starting to talk. Only a start after a pause is told — talking
- * stops and starts many times a second — with how long the pause was, so an
- * action can ask for a longer one (engine passesFilter).
- */
-function startedTalking(userId, now = Date.now()) {
-  const was = lastQuiet.get(userId);
-  const quietFor = was === undefined ? Infinity : now - was;
-  if (quietFor >= MIN_QUIET_MS && callNow().ids.has(userId)) {
-    trigger('discord_call_talking', userId, { quietFor: Number.isFinite(quietFor) ? quietFor : 86_400_000 });
-  }
-}
-
-/**
- * A reaction somebody sent in the call — an emoji, or a soundboard sound —
- * shown over their tile for a few seconds. A server's own emoji is its
- * picture; a sound with no emoji shows as a speaker.
- */
-export function onVoiceEffect(d) {
-  if (!d?.user_id || d.guild_id !== guildId() || d.channel_id !== channelNow()) return null;
-  const e = d.emoji;
-  const reaction = {
-    id: (reactionCount += 1),
-    ...(e?.id ? { url: `https://cdn.discordapp.com/emojis/${e.id}.${e.animated ? 'gif' : 'png'}` }
-      : e?.name ? { text: e.name } : { text: '🔊' }),
-    ...(d.sound_id !== undefined && d.sound_id !== null ? { sound: true } : {}),
-  };
-  reactions.set(d.user_id, reaction);
-  publish();
-  setTimeout(() => {
-    if (reactions.get(d.user_id)?.id !== reaction.id) return;
-    reactions.delete(d.user_id);
-    publish();
-  }, REACTION_MS).unref?.();
-  return reaction;
-}
-
 // ----------------------------------------------------------- who is in a call
 
 function applyVoiceState(d) {
   if (!d?.user_id || (d.guild_id && d.guild_id !== guildId())) return;
-  const callBefore = callNow();
   if (d.member) remember(d.user_id, d.member, d.guild_id);
   if (!d.channel_id) {
     present.delete(d.user_id);
@@ -453,7 +268,6 @@ function applyVoiceState(d) {
     });
     if (!people.has(d.user_id)) lookUp(d.user_id);
   }
-  compareCalls(callBefore, callNow());
   publish();
   checkCall();
 }
@@ -462,12 +276,7 @@ function onGuildCreate(d) {
   if (d?.id !== guildId()) return;
   for (const m of d.members || []) if (m.user) remember(m.user.id, m, d.id);
   present.clear();
-  loading = true;
-  try {
-    for (const v of d.voice_states || []) applyVoiceState({ ...v, guild_id: d.id });
-  } finally {
-    loading = false;
-  }
+  for (const v of d.voice_states || []) applyVoiceState({ ...v, guild_id: d.id });
   log.info(`${present.size} in voice on the server`);
   checkCall();
 }
@@ -599,11 +408,10 @@ async function join(channelId) {
   connection = conn;
 
   conn.receiver.speaking.on('start', (userId) => {
-    if (!speaking.has(userId)) startedTalking(userId);
     speaking.add(userId);
     publish();
   });
-  conn.receiver.speaking.on('end', (userId) => { speaking.delete(userId); lastQuiet.set(userId, Date.now()); publish(); });
+  conn.receiver.speaking.on('end', (userId) => { speaking.delete(userId); publish(); });
 
   conn.on('stateChange', (before, after) => {
     if (conn !== connection) return;
@@ -656,10 +464,8 @@ export function setVoice(patch) {
   const next = {
     channelId: typeof patch?.channelId === 'string' ? patch.channelId.slice(0, 32) : before.channelId,
     listen: typeof patch?.listen === 'boolean' ? patch.listen : before.listen,
-    pictures: patch?.pictures !== undefined ? cleanPictures(patch.pictures) : cleanPictures(before.pictures),
     pinned: patch?.pinned !== undefined ? cleanPinned(patch.pinned) : cleanPinned(before.pinned),
     follow: patch?.follow !== undefined ? cleanFollow(patch.follow) : cleanFollow(before.follow),
-    persons: patch?.persons !== undefined ? cleanPersons(patch.persons) : cleanPersons(before.persons),
   };
   settings.set(next);
   // Somebody changing a setting is not waiting on a retry.
@@ -675,8 +481,6 @@ export function initDiscordVoice() {
   bus.on('discord:guild_create', onGuildCreate);
   bus.on('discord:voice_state', onVoiceState);
   bus.on('discord:voice_server', onVoiceServer);
-  // Reactions and soundboard sounds in the call, shown over whoever sent them.
-  bus.on('discord:voice_effect', onVoiceEffect);
   // A fresh gateway session drops the old call with it: join again once it is up.
   bus.on('discord:ready', () => {
     clearTimeout(staleTimer);
@@ -688,7 +492,7 @@ export function initDiscordVoice() {
     The gateway dropped. Nobody can be known to be talking, so nobody stays
     lit. Who is in the call is kept, since a resumed session only replays what
     changed; if the bot is still gone after a minute, it is forgotten rather
-    than left on stream as a picture of how things were.
+    than kept as a picture of how things were.
   */
   bus.on('discord:closed', () => {
     speaking.clear();

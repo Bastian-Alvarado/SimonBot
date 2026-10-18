@@ -8,7 +8,7 @@
  *
  * Twitch's sign-in is the browser-side one the Connections screen already
  * uses, so it comes back to the address the Twitch app has registered — the
- * page's own, without its query. So the query (?mode=dock, say) is kept for
+ * page's own, without its query. So any query (such as ?server=) is kept for
  * the way back, and a `state` marks the token as a sign-in, which the
  * Connections handler leaves alone (hooks/useStreamSystem.ts).
  *

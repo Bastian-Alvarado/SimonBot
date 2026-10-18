@@ -11,7 +11,6 @@
  * starts. Set, a choice wins over the look; the server applies them after the
  * stylesheet (server/engine/welcome-card.js).
  */
-import React from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useCustomFonts } from '../hooks/useCustomFonts';
 import type { WelcomeCard } from './WelcomeCardEditor';

@@ -35,9 +35,9 @@ const require = createRequire(import.meta.url);
 
 /*
   The faces a card can use, by the names a stylesheet writes. Each is the one
-  the dashboard and overlays bundle, so a look written for an overlay reads the
-  same on a card. Latin-ext as well for Montserrat, the default, so a name with
-  ł or ş does not come out as boxes.
+  the dashboard bundles, so the preview and the posted card draw the same face.
+  Latin-ext as well for Montserrat, the default, so a name with ł or ş does
+  not come out as boxes.
 */
 const FACES = [
   // 300 for words on a banner: thin and large, the way a MEE6 banner writes them.
@@ -68,8 +68,8 @@ function bundledFonts() {
 
 /*
   Fonts uploaded on the dashboard, under the family name the editors list
-  them by (shared/chat-style.js), so a font picked for an overlay can be
-  picked for a card. Satori reads TTF, OTF and WOFF but not WOFF2: a family
+  them by (shared/chat-style.js), so an uploaded font is picked the same way
+  for a card as anywhere else. Satori reads TTF, OTF and WOFF but not WOFF2: a family
   uploaded only as WOFF2 is listed as such, for the editor to say so rather
   than drawing in the wrong face. The folder is looked at on every card —
   an upload shows up at once — and each file read once.

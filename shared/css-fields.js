@@ -32,15 +32,10 @@ const NUMBER = /^-?\d*\.?\d+$/;
 /**
  * Properties the app feeds in rather than the stylesheet owning.
  *
- * The canvas accent, and the values each surface publishes about what it is
- * drawing. They are read by presets constantly, so without this every panel
- * would open with a colour picker for the accent sitting above the one that
- * already sets it.
- *
- * And each layer's own: a colour chosen in its panel, set on it as
- * --goal-bar, --countdown-text and the like for a look to read before its
- * own, and what it reports about itself (--goal-pct). A look reading one
- * with a plain colour behind it is not offering a knob.
+ * The values each surface publishes about what it is drawing. They are read by
+ * looks constantly, so without this every panel would open with a colour
+ * picker for a value the app already sets above it. A look reading one with a
+ * plain colour behind it is not offering a knob.
  */
 const APP_OWNED = [
   '--overlay-', '--chat-', '--spotify-', '--scoped-css',
@@ -67,9 +62,9 @@ const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, ' ');
 export function readValue(raw) {
   const value = String(raw ?? '').trim();
   /*
-    A default held behind a var() is still a default. The couch keeps its seat
-    colour as var(--overlay-accent, #2ec4b6) — a real knob whose value happens
-    to be written as a fallback, and which reads as text without this.
+    A default held behind a var() is still a default. A look keeps its accent
+    as var(--accent, #2ec4b6) — a real knob whose value happens to be written
+    as a fallback, and which reads as text without this.
   */
   const behind = /^var\(\s*--[A-Za-z0-9_-]+\s*,([^()]*)\)$/.exec(value);
   if (behind) {
@@ -254,8 +249,8 @@ export function cleanVars(incoming, fields) {
     const clean = cleanValue(incoming[field.name], field);
     /*
       Nothing is stored for a value left at the default — unless the default
-      is only a fallback. A colour written var(--overlay-accent, #ffffff) is
-      white only when the layout has no accent, so white picked on purpose is
+      is only a fallback. A colour written var(--accent, #ffffff) is
+      white only when the look has no accent, so white picked on purpose is
       a real choice and has to be kept, or it would quietly follow the accent.
     */
     if (clean && (field.viaVar || clean !== field.value)) out[field.name] = clean;

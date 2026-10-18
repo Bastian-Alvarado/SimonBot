@@ -19,12 +19,10 @@ const COMMANDS: [string, string, string][] = [
   ['perfil', 'Your level, points, streak and accounts', 'Tu nivel, puntos, racha y cuentas'],
   ['rango', 'Your level and place', 'Tu nivel y puesto'],
   ['top', 'Who leads the levels', 'Quién va arriba'],
-  ['tienda', 'Spend points in the shop', 'Gasta puntos en la tienda'],
-  ['puntos', 'Your points', 'Tus puntos'],
+  ['puntos', 'Your points, only to you', 'Tus puntos, solo para ti'],
   ['sorteo', 'Enter the open giveaway', 'Entra al sorteo abierto'],
   ['avisame', 'A DM when the stream starts', 'Un DM cuando empiece el directo'],
   ['pregunta', 'A question for the stream', 'Una pregunta para el directo'],
-  ['comando', 'Any channel command, like !outfit', 'Cualquier comando, como !outfit'],
 ];
 
 type Props = { system: any; t: any; go: (v: AppView) => void; language?: string };
@@ -45,7 +43,8 @@ export const BotHomeView = ({ system, t, go, language }: Props) => {
   const bot = c.botMember?.user;
   const botFace = bot?.avatar ? `https://cdn.discordapp.com/avatars/${bot.id}/${bot.avatar}.png?size=256` : face;
   const guild = (c.discordGuilds || []).find((g: any) => g.id === c.discordGuildId);
-  const live = Boolean(c.obsData?.streamStatus?.active);
+  // Live as Twitch says it (server/engine/stream-sessions.js).
+  const live = Boolean(d.streamNow);
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
 
@@ -61,12 +60,12 @@ export const BotHomeView = ({ system, t, go, language }: Props) => {
       line: es ? 'Tarjeta y reacción para saludar' : 'Card and a reaction to say hi', state: on(d.welcomeGoodbyeConfig?.welcome) },
     { view: 'levels', icon: <Trophy size={18} />, name: es ? 'Niveles' : 'Levels & XP',
       line: es ? 'XP por hablar en cualquier chat' : 'XP for chatting anywhere', state: null },
-    { view: 'points', icon: <Coins size={18} />, name: es ? 'Puntos y tienda' : 'Points & shop',
-      line: `${(d.pointsSettings?.shop || []).length} ${es ? 'premios' : 'rewards'}`, state: d.pointsSettings ? d.pointsSettings.enabled !== false : null },
+    { view: 'points', icon: <Coins size={18} />, name: es ? 'Puntos' : 'Points',
+      line: es ? 'Una puntuación aparte, con su tabla' : 'A score of their own, with a board', state: d.pointsSettings ? d.pointsSettings.enabled !== false : null },
     { view: 'giveaway', icon: <Gift size={18} />, name: es ? 'Sorteos' : 'Giveaways', tone: 'grape',
       line: d.giveaway?.mode === 'open' ? `${es ? 'Abierto' : 'Open'} · ${d.giveaway?.count || 0} ${es ? 'dentro' : 'in'}` : (es ? 'Ninguno abierto' : 'None open'),
       state: d.giveaway?.mode === 'open' },
-    { view: 'go-live', icon: <Megaphone size={18} />, name: es ? 'Aviso de directo' : 'Go live & recap', tone: 'grape',
+    { view: 'go-live', icon: <Megaphone size={18} />, name: es ? 'Aviso de directo' : 'Go live', tone: 'grape',
       line: d.liveDms?.enabled ? `${d.liveDms?.count || 0} ${es ? 'piden DM' : 'want a DM'}` : (es ? 'Post al empezar' : 'Post when you start'), state: on(d.announce) },
     { view: 'role-management', icon: <Shield size={18} />, name: es ? 'Roles' : 'Role sync',
       line: es ? 'Subs, VIPs y mods de Twitch' : 'Subs, VIPs, mods from Twitch', state: null },
@@ -76,8 +75,8 @@ export const BotHomeView = ({ system, t, go, language }: Props) => {
       line: `${(d.questions?.items || []).filter((q: any) => q.status === 'pending').length} ${es ? 'esperando' : 'waiting'}`, state: null },
     { view: 'discord-pages', icon: <Newspaper size={18} />, name: es ? 'Páginas' : 'Discord pages',
       line: `${(d.discordPages || []).length} ${es ? 'páginas' : 'pages'}`, state: null },
-    { view: 'voice', icon: <Headphones size={18} />, name: es ? 'Llamada de voz' : 'Voice overlay', tone: 'grape',
-      line: es ? 'Quién habla, en pantalla' : 'Who is talking, on screen', state: d.voice ? on(d.voice) : null },
+    { view: 'voice', icon: <Headphones size={18} />, name: es ? 'Llamada de voz' : 'Voice call', tone: 'grape',
+      line: es ? 'Quién está en la llamada y quién habla' : 'Who is in the call, and who is talking', state: d.voice ? d.voice.listen === true : null },
   ];
 
   return (

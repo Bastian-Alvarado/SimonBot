@@ -85,20 +85,14 @@ test('every screen showing Discord\'s words draws them; boxes where they are typ
   for (const [file, shown] of [
     ['utils.ts', 'withDiscordText(msg'],
     ['components/views/RequestsView.tsx', 'withDiscordText(r.text'],
-    ['components/DockQuestions.tsx', 'withDiscordText(q.text'],
     ['components/views/QuestionsView.tsx', 'withDiscordText(q.text'],
-    ['components/DockPlan.tsx', 'withDiscordText(item.text)'],
-    ['components/PlanOverlay.tsx', 'withDiscordText(item.text)'],
-    ['components/Omnibar.tsx', 'withDiscordText(words)'],
     ['components/views/DiscordPagesView.tsx', 'withDiscordText(blockSummary(b)'],
-    ['components/ChatMessageRow.tsx', '(chat as any).names'],
     ['components/views/RequestsView.tsx', 'withDiscordText(r.text, undefined, r.names)'],
-    ['hooks/useStreamSystem.ts', 'rememberDiscordNames((msg as any).names)'],
+    ['hooks/useStreamSystem.ts', 'rememberDiscordNames(q.names)'],
   ]) assert.ok(read(file).includes(shown), `${file} shows the code`);
   // A request read from the channel or posted in it keeps its names too.
   const requests = fs.readFileSync(new URL('../../engine/game-requests.js', import.meta.url), 'utf8');
   assert.ok(requests.includes('namesOf(discord.mentionNames(m))') && requests.includes('namesOf(chat.names)'));
-  // Where a question or a step is typed, its code is what is kept and posted.
+  // Where a question is typed, its code is what is kept and posted.
   assert.ok(read('components/views/QuestionsView.tsx').includes('value={q.text}'));
-  assert.ok(read('components/views/PlanView.tsx').includes('value={item.text}'));
 });

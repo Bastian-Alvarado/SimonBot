@@ -11,11 +11,7 @@
  */
 
 import { SCRIPT_URL, assert, bus, EVENTS, fs, settle, test } from './harness.js';
-import { MANIFEST, LAYER_TYPES, normaliseLayout } from './backup-and-layouts.js';
-import { fillTemplate } from './layers.js';
-import { CSS_LOOKS } from './stylesheets.js';
-
-const { conditionMet } = await import('../../../shared/layer-conditions.js');
+import { MANIFEST } from './backup.js';
 
 const discord = await import('../../platforms/discord.js');
 const voice = await import('../../platforms/discord-voice.js');
@@ -102,69 +98,9 @@ test('the voice settings travel in a backup, the gateway asks for voice states, 
   for (const key of ['voiceNav', 'voiceListen', 'voiceListenHint', 'voiceListening', 'voiceEmpty']) assert.equal(strings.split(key + ':').length - 1, 2, key);
 });
 
-test('a voice layer keeps its tiles sized for the room it has, and leaves out who it is told to', () => {
-  assert.ok(LAYER_TYPES.includes('voice'), 'there is no voice layer');
-  const layer = (config) => normaliseLayout({ id: 'v', layers: [{ type: 'voice', uid: 'vo', config }] }).layers[0].config;
-  assert.equal(layer({}).slots, 6);
-  assert.equal(layer({ slots: 99 }).slots, 25);
-  assert.equal(layer({ arrange: 'spiral' }).arrange, 'row');
-  assert.equal(layer({ show: 'talking' }).show, 'talking');
-  assert.deepEqual(layer({ hide: [{ id: '306050655881793586', name: 'Simon' }, { id: 'not-an-id', name: 'x' }] }).hide, [{ id: '306050655881793586', name: 'Simon' }]);
-  // Two voice layers in one layout: one per person is a common way to lay a call out.
-  const two = normaliseLayout({ id: 'v2', layers: [{ type: 'voice', uid: 'a' }, { type: 'voice', uid: 'b' }] }).layers;
-  assert.equal(two.filter((l) => l.type === 'voice').length, 2);
-  const view = fs.readFileSync(new URL('../../web/components/VoiceLayer.tsx', SCRIPT_URL), 'utf8');
-  assert.ok(view.includes('Math.max(config.slots ?? 6, shown.length)'), 'tiles are sized by who is there rather than the room');
-  for (const part of ['data-voice="avatar"', 'data-voice-speaking=', 'data-voice-muted=', 'data-voice="name"']) assert.ok(view.includes(part), `${part} is not named for a theme`);
-});
-
-test('other layers can wait for somebody talking, and text can say who', () => {
-  const state = { voice: { channelId: 'vc1', members: [{ name: 'Simon', speaking: true }, { name: 'Nel', speaking: false }] } };
-  assert.equal(conditionMet('voice', false, state), true);
-  assert.equal(conditionMet('voice', true, state), false);
-  assert.equal(fillTemplate('{voiceCount} in the call, {voiceTalking} talking', state), '2 in the call, Simon talking');
-  // public-edition: leave out
-  const theme = CSS_LOOKS.find((l) => l.id === 'emergency');
-  assert.ok(theme.objects.some((o) => o.layerType === 'voice'), 'Emergency Meeting has nothing for the call');
-  // public-edition: end
-  const strings = fs.readFileSync(new URL('../../web/constants.ts', SCRIPT_URL), 'utf8');
-  for (const key of ['voiceArrange', 'voiceSlots', 'voiceShowTalking', 'voiceHide', 'voiceGlow']) assert.equal(strings.split(key + ':').length - 1, 2, key);
-});
-
-// Pictures of their own, PNGtuber style: Simon (100) is in the call; somebody given pictures before is not.
-voice.setVoice({ pictures: {
-  100100100100: { name: 'Simon', quiet: '/media/simon-quiet.png', talking: '/media/simon-talk.png', muted: 'javascript:alert(1)' },
-  200200200200: { name: 'Nel', quiet: 'https://example.com/nel.png' },
-  'not-an-id': { quiet: '/media/x.png' },
-  300300300300: { name: 'Nobody', quiet: '../../.env' },
-} });
+// Somebody else joins the call.
 bus.emit('discord:voice_state', { guild_id: 'g1', user_id: '100100100100', channel_id: 'vc1', member: member('100100100100', 'Simon') });
-const pictured = voice.getState();
 
-test('somebody\'s own pictures are kept by their id, safe links only, and follow them into the call', () => {
-  assert.deepEqual(Object.keys(pictured.pictures).sort(), ['100100100100', '200200200200']);
-  assert.deepEqual(pictured.pictures['100100100100'], { name: 'Simon', quiet: '/media/simon-quiet.png', talking: '/media/simon-talk.png' });
-  const simon = pictured.members.find((m) => m.id === '100100100100');
-  assert.equal(simon?.pictures?.talking, '/media/simon-talk.png', 'the person in the call does not carry their pictures');
-  // Nel is not in the call, and keeps hers for when she is.
-  assert.equal(pictured.pictures['200200200200'].name, 'Nel');
-  assert.ok(MANIFEST.some((e) => e.name === 'discord_voice'), 'the pictures would not travel in a backup');
-});
-
-test('a voice layer draws somebody\'s pictures whole, all loaded, and can be told not to', () => {
-  const layer = (config) => normaliseLayout({ id: 'v', layers: [{ type: 'voice', uid: 'vo', config }] }).layers[0].config;
-  assert.equal(layer({}).usePictures, true);
-  assert.equal(layer({ usePictures: false }).usePictures, false);
-  assert.equal(layer({}).hop, true);
-  const view = fs.readFileSync(new URL('../../web/components/VoiceLayer.tsx', SCRIPT_URL), 'utf8');
-  assert.ok(view.includes('data-voice="picture"') && view.includes('object-contain'), 'a picture is cropped like an avatar');
-  // Every picture they have is on the page, so a swap never waits for one to load.
-  assert.ok(view.includes('[...new Set(Object.values(picture.all))].map('), 'only the current picture is loaded');
-  const strings = fs.readFileSync(new URL('../../web/constants.ts', SCRIPT_URL), 'utf8');
-  for (const key of ['voiceUsePictures', 'voicePersonEdit', 'voicePicQuiet', 'voicePicTalking', 'voicePicHint']) assert.equal(strings.split(key + ':').length - 1, 2, key);
-});
-
-// In the call, by when they joined: 100, 400, then 100100100100. Pin the last to come first, then 400.
 const unpinnedOrder = voice.getState().members.map((m) => m.id);
 voice.setVoice({ pinned: [{ id: '100100100100', name: 'Simon' }, { id: '400', name: 'Elsewhere' }, { id: '999999999', name: 'Away' }, { id: '100100100100', name: 'twice' }, { id: 'nope' }] });
 const pinnedState = voice.getState();

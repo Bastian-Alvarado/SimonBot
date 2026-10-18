@@ -7,13 +7,13 @@
  *   - Start here: the setup steps, ticking themselves from what the app can
  *     see, each step with why and a way there.
  *   - Guides: one per task, as steps that each go to their screen.
- *   - Reference: what works in chat now, the variables, the pages for OBS —
- *     read from the app as it is set up, not written down beside it.
+ *   - Reference: what works in chat now, read from the app as it is set up,
+ *     not written down beside it.
  *   - Glossary: the app's own words.
  *
  * The words are in shared/guides.js; this draws them.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BookOpen, Check, Circle, ChevronDown, ChevronRight, ArrowRight, Copy, Search, ListChecks, BookMarked, Braces,
   Plug, Monitor, Layers, MonitorPlay, Bell, Terminal, LayoutGrid, Palette, Cast, MessageSquare, Trophy, Smartphone, Save, ShieldCheck, Copy as CopyIcon,
@@ -21,10 +21,8 @@ import {
 } from 'lucide-react';
 import type { AppView } from '../../types';
 import { GUIDES, GUIDE_GROUPS, GLOSSARY, BUILTIN_WORDS, GUIDE_TOKEN, PLATFORM_SETUPS, guideTexts } from '../../../shared/guides.js';
-import { VARIABLE_GROUPS } from '../VariablePicker';
 import { copyText } from '../../utils';
 import { fill } from '../../words';
-import { pageLink } from '../../page-link';
 
 export type GuidesTab = 'start' | 'guides' | 'reference' | 'glossary';
 
@@ -33,16 +31,13 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
   grid: LayoutGrid, palette: Palette, copy: CopyIcon, cast: Cast, discord: MessageSquare, trophy: Trophy, phone: Smartphone, save: Save, shield: ShieldCheck,
 };
 
-/** The address of a page for OBS: this page's own, with its mode. */
-export const pageUrl = (mode: string) => pageLink(`${window.location.origin}${window.location.pathname}?mode=${mode}`);
-
 /**
  * Where to sign in to the platforms, and the addresses each one comes back
- * to. Twitch and Google take a plain http:// address only for the computer
- * itself, and Spotify only as 127.0.0.1 — so the addresses are written for
+ * to. Twitch takes a plain http:// address only for the computer itself,
+ * and Google only as 127.0.0.1 — so the addresses are written for
  * the app opened at localhost, on the computer it runs on, whatever address
  * this page was opened at. The same ones the Connections screen sends from
- * there (utils spotifyRedirectUri: localhost becomes 127.0.0.1).
+ * there (utils youtubeRedirectUri: localhost becomes 127.0.0.1).
  */
 export const signInPlaces = () => {
   const here = `${window.location.origin}${window.location.pathname}`;
@@ -76,7 +71,7 @@ const CopyChip = ({ text, t }: { text: string; t: any }) => {
 
 /**
  * A guide's text with its tokens drawn: a screen as a link to it, a button by
- * its own word, a page for OBS or a sign-in's address as an address to copy.
+ * its own word, and a sign-in's address as an address to copy.
  * Other braces are left to be read.
  */
 export const GuideText = ({ text, t, screens, go }: { text: string; t: any; screens: Record<string, string>; go: (v: AppView) => void }) => {
@@ -94,10 +89,8 @@ export const GuideText = ({ text, t, screens, go }: { text: string; t: any; scre
       );
     } else if (kind === 't') {
       parts.push(<strong key={i} className="font-bold text-zinc-100">{t[name] || name}</strong>);
-    } else if (kind === 'redirect') {
-      parts.push(<CopyChip key={i} text={signInPlaces().redirects[name] || name} t={t} />);
     } else {
-      parts.push(<CopyChip key={i} text={pageUrl(name)} t={t} />);
+      parts.push(<CopyChip key={i} text={signInPlaces().redirects[name] || name} t={t} />);
     }
     at = i + whole.length;
   }
@@ -189,7 +182,7 @@ export const GuidesView: React.FC<GuidesViewProps> = ({ t, system, go, screens, 
     <div className="glass-panel rounded-3xl border border-zinc-800 p-5 space-y-3" data-guides-platforms>
       <div className="space-y-1">
         <div className="flex items-center gap-2"><Plug size={14} className="text-current-accent" /><span className="text-[11px] font-black uppercase tracking-widest text-zinc-300">{t.guidesPlatformsTitle || 'Connect your platforms'}</span></div>
-        <p className="text-[12px] text-zinc-400 leading-relaxed">{t.guidesPlatformsIntro || 'Twitch, YouTube, Discord and Spotify each want you to make a free “app” on their developer site before this app may sign in. It sounds technical, but it is a form: a name, an address copied from here, and a code or two to paste back. Open a platform for its steps.'}</p>
+        <p className="text-[12px] text-zinc-400 leading-relaxed">{t.guidesPlatformsIntro || 'Twitch, YouTube and Discord each want you to make a free “app” on their developer site before this app may sign in. It sounds technical, but it is a form: a name, an address copied from here, and a code or two to paste back. Open a platform for its steps.'}</p>
       </div>
       <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 flex gap-2" data-guides-secrets>
         <KeyRound size={14} className="text-amber-400 shrink-0 mt-0.5" />
@@ -198,13 +191,13 @@ export const GuidesView: React.FC<GuidesViewProps> = ({ t, system, go, screens, 
       {places.onLocalhost ? (
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex gap-2" data-guides-sign-in="here">
           <Check size={14} className="text-emerald-400 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-zinc-300 leading-relaxed">{t.guidesSignInHere || 'Sign in from here: you opened the app on the computer it runs on, which is what Twitch, Google and Spotify want.'}</p>
+          <p className="text-[11px] text-zinc-300 leading-relaxed">{t.guidesSignInHere || 'Sign in from here: you opened the app on the computer it runs on, which is what Twitch and Google want.'}</p>
         </div>
       ) : (
         <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-3 flex gap-2" data-guides-sign-in="elsewhere">
           <AlertTriangle size={14} className="text-sky-400 shrink-0 mt-0.5" />
           <p className="text-[11px] text-zinc-300 leading-relaxed">
-            {fill(t.guidesSignInElsewhere || 'You opened the app at {here}. Twitch, Google and Spotify only accept a plain http:// address on the computer itself, so do the signing in on the computer the app runs on, with the app opened at {there}. The addresses below are already written for that, and once you are signed in every device uses it.', { here: places.here, there: places.signInAt })}
+            {fill(t.guidesSignInElsewhere || 'You opened the app at {here}. Twitch and Google only accept a plain http:// address on the computer itself, so do the signing in on the computer the app runs on, with the app opened at {there}. The addresses below are already written for that, and once you are signed in every device uses it.', { here: places.here, there: places.signInAt })}
           </p>
         </div>
       )}
@@ -406,25 +399,6 @@ export const GuidesView: React.FC<GuidesViewProps> = ({ t, system, go, screens, 
     .map((b: any) => ({ b, now: (() => { try { return b.read(data); } catch { return null; } })() }))
     .filter(({ now }: any) => now && now.word);
   const who = (anyone: boolean) => (anyone ? (t.permAnyone || 'Anyone') : (t.permMods || 'Mods'));
-  const commandWho = (c: any) => {
-    const p = c.permissions || {};
-    if (p.anyone) return t.permAnyone || 'Anyone';
-    const list = [p.broadcaster && (t.permOwner || 'Owner'), p.moderators && (t.permMods || 'Mods'), p.vips && (t.permVips || 'VIPs'), p.subscribers && (t.permSubs || 'Subs')].filter(Boolean);
-    return list.length ? list.join(', ') : (t.permOwner || 'Owner');
-  };
-  const commands: any[] = (Array.isArray(data.commands) ? data.commands : [])
-    .filter((c: any) => matches(c.name, ...(c.triggers || [])))
-    .sort((a: any, b: any) => String(a.triggers?.[0] || '').localeCompare(String(b.triggers?.[0] || '')));
-  const surfaces = data.surfaces || {};
-  const pages = [
-    { mode: 'canvas', words: t.guidesRefPageCanvas || 'The stream: every layer of your layouts', inObs: surfaces.canvasInObs },
-    { mode: 'dock', words: t.guidesRefPageDock || 'Chat dock: every chat, and your buttons', inObs: surfaces.dockInObs },
-    { mode: 'alerts', words: t.guidesRefPageAlerts || 'Alerts only', inObs: surfaces.alertsInObs },
-  ];
-  const [copiedVar, setCopiedVar] = useState('');
-  const variableGroups = VARIABLE_GROUPS
-    .map((g) => ({ ...g, vars: g.vars.filter((v) => matches(v.token, v[lang])) }))
-    .filter((g) => g.vars.length);
   const shownBuiltIn = builtIn.filter(({ b, now }: any) => matches(now.word, b[lang].does, b[lang].after));
   const card = 'glass-panel rounded-3xl border border-zinc-800 p-5 space-y-3';
   const heading = (icon: React.ReactNode, words: string, hint?: string) => (
@@ -436,8 +410,7 @@ export const GuidesView: React.FC<GuidesViewProps> = ({ t, system, go, screens, 
   const referenceTab = (
     <div className="space-y-4" data-guides-reference>
       <div className={card} data-guides-words>
-        {heading(<Terminal size={14} className="text-current-accent" />, t.guidesRefWords || 'Chat words', t.guidesRefWordsHint || 'What works in your chat right now: the words built in, then your own commands.')}
-        <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-600 pt-1">{t.guidesRefBuiltIn || 'Built in'}</h4>
+        {heading(<Terminal size={14} className="text-current-accent" />, t.guidesRefWords || 'Chat words', t.guidesRefWordsHint || 'What works in your chat right now: the words SimonBot answers.')}
         <div className="space-y-1">
           {shownBuiltIn.map(({ b, now }: any) => (
             <div key={b.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-2 ${now.on ? '' : 'opacity-50'}`} data-builtin-word={b.id} data-on={now.on ? 'yes' : 'no'}>
@@ -448,56 +421,6 @@ export const GuidesView: React.FC<GuidesViewProps> = ({ t, system, go, screens, 
             </div>
           ))}
         </div>
-        <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-600 pt-2">{t.guidesRefYours || 'Your commands'}</h4>
-        {commands.length === 0 ? (
-          <p className="text-[11px] text-zinc-600">{t.guidesRefNoCommands || 'No commands of your own yet.'}</p>
-        ) : (
-          <div className="space-y-1">
-            {commands.map((c: any) => (
-              <div key={c.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-2 ${c.enabled ? '' : 'opacity-50'}`} data-own-command={c.id}>
-                <code className="text-[12px] font-mono font-bold text-current-accent">{(c.triggers || []).join('  ')}</code>
-                <span className="text-[11px] text-zinc-400 flex-1 min-w-[10rem] truncate">{c.name}</span>
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{c.enabled ? commandWho(c) : (t.guidesRefOff || 'off')}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className={card} data-guides-pages>
-        {heading(<Monitor size={14} className="text-current-accent" />, t.guidesRefPages || 'Pages for OBS', t.guidesRefPagesHint || 'Browser sources and docks in OBS. The guide “Put the app in OBS” says where each goes.')}
-        <div className="space-y-2">
-          {pages.map((p) => (
-            <div key={p.mode} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-2 space-y-1" data-guide-page={p.mode}>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold text-zinc-300 flex-1">{p.words}</span>
-                {Number(p.inObs) > 0 && <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">{fill(t.guidesRefOpenNow || '{count} open in OBS now', { count: String(p.inObs) })}</span>}
-              </div>
-              <CopyChip text={pageUrl(p.mode)} t={t} />
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className={card} data-guides-variables>
-        {heading(<Braces size={14} className="text-current-accent" />, t.variables || 'Variables', t.guidesRefVariablesHint || 'What you can put in braces in any text an action sends. Press one to copy it.')}
-        {variableGroups.map((g) => (
-          <div key={g.id} className="space-y-1">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-600 pt-1">{g[lang]}</h4>
-            {(lang === 'es' ? g.noteEs : g.noteEn) && <p className="text-[10px] text-zinc-600">{lang === 'es' ? g.noteEs : g.noteEn}</p>}
-            {g.vars.map((v) => (
-              <button
-                key={g.id + v.token}
-                type="button"
-                onClick={() => { if (copyText(`{${v.token}}`)) { setCopiedVar(g.id + v.token); setTimeout(() => setCopiedVar((c) => (c === g.id + v.token ? '' : c)), 1200); } }}
-                className="w-full text-left flex items-center gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/30 hover:border-current-accent/50 px-3 py-1.5"
-                data-guide-variable={v.token}
-              >
-                <code className="text-[11px] font-mono font-bold text-current-accent shrink-0">{`{${v.token}}`}</code>
-                <span className="text-[10px] text-zinc-500 flex-1 min-w-0 truncate">{v[lang]}</span>
-                {copiedVar === g.id + v.token ? <Check size={12} className="text-emerald-400 shrink-0" /> : <Copy size={12} className="text-zinc-700 shrink-0" />}
-              </button>
-            ))}
-          </div>
-        ))}
       </div>
     </div>
   );

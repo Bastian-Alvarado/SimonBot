@@ -5,9 +5,9 @@
  * Discord membership automation: reaction roles, button roles, and
  * welcome/goodbye messages.
  *
- * In V2 these were driven from the browser — a member who joined while the
- * dashboard was closed simply never got their welcome message or auto-role.
- * The gateway events are now consumed here.
+ * These run here on the server, from the gateway's events, not in the browser:
+ * a member who joins while the dashboard is closed still gets their welcome
+ * message and auto-role.
  */
 
 import { collection } from '../core/store.js';
@@ -69,7 +69,7 @@ export function emojiKey(emoji) {
   const markup = /^<(a?):([^:]+):(\d+)>$/.exec(String(emoji).trim());
   if (markup) return `id:${markup[3]}`;
 
-  // (The bare `name:id` an earlier key produced was read here until 2.0.0; nothing stored still holds it.)
+  // (A bare `name:id` from an earlier key is not special-cased; nothing stored still holds one.)
   return String(emoji).trim();
 }
 
@@ -111,10 +111,8 @@ async function nameOldEntries() {
 
 function record(entry) {
   const next = activityLog.update((prev) => [{ id: `${Date.now()}`, timestamp: Date.now(), ...entry }, ...prev].slice(0, LOG_LIMIT));
-  // Push it out. The log was only ever sent in the snapshot a client gets
-  // when it connects, so a page that was already open never saw a role
-  // change — the entries were on disk while the screen said there had been
-  // no activity.
+  // Push it out: a page is only sent the snapshot when it connects, so a page
+  // already open would never see a role change otherwise.
   bus.emit(EVENTS.CONFIG, { key: 'roleActivityLog', value: next });
 }
 
@@ -267,9 +265,8 @@ export function buttonRows(buttons) {
 /**
  * Put a button menu in Discord, or bring the one there up to date.
  *
- * The menu used to be saved and never posted, so there was never anything in
- * the server to press. The message is edited in place once it exists; if it
- * was deleted in Discord, a new one is posted and remembered instead.
+ * The message is edited in place once it exists; if it was deleted in Discord,
+ * a new one is posted and remembered instead.
  */
 export async function publishButtonMenu(id) {
   const menu = buttonMenus.get().find((m) => m.id === id);

@@ -9,8 +9,8 @@
  * `<a:Dance:…>` when it moves — and a mention as one too: `<@id>` somebody,
  * `<@&id>` a role, `<#id>` a channel. What the bot posts has to keep those
  * codes for Discord to draw them. Shown on these screens as they are, though,
- * they read as gibberish: a request on the board, a question in the dock, a
- * line of Discord chat, a step of the plan. Here they are drawn instead, and
+ * they read as gibberish: a request on the board, a question in the queue, a
+ * line of Discord chat, a Discord page. Here they are drawn instead, and
  * nothing else changes: a box where the words are typed keeps the codes,
  * since that is what gets posted.
  *

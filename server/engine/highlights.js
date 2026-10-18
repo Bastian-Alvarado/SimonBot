@@ -5,27 +5,22 @@
  * Highlights: the moments chat goes wild. Every platform's chat counted
  * together — Twitch, YouTube, TikTok, Kick and the Discord channel the stream
  * reads — and when a minute runs at several times the stream's usual pace,
- * that is a moment: a Twitch marker goes in the VOD, a clip is made, and
- * (if a channel is chosen) Discord gets a post with what chat was saying,
- * the song playing, the plan's step and a link to the moment in the VOD.
- * The moment is kept with the stream, for its chapters.
+ * that is a moment: (if a channel is chosen) Discord gets a post with what
+ * chat was saying and a link to the moment in the VOD.
  *
  * Only something that runs on all of them can tell: one platform's chat
  * alone may be quiet while the others are not.
  *
- * Off until it is turned on, since it posts in Discord and makes clips.
+ * Off until it is turned on, since it posts in Discord.
  */
 
 import { collection } from '../core/store.js';
-import { bus, EVENTS, normaliseEvent } from '../core/bus.js';
+import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
 import * as discord from '../platforms/discord.js';
 import * as twitch from '../platforms/twitch.js';
-import * as spotify from '../platforms/spotify.js';
 import * as sessions from './stream-sessions.js';
-import * as extras from './twitch-extras.js';
-import { getPlan } from './plan.js';
 import { getGreetings } from './welcome.js';
 
 const log = createLogger('highlights');
@@ -38,8 +33,6 @@ export const DEFAULT_HIGHLIGHTS = {
   minMessages: 15,
   /** Minutes between two moments. */
   cooldownMin: 5,
-  marker: true,
-  clip: true,
   /** Where the moment is posted in Discord; empty is nowhere. */
   channelId: '',
   /** How many of chat's messages the post quotes. */
@@ -65,8 +58,6 @@ export function cleanHighlights(c = {}, before = DEFAULT_HIGHLIGHTS) {
     factor: num(x.factor, 1.5, 10, DEFAULT_HIGHLIGHTS.factor),
     minMessages: Math.round(num(x.minMessages, 3, 1000, DEFAULT_HIGHLIGHTS.minMessages)),
     cooldownMin: Math.round(num(x.cooldownMin, 1, 120, DEFAULT_HIGHLIGHTS.cooldownMin)),
-    marker: x.marker !== false,
-    clip: x.clip !== false,
     channelId: /^\d{5,25}$/.test(String(x.channelId || '')) ? String(x.channelId) : '',
     quotes: Math.round(num(x.quotes, 0, 8, DEFAULT_HIGHLIGHTS.quotes)),
   };
@@ -114,9 +105,6 @@ export function quotesFrom(list, n) {
   return out.reverse();
 }
 
-/** The current step of tonight's plan, if one is on. */
-const stepNow = () => (getPlan()?.items || []).find((i) => typeof i.startedAt === 'number' && !i.done)?.text || '';
-
 /** This stream's VOD, asked of Twitch once a stream. */
 async function vodOf(s) {
   if (vodFor.id === s.id && vodFor.vod) return vodFor.vod;
@@ -128,22 +116,17 @@ async function vodOf(s) {
 }
 
 /** The Discord post for a moment. */
-export function momentPost({ count, ratio, quotes, song, step, clipUrl, vodUrl }, sanitise = discord.sanitise) {
+export function momentPost({ count, ratio, quotes, vodUrl }, sanitise = discord.sanitise) {
   const lines = quotes.map((q) => `> **${sanitise(q.user, 40)}** · ${PLATFORM_NAMES[q.platform] || q.platform}\n> ${sanitise(q.msg, 150)}`);
   const fields = [{ name: 'Chat', value: `${count} mensajes en un minuto${ratio ? ` (x${ratio})` : ''}`, inline: true }];
-  if (song) fields.push({ name: 'Sonando', value: sanitise(song, 100), inline: true });
-  if (step) fields.push({ name: 'En el plan', value: sanitise(step, 100), inline: true });
-  const buttons = [
-    clipUrl && { type: 2, style: 5, label: 'Ver el clip', url: clipUrl },
-    vodUrl && { type: 2, style: 5, label: 'Ver en el VOD', url: vodUrl },
-  ].filter(Boolean);
+  const buttons = vodUrl ? [{ type: 2, style: 5, label: 'Ver en el VOD', url: vodUrl }] : [];
   return {
-    embed: { title: '🔥 Momento del directo', ...(clipUrl ? { url: clipUrl } : {}), description: lines.join('\n') || undefined, color: '#f97316', fields },
+    embed: { title: '🔥 Momento del directo', description: lines.join('\n') || undefined, color: '#f97316', fields },
     components: buttons.length ? [{ type: 1, components: buttons }] : undefined,
   };
 }
 
-/** A moment: kept with the stream, a marker, a clip, a post — each as set. */
+/** A moment: kept with the stream, and posted where set. */
 async function moment(s, verdict, now = Date.now()) {
   const cfg = getHighlights();
   lastAt = now;
@@ -152,20 +135,11 @@ async function moment(s, verdict, now = Date.now()) {
   log.info(`a moment: ${count} messages in a minute (usual ${verdict.usual.toFixed(1)})`);
   // When it began, near enough: chat reacts after the thing it reacts to.
   bus.emit('stream:moment', { kind: 'highlight', at: now - 45_000, text: `${count} msgs/min` });
-  bus.emit(EVENTS.TRIGGER, normaliseEvent({ type: 'chat_highlight', platform: 'system', user: '', data: { count, ratio: verdict.ratio ?? '', usual: Math.round(verdict.usual) } }));
-  if (cfg.marker) await extras.marker(`Momento: ${count} msgs/min`).catch(() => {});
-  let clipUrl = '';
-  if (cfg.clip) {
-    const made = await extras.clip({ post: false }).catch(() => null);
-    if (made?.ok) clipUrl = made.url;
-  }
   if (!cfg.channelId) return;
   const vod = await vodOf(s);
-  const playing = spotify.getNowPlaying?.();
   const post = momentPost({
     count, ratio: verdict.ratio, quotes: quotesFrom(lastMinute, cfg.quotes),
-    song: playing?.name ? `${playing.name}${playing.artist ? ` — ${playing.artist}` : ''}` : '',
-    step: stepNow(), clipUrl, vodUrl: sessions.vodLink({ ...s, vod }, now - 60_000),
+    vodUrl: sessions.vodLink({ ...s, vod }, now - 60_000),
   });
   await discord.sendMessage(cfg.channelId, '', post.embed, post.components, undefined, { allowed_mentions: { parse: [] } })
     .catch((err) => log.warn(`could not post the moment: ${err.message}`));
@@ -195,8 +169,7 @@ export async function control(payload = {}) {
     const post = momentPost({
       count: 42, ratio: 3.5,
       quotes: [{ user: 'Ana', platform: 'twitch', msg: 'JAJAJAJA' }, { user: 'Beto', platform: 'tiktok', msg: 'noooo 😂' }, { user: 'Caro', platform: 'youtube', msg: '¿qué pasó?' }].slice(0, Math.max(1, getHighlights().quotes)),
-      song: 'Una canción — Un artista', step: stepNow() || 'Among Us',
-      clipUrl: 'https://clips.twitch.tv/', vodUrl: '',
+      vodUrl: '',
     });
     await discord.sendMessage(channelId, '', post.embed, post.components, undefined, { allowed_mentions: { parse: [] } });
     return { ok: true, channelId };

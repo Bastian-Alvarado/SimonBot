@@ -2,22 +2,16 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Going live, announced in Discord: when OBS starts streaming, the bot posts
+ * Going live, announced in Discord: when the stream goes on, the bot posts
  * in the channel of your choice — your words, a role to ping if you want one,
  * a card with the title, the game and the live thumbnail, and buttons to
  * watch — and when the stream stops it marks the post as over, takes it
  * down, or leaves it.
  *
- * OBS starting is the moment; Twitch saying so is the proof. The post waits
- * a little after OBS starts, then asks Twitch whether the channel is live,
- * and keeps asking for a few minutes, so the thumbnail is the stream rather
- * than an offline screen. If Twitch never says so — not connected, or a
- * stream that is only going to YouTube — it posts anyway with what it has.
- *
- * With the recap on, the stream ending turns the post into a summary of the
- * stream instead (recap.js), or posts one of its own — a minute after OBS
- * stops, so Twitch has listed the last clips and a stream that drops and
- * comes straight back is not called over.
+ * The stream going on (stream-sessions.js) is the moment. The post waits a
+ * little, then asks Twitch for the stream's title, game and thumbnail, and
+ * keeps asking for a few minutes, so the thumbnail is the stream rather than
+ * an offline screen. If Twitch never says so, it posts anyway with what it has.
  */
 
 import { collection } from '../core/store.js';
@@ -26,12 +20,8 @@ import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
 import * as discord from '../platforms/discord.js';
 import * as twitch from '../platforms/twitch.js';
-import { nextStream } from './twitch-extras.js';
-import { getPlan, recapOf } from './plan.js';
-import * as sessions from './stream-sessions.js';
-import { initRecap, getTally, recapCard, cleanRecap, DEFAULT_RECAP } from './recap.js';
+import { nextStream } from './twitch-schedule.js';
 import { pickLine } from '../../shared/pick-line.js';
-import { getGreetings } from './welcome.js';
 
 const log = createLogger('announce');
 
@@ -48,21 +38,15 @@ export const DEFAULT_ANNOUNCE = {
   overMessage: 'The stream is over — thanks for watching!',
   youtubeUrl: '',
   tiktokUrl: '',
-  /** The summary of the stream when it ends (recap.js). */
-  recap: DEFAULT_RECAP,
   /** The post that is up now, so it can be marked over or taken down. */
   last: null,
 };
-
-/** How long after OBS stops the recap waits: for Twitch to list the last clips, and for a stream that comes straight back. */
-export const RECAP_DELAY_MS = 60_000;
 
 const LIVE_CHECKS = 8;
 const LIVE_EVERY_MS = 20000;
 
 let store = null;
 let pending = null;
-let recapTimer = null;
 /** This go-live, so stopping the stream can call off an announcement still waiting for Twitch. */
 let run = null;
 
@@ -87,7 +71,6 @@ export function cleanAnnounce(incoming, before = DEFAULT_ANNOUNCE) {
     overMessage: String(c.overMessage ?? '').slice(0, 1500),
     youtubeUrl: link(c.youtubeUrl),
     tiktokUrl: link(c.tiktokUrl),
-    recap: cleanRecap(c.recap, before.recap ?? DEFAULT_RECAP),
     last: before.last ?? null,
   };
 }
@@ -130,26 +113,15 @@ export function fillNext(text, next = nextStream()) {
 }
 
 /**
- * {plan}: what is left of tonight's Stream plan, in order — "Among Us →
- * Preguntas". With nothing planned, a line that names it is left out whole,
- * the way {next} is with nothing scheduled.
- */
-export function fillPlan(text, plan = getPlan()) {
-  const left = (plan?.items || []).filter((i) => !i.done).map((i) => discord.sanitise(i.text));
-  if (!left.length) return String(text ?? '').split('\n').filter((line) => !line.includes('{plan}')).join('\n');
-  return String(text ?? '').replace(/\{plan\}/g, left.join(' → '));
-}
-
-/**
  * The post, from the settings and what Twitch says about the stream. Only the
  * role chosen here can be pinged: a stream title is the streamer's words, but
- * it still goes through a variable, and a title with "@everyone" in it must
- * not ping everybody.
+ * it still goes into the post as {title}, and a title with "@everyone" in it
+ * must not ping everybody.
  */
 export function postFor(cfg, info) {
   const role = cfg.roleId === 'everyone' ? '@everyone' : cfg.roleId ? `<@&${cfg.roleId}>` : '';
   const streamer = info?.name || '';
-  const fill = (text) => fillPlan(fillNext(text))
+  const fill = (text) => fillNext(text)
     .replace(/\{role\}/g, role)
     .replace(/\{streamer\}/g, discord.sanitise(streamer))
     .replace(/\{title\}/g, discord.sanitise(info?.title || ''))
@@ -211,93 +183,9 @@ export async function announce({ test = false, current = null } = {}) {
   return { messageId: sent?.id, live: Boolean(info?.live) };
 }
 
-/**
- * The stream stopped: with the recap on, it comes a minute later; without,
- * the post is marked over, taken down or left, now.
- */
+/** The stream stopped: the post is marked over, taken down or left. */
 export async function streamOver() {
   const cfg = getAnnounce();
-  if (cfg.recap?.enabled) {
-    clearTimeout(recapTimer);
-    recapTimer = setTimeout(() => {
-      recapTimer = null;
-      postRecap().catch((err) => log.warn(`could not post the recap: ${err.message}`));
-    }, RECAP_DELAY_MS);
-    recapTimer.unref?.();
-    return;
-  }
-  await markOver(cfg);
-}
-
-/**
- * The recap: the go-live post turned into it, or a post of its own in the
- * announcement channel. A test goes to the test channel set on Welcome &
- * Goodbye, built from the stream so far, and never touches the go-live post.
- */
-export async function postRecap({ test = false, now = Date.now() } = {}) {
-  const cfg = getAnnounce();
-  const t = getTally();
-  const last = test ? null : cfg.last;
-  const channelId = test ? (getGreetings().testChannelId || cfg.channelId) : cfg.channelId;
-  if (!channelId && !last?.messageId) throw refusal('announce_no_channel', 'choose a channel to announce in');
-
-  const [info, clips, vod] = await Promise.all([
-    twitch.getLiveInfo().catch(() => null),
-    cfg.recap.parts.clips ? twitch.clipsSince(t.startedAt).catch(() => []) : [],
-    twitch.latestVod().catch(() => null),
-  ]);
-  const posted = last?.messageId ? await discord.getMessage(last.channelId, last.messageId).catch(() => null) : null;
-  const card = recapCard(cfg.recap, t, {
-    now,
-    streamer: info?.name || '',
-    title: info?.title || '',
-    game: info?.game || '',
-    clips,
-    plan: recapOf(tonightsPlan(getPlan(), t.startedAt), t.endedAt || now),
-    // Chapters: the stream as kept, with its plan and, once Twitch has it, its VOD — times are the VOD's.
-    chapters: (() => {
-      const s = sessions.withPlan(sessions.latest(), now);
-      if (!s) return '';
-      const ownVod = vod?.createdAt && Date.parse(vod.createdAt) >= s.startedAt - 10 * 60_000 ? vod : s.vod;
-      return sessions.chaptersText({ ...s, ...(ownVod ? { vod: ownVod } : {}) });
-    })(),
-    next: nextStream(),
-    image: posted?.embeds?.[0]?.image?.url,
-    color: cfg.cardColor,
-  }, discord.sanitise);
-  const components = vod?.url ? [{ type: 1, components: [{ type: 2, style: 5, label: 'Ver el VOD', url: vod.url }] }] : [];
-  // One of the messages written, when there are several (shared/pick-line.js).
-  const content = fillNext(pickLine(cfg.overMessage || '')).trim();
-  const quiet = { allowed_mentions: { parse: [] } };
-
-  if (!test && cfg.recap.where === 'edit' && last?.messageId) {
-    await discord.editMessage(last.channelId, last.messageId, content, card, components, quiet);
-    store.set({ ...getAnnounce(), last: null });
-    announceState();
-    log.info('the go-live post is now the recap');
-    return { ok: true, channelId: last.channelId, messageId: last.messageId, edited: true };
-  }
-  // A post of its own: the go-live one goes the way it is set to first.
-  if (!test) await markOver(cfg);
-  const sent = await discord.sendMessage(channelId, content, card, components.length ? components : undefined, undefined, quiet);
-  log.info(`${test ? 'test ' : ''}recap posted`);
-  return { ok: true, channelId, messageId: sent?.id, edited: false };
-}
-
-/**
- * The plan's steps started during this stream. A plan carried over from
- * another night keeps when its steps started then, and those are not tonight's
- * — "Among Us — 8 h" from yesterday. A minute's grace for a step started just
- * before going live. With no stream kept yet (a test), all of it.
- */
-export function tonightsPlan(plan, startedAt) {
-  if (!startedAt || !plan?.items) return plan;
-  // Or counted live during it: a step carried on from an earlier stream is tonight's too, for what tonight added.
-  return { ...plan, items: plan.items.filter((i) => typeof i.liveBase === 'number' || (typeof i.startedAt === 'number' && i.startedAt >= startedAt - 60_000)) };
-}
-
-/** Mark the post as over, take it down, or leave it. */
-async function markOver(cfg) {
   const last = cfg.last;
   if (!last?.messageId || cfg.whenOver === 'keep') return;
   try {
@@ -320,11 +208,10 @@ async function markOver(cfg) {
   announceState();
 }
 
-function onEvent(event) {
+/** The stream went on (stream-sessions.js): announce it, after the delay set. */
+function onStreamOn() {
   const cfg = getAnnounce();
-  // Back on air before the recap went: it is the same stream, still going.
-  if (event?.type === 'obs_stream_started' && recapTimer) { clearTimeout(recapTimer); recapTimer = null; }
-  if (event?.type === 'obs_stream_started' && cfg.enabled && cfg.channelId) {
+  if (cfg.enabled && cfg.channelId) {
     clearTimeout(pending);
     if (run) run.cancelled = true;
     const current = { cancelled: false };
@@ -334,23 +221,23 @@ function onEvent(event) {
       announce({ current }).catch((err) => log.warn(`could not announce going live: ${err.message}`));
     }, cfg.delaySeconds * 1000);
   }
-  if (event?.type === 'obs_stream_stopped') {
-    // Stopped before it was announced: nothing to announce, and nothing to take down.
-    if (pending) { clearTimeout(pending); pending = null; }
-    if (run) { run.cancelled = true; run = null; }
-    streamOver().catch(() => {});
-  }
+}
+
+/** The stream went off. */
+function onStreamOff() {
+  // Stopped before it was announced: nothing to announce, and nothing to take down.
+  if (pending) { clearTimeout(pending); pending = null; }
+  if (run) { run.cancelled = true; run = null; }
+  streamOver().catch(() => {});
 }
 
 export function initAnnounce() {
   store = collection('discord_announce', DEFAULT_ANNOUNCE);
-  initRecap();
-  bus.on(EVENTS.EVENT, onEvent);
+  bus.on('stream:on', onStreamOn);
+  bus.on('stream:off', onStreamOff);
 }
 
 export function stopAnnounce() {
   clearTimeout(pending);
   pending = null;
-  clearTimeout(recapTimer);
-  recapTimer = null;
 }

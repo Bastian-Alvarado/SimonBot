@@ -20,9 +20,9 @@ fakeTwitch.set({ channel: 'somechannel', login: 'somechannel', clientId: 'public
 const bundle = engine.exportConfig();
 
 test('a backup carries the configuration, not just preferences', () => {
-  assert.ok(Array.isArray(bundle.collections.commands), 'commands missing from the backup');
-  assert.ok(Array.isArray(bundle.collections.actions), 'actions missing from the backup');
-  assert.ok(bundle.collections.commands.length > 0, 'the backup claims there are no commands');
+  assert.equal(bundle.meta.app, 'SimonBot', 'the backup does not say SimonBot wrote it');
+  assert.equal(typeof bundle.collections.relay_config, 'object', 'the relay settings are missing from the backup');
+  assert.equal(typeof bundle.collections.poll_settings, 'object', 'the poll settings are missing from the backup');
 });
 
 test('secrets are left out of a backup', () => {
@@ -34,22 +34,27 @@ test('secrets are left out of a backup', () => {
   assert.ok(bundle.meta.stripped.includes('twitch_credentials.accessToken'), 'the file does not say what it dropped');
 });
 
-test('chat history and caches are not part of a backup', () => {
-  for (const name of ['event_history', 'recent_chat', 'discord_cache', 'spotify_tokens']) {
+test('what viewers did tonight and caches are not part of a backup', () => {
+  for (const name of ['poll', 'questions', 'giveaway', 'discord_cache', 'youtube_tokens']) {
     assert.ok(!(name in bundle.collections), `${name} should not be backed up`);
   }
 });
 
 test('importing restores what the file holds', () => {
   const edited = structuredClone(bundle);
-  edited.collections.commands = [{ id: 'imported-1', name: 'Imported', triggers: ['!imported'] }];
+  edited.collections.relay_config = { ...edited.collections.relay_config, twitchToDiscord: true };
   const summary = engine.importConfig(edited);
-  assert.ok(summary.restored.includes('commands'));
-  const now = engine.snapshot().commands;
-  assert.equal(now.length, 1);
-  assert.equal(now[0].id, 'imported-1');
-  // Healed on the way in, the same as on boot.
-  assert.ok(now[0].permissions, 'an imported command was not normalised');
+  assert.ok(summary.restored.includes('relay_config'));
+  assert.equal(engine.snapshot().relayConfig.twitchToDiscord, true, 'the imported relay setting did not land');
+});
+
+test('a backup from SimonSays is read: what SimonBot has a place for comes in, its overlays are passed over', () => {
+  const fromSimonSays = {
+    meta: { app: 'SimonSays', kind: 'config-backup', version: 2 },
+    collections: { relay_config: { twitchToDiscord: false }, layouts: [{ id: 'l1' }], commands: [{ id: 'c1' }] },
+  };
+  const summary = engine.importConfig(fromSimonSays);
+  assert.deepEqual(summary.restored, ['relay_config'], 'only the collections SimonBot keeps are restored');
 });
 
 test('importing does not sign this machine out', () => {
@@ -58,7 +63,7 @@ test('importing does not sign this machine out', () => {
 });
 
 test('a file from another application is refused', () => {
-  assert.throws(() => engine.importConfig({ meta: { app: 'SomethingElse' }, collections: {} }), /not a SimonSays/i);
+  assert.throws(() => engine.importConfig({ meta: { app: 'SomethingElse' }, collections: {} }), /not a SimonBot or SimonSays/i);
 });
 
 test('a file with nothing to restore says so rather than silently doing nothing', () => {
@@ -151,13 +156,12 @@ test('a custom emoji is never confused with a unicode one of the same name', () 
 // The collections that gained secrets so a first-run setup needs no .env file.
 collection('discord_settings', {}).set({ guildId: 'g1', channelId: 'c1', clientId: 'public', clientSecret: 'SECRET-dc', botToken: 'SECRET-bot' });
 collection('tiktok_credentials', {}).set({ username: 'someone', signApiKey: 'SECRET-euler' });
-collection('ai_settings', {}).set({ geminiApiKey: 'SECRET-gemini' });
 
 const withSecrets = engine.exportConfig();
 
 test('secrets never travel in a backup', () => {
   const raw = JSON.stringify(withSecrets);
-  for (const needle of ['SECRET-dc', 'SECRET-bot', 'SECRET-euler', 'SECRET-gemini']) {
+  for (const needle of ['SECRET-dc', 'SECRET-bot', 'SECRET-euler']) {
     assert.ok(!raw.includes(needle), `${needle} was written into the backup`);
   }
 });

@@ -20,13 +20,13 @@ import path from 'node:path';
 import { collection } from '../core/store.js';
 import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
-import { bus, EVENTS, normaliseEvent } from '../core/bus.js';
+import { bus } from '../core/bus.js';
 import * as discord from '../platforms/discord.js';
 import { renderCard } from './welcome-card.js';
 import { kindOfBytes } from './picture-still.js';
 import { config } from '../config.js';
 import { cleanCard } from '../../shared/card-css.js';
-import { fillGreeting, accountAge, createdAt, longDate } from '../../shared/greeting-text.js';
+import { fillGreeting } from '../../shared/greeting-text.js';
 import { pickLine } from '../../shared/pick-line.js';
 
 const log = createLogger('welcome');
@@ -58,37 +58,9 @@ let greetings = null;
 export function initWelcome() {
   greetings = collection('welcome_goodbye', DEFAULT_GREETINGS);
   bus.on('discord:member_join', onMemberJoin);
-  bus.on('discord:member_join', (d) => { if (ours(d)) announce('discord_join', d).catch(() => {}); });
   bus.on('discord:member_leave', onMemberLeave);
   bus.on('discord:member_update', onMemberUpdate);
   bus.on('discord:member_ban', onMemberBan);
-}
-
-/**
- * Somebody joining or boosting, told to the rest of the app as a stream event,
- * so an action can answer it — an alert on stream, a thank-you in Twitch chat,
- * a sound — whether or not a post goes in Discord. {user} is their name in
- * the server; {event.username}, {event.accountAge} ("2 años"),
- * {event.created} and {event.count} say the rest.
- */
-async function announce(type, d) {
-  const user = d?.user || {};
-  const made = createdAt(user.id);
-  const context = await contextFor(d.guild_id).catch(() => ({}));
-  bus.emit(EVENTS.EVENT, normaliseEvent({
-    type,
-    platform: 'discord',
-    user: d.nick || user.global_name || user.username || 'Alguien',
-    avatar: user.id && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : undefined,
-    data: {
-      userId: user.id || '',
-      username: user.username || '',
-      accountAge: accountAge(made),
-      created: made ? longDate(made) : '',
-      count: context.count ?? '',
-      ...(type === 'discord_boost' ? { boosts: context.boosts ?? '' } : {}),
-    },
-  }));
 }
 
 const line = (v, max) => String(v ?? '').slice(0, max);
@@ -137,6 +109,7 @@ export function cleanButtons(list) {
 /** One kind's settings as they are kept: what is there, bounded, and nothing else. */
 export function cleanGreeting(kind, incoming) {
   const c = incoming && typeof incoming === 'object' ? incoming : {};
+  // A `canvas` key from a SimonSays backup is an overlay setting: not kept.
   const { canvas: _canvas, ...rest } = c;
   const dm = c.dm && typeof c.dm === 'object' ? c.dm : {};
   return {
@@ -194,9 +167,8 @@ const CARD_FILE = 'welcome.png';
  * The welcome or goodbye post for somebody, or null when there is nothing to
  * post.
  *
- * A card counts on its own. It used to be sent only alongside a text line, so
- * a welcome set up as a card with no line — the natural way to set one up —
- * posted nothing at all, and a goodbye card was never sent even with one.
+ * A card counts on its own, so a welcome set up as a card with no line — the
+ * natural way to set one up — still posts, and so does a goodbye card.
  *
  * `{user}` is a real mention where Discord draws one: in the text line and
  * the card's description, for somebody arriving. In a card's title and footer
@@ -213,7 +185,7 @@ export function greetingFor(cfg, user, arriving, withPicture = false, context = 
   const base = { ...context, name, id: user?.id, server: context.server ? discord.sanitise(context.server) : '' };
   const fill = (text, withMention) => fillGreeting(text, { ...base, mention: withMention ? mention : '' });
 
-  // One of the lines the screen edits. (The single line an older setup kept was read until 2.0.0.)
+  // One of the lines the screen edits.
   const template = pickMessage(cfg.messages) || '';
   const content = template ? fill(template, true) : '';
 
@@ -509,11 +481,10 @@ async function onMemberUpdate(d) {
   const key = `${d.user?.id}:${d.premium_since}`;
   if (boosted.has(key)) return;
   boosted.add(key);
-  // Asked afresh: the count of boosts has just changed. The event first, for actions; then the post, when it is on.
-  await guildInfo(d.guild_id, true);
-  await announce('discord_boost', d).catch(() => {});
   const cfg = getGreetings().boost;
   if (!cfg?.enabled) return;
+  // Asked afresh: the count of boosts has just changed.
+  await guildInfo(d.guild_id, true);
   await post('boost', cfg, d.user || {}, d.guild_id, { arriving: true, member: d })
     .catch((err) => log.warn(`boost message failed: ${err.message}`));
 }

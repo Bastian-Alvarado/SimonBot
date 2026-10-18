@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Smoke tests: the giveaway — entered from every chat and from its Discord
- * button, by the rules set; drawn by tickets, told after the overlay's reel;
- * drawn again without the one passed over.
+ * button, by the rules set; drawn by tickets and told at once; drawn again
+ * without the one passed over.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After discord.js
@@ -17,8 +17,6 @@ const giveaway = await import('../../engine/giveaway.js');
 const shared = await import('../../../shared/giveaway.js');
 const roles = await import('../../engine/discord-roles.js');
 const leveling = await import('../../leveling/index.js');
-const { normaliseLayout, LAYER_TYPES } = await import('../../engine/layouts.js');
-const { conditionMet } = await import('../../../shared/layer-conditions.js');
 const { config } = await import('../../config.js');
 const read = (path) => fs.readFileSync(new URL(path, SCRIPT_URL), 'utf8');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -61,7 +59,6 @@ globalThis.fetch = async (url, init = {}) => {
 };
 const realToken = config.discord.botToken;
 config.discord.botToken = 'test-token';
-giveaway.useReelForTests(30);
 const mappingsBefore = roles.getRoleMappings();
 roles.store.setRoleMappings({ ...mappingsBefore, subscriberTier1: '777000000000000001' });
 
@@ -141,7 +138,7 @@ test('subscribers only, a lowest level and a Discord role keep out who they shou
   assert.deepEqual(roleRule, ['role', true]);
 });
 
-// ---------------------------------------------------------------- the draw on stream
+// ---------------------------------------------------------------- the draw
 
 await giveaway.control('setDraft', { rules: { discordRole: '' }, winnersCount: 1 });
 await giveaway.control('reset');
@@ -154,7 +151,6 @@ const onEvent = (e) => { if (e.type === 'giveaway_winner') events.push(e); };
 bus.on(EVENTS.EVENT, onEvent);
 const saidBeforeDraw = said.length;
 const drawn = giveaway.draw({ random: () => 0.99 });
-const toldAtOnce = said.length - saidBeforeDraw;
 // Discord's edits go one at a time through its queue: the closing, then the winner.
 await wait(1200);
 const toldAfter = said.slice(saidBeforeDraw);
@@ -169,18 +165,14 @@ const afterRemove = giveaway.getState().count;
 await giveaway.control('reset');
 const cleared = giveaway.getState();
 
-giveaway.useReelForTests(undefined);
 await giveaway.control('settings', { postToDiscord: false, discordChannelId: '' });
 roles.store.setRoleMappings(mappingsBefore);
 globalThis.fetch = realFetch;
 config.discord.botToken = realToken;
 
-test('drawing closes entries, turns the reel, and only then tells chat, Discord and the actions', () => {
+test('drawing closes entries, and tells chat, Discord and viewer history who won', () => {
   assert.equal(drawn.mode, 'drawn');
   assert.equal(firstWinner.name, 'Disco');
-  assert.equal(drawn.reel.at(-1), 'Disco', 'the reel does not stop on the winner');
-  assert.ok(drawn.reel.length >= 2);
-  assert.equal(toldAtOnce, 0, 'chat was told before the reel stopped');
   assert.ok(toldAfter.includes('🎉 ¡Disco ganó Un juego de Steam! Felicidades.'));
   assert.ok(closedPatch, 'the Discord post was not closed');
   assert.ok(winnerPatch, 'the Discord post was not given the winner');
@@ -203,19 +195,7 @@ test('drawing again passes over the last winner; somebody can be taken out; clea
 
 // ---------------------------------------------------------------- around it
 
-const layout = normaliseLayout({ id: 'g', name: 'g', layers: [{ type: 'giveaway', config: { winnerSeconds: 9999, title: 'Sorteo grande' } }] });
-
-test('the giveaway is a layer, a condition, a step, a trigger and an alert; tonight\'s entrants stay out of backups', () => {
-  assert.ok(LAYER_TYPES.includes('giveaway'));
-  assert.deepEqual(layout.layers[0].config, { title: 'Sorteo grande', howText: '', showCount: true, winnerSeconds: 600 });
-  assert.equal(conditionMet('giveaway', false, { giveaway: { mode: 'open' } }), true);
-  assert.equal(conditionMet('giveaway', false, { giveaway: { mode: 'idle' } }), false);
-  assert.ok(read('../../web/components/CanvasStage.tsx').includes("case 'giveaway':"));
-  const steps = read('../engine/steps.js');
-  for (const s of ['giveaway_open', 'giveaway_close', 'giveaway_draw']) assert.ok(steps.includes(`case '${s}':`), s);
-  const actions = read('../../web/components/views/ActionsView.tsx');
-  assert.ok(actions.includes("{ value: 'giveaway_winner', label: t.triggerGiveawayWinner"));
-  assert.ok(read('../engine/alerts.js').includes("'giveaway_winner',"));
+test('tonight\'s entrants stay out of backups, and the giveaway has its own screen', () => {
   const backup = read('../engine/backup.js');
   assert.ok(/EXCLUDED = \[[^\]]*'giveaway'/.test(backup) && backup.includes("{ name: 'giveaway_settings' },"));
   assert.ok(read('../../web/App.tsx').includes("{view === 'giveaway' && ("));

@@ -4,9 +4,9 @@
  *
  * Smoke tests: game requests (server/engine/game-requests.js) — a post in
  * the requests channel is a request with 👍 under it, votes are counted, one
- * goes into the plan, and when its step starts the one who asked is told in
- * Discord and given points; the channel's older requests are read in with
- * their votes, and the ranking says who leads.
+ * is marked played, and the one who asked is told in Discord and given
+ * points; the channel's older requests are read in with their votes, and
+ * the ranking says who leads.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After discord-questions.js.
@@ -15,7 +15,6 @@
 import { assert, bus, normaliseChat, test } from './harness.js';
 
 const requests = await import('../../engine/game-requests.js');
-const plan = await import('../../engine/plan.js');
 const points = await import('../../engine/points.js');
 const leveling = await import('../../leveling/index.js');
 const { config } = await import('../../config.js');
@@ -56,18 +55,13 @@ const read = await requests.readChannel();
 const hollow = requests.board().find((r) => r.id === '810000000000000002');
 const ranking = requests.rankingMessage();
 
-// Into the plan, as the next thing; then the plan gets to it.
-const planBefore = plan.getPlan();
-await requests.control({ op: 'plan', id: '810000000000000001', where: 'next' });
-const planned = requests.board().find((r) => r.id === '810000000000000001');
-const stepAdded = plan.getPlan().items.find((i) => i.id === planned.planItemId);
-plan.goto(planned.planItemId);
+// Played on stream: marked from the screen.
+await requests.control({ op: 'played', id: '810000000000000001' });
 await new Promise((r) => setTimeout(r, 300));
 const playedOne = requests.board().find((r) => r.id === '810000000000000001');
 const told = calls.find((c) => c.method === 'POST' && c.route === `/channels/${CH}/messages` && /se está jugando/.test(c.body?.content || ''));
 const anaPoints = points.balanceOf(leveling.getAccounts()['discord:770000000000000201']);
 
-plan.setPlan(planBefore);
 requests.control({ op: 'settings', settings: { channelId: '' } });
 globalThis.fetch = realFetch;
 config.discord.botToken = tokenBefore;
@@ -85,10 +79,7 @@ test('older requests are read in with their votes (the bot\'s own 👍 aside), a
   assert.match(ranking.description.split('\n')[0], /Hollow Knight — 👍 3/);
 });
 
-test('a request goes into the plan, and when its step starts the one who asked is told and given points', () => {
-  assert.equal(planned.status, 'planned');
-  assert.equal(stepAdded?.text, 'Silksong');
-  assert.equal(stepAdded?.note, 'Pedido por Ana');
+test('a request marked played tells the one who asked, and gives them points', () => {
   assert.equal(playedOne.status, 'played');
   assert.ok(told, 'they were not told');
   assert.deepEqual(told.body.allowed_mentions, { users: ['770000000000000201'] });

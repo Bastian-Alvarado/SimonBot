@@ -2,8 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Who is on the other end: the sign-in for the dashboard (2.0.0, "The
- * moderators update").
+ * Who is on the other end: the sign-in for the dashboard.
  *
  * Until now anybody who could reach the server had all of it, and the server
  * is reached from the internet too, through the Cloudflare address. So every
@@ -14,9 +13,6 @@
  *           from, or with the owner key
  *   mod     a moderator of the streamer's Twitch channel, signed in with
  *           their own Twitch account
- *   page    a page OBS shows that only draws the stream — the canvas, the
- *           alerts, the countdown — which cannot sign in, so its link
- *           carries the page key instead
  *
  * Or nothing, and is turned away. What each may do is decided where each
  * request is handled; this decides only who it is.
@@ -52,16 +48,8 @@ export const COOKIE = 'ss_session';
 export const SESSION_DAYS = { owner: 30, mod: 7 };
 /** How long a moderator is taken at their word before Twitch is asked again. */
 export const MOD_RECHECK_MS = 6 * 3_600_000;
-/**
- * What a sign-in asks of Twitch: which channels they moderate, chatting as
- * themselves, and moderating as themselves — banning and timing out,
- * deleting messages, the chat's modes, AutoMod's held messages — so Twitch's
- * own mod log names the moderator rather than the channel.
- */
-export const SIGN_IN_SCOPES = [
-  'user:read:moderated_channels', 'user:write:chat',
-  'moderator:manage:banned_users', 'moderator:manage:chat_messages', 'moderator:manage:chat_settings', 'moderator:manage:automod',
-];
+/** What a sign-in asks of Twitch: only which channels they moderate. */
+export const SIGN_IN_SCOPES = ['user:read:moderated_channels'];
 
 let settings = null;
 let secrets = null;
@@ -78,8 +66,8 @@ export function initAuth() {
   sessions = collection('auth_sessions', {});
   tokens = collection('auth_tokens', {});
   const s = secrets.get();
-  if (!s.ownerKey || !s.pageKey) {
-    secrets.set({ ownerKey: s.ownerKey || newKey(), pageKey: s.pageKey || newKey() });
+  if (!s.ownerKey) {
+    secrets.set({ ownerKey: newKey() });
     secrets.flush();
   }
   prune();
@@ -89,15 +77,14 @@ export function initAuth() {
 export const isEnabled = () => settings?.get().enabled === true;
 
 /**
- * The settings screen's view of it: whether it is on, and the two keys. The
- * owner key only to somebody signed in as the owner — never to an "open"
+ * The settings screen's view of it: whether it is on, and the owner key —
+ * only to somebody signed in as the owner — never to an "open"
  * visitor, who is the owner only because sign-in is off, and could otherwise
  * keep a way in for after it is switched on.
  */
 export const authState = (identity) => ({
   enabled: isEnabled(),
   ownerKey: identity && identity.role === 'owner' && identity.via !== 'open' ? secrets.get().ownerKey : '',
-  pageKey: secrets.get().pageKey,
 });
 
 /*
@@ -166,8 +153,7 @@ const who = (s, via) => ({ role: s.role, userId: s.userId || '', login: s.login 
 
 /**
  * Who a request comes from, or null for nobody the server will talk to: a
- * sign-in's cookie, the owner key as a script's Authorization header, or the
- * page key in a link OBS shows.
+ * sign-in's cookie, or the owner key as a script's Authorization header.
  */
 export function identify(req, { now = Date.now() } = {}) {
   const open = { role: 'owner', userId: '', login: '', name: '', via: 'open' };
@@ -186,14 +172,9 @@ export function identify(req, { now = Date.now() } = {}) {
   const header = bearer(req);
   if (header && same(header, secrets.get().ownerKey)) return { role: 'owner', userId: '', login: '', name: '', via: 'owner-key' };
   if (!isEnabled()) return open;
-  const pageKey = safeUrl(req)?.searchParams.get('key');
-  if (pageKey && same(pageKey, secrets.get().pageKey)) return { role: 'page', userId: '', login: '', name: '', via: 'page-key' };
   return null;
 }
 
-function safeUrl(req) {
-  try { return new URL(req?.url || '/', 'http://x'); } catch { return null; }
-}
 function bearer(req) {
   const m = /^Bearer\s+(\S+)$/i.exec(String(req?.headers?.authorization || ''));
   return m ? m[1] : '';
@@ -261,7 +242,7 @@ export async function signInWithTwitch(token) {
   if (isBlocked(user.userId)) throw refusal('signin_blocked', 'the streamer has turned this account away from the dashboard', { channel: creds.login });
   if (!(v.scopes || []).includes('user:read:moderated_channels')) throw refusal('signin_scope', 'that sign-in did not allow reading which channels you moderate');
   if (!(await moderates(user.userId, token, creds.userId))) throw refusal('signin_not_mod', 'only moderators of this channel can sign in', { channel: creds.login });
-  // Kept for asking again later, and for chatting as themselves (2.0.0).
+  // Kept for asking again later, and for chatting as themselves.
   tokens.update((all) => ({ ...all, [user.userId]: { token, scopes: v.scopes || [], login: user.login, savedAt: Date.now() } }));
   tokens.flush();
   log.info(`${user.login} signed in as a moderator`);
@@ -375,29 +356,6 @@ export function setBlocked(userId, blocked, identity, login = '') {
 }
 
 /**
- * What a moderator chats on Twitch with: their own sign-in's token, if it
- * may write to chat. Nothing for anybody else — the streamer chats through
- * the app's own connection.
- */
-export function modChatToken(identity) {
-  if (identity?.role !== 'mod' || !identity.userId) return {};
-  const saved = tokens.get()[identity.userId];
-  if (!saved?.token || !(saved.scopes || []).includes('user:write:chat')) return { userId: identity.userId };
-  return { token: saved.token, userId: identity.userId };
-}
-
-/**
- * What a moderator moderates with (engine/twitch-mod.js): their own sign-in's
- * token when it allows `scope`, or null — a sign-in from before moderating
- * was asked for — for the channel's login to act instead.
- */
-export function modActingToken(identity, scope) {
-  if (identity?.role !== 'mod' || !identity.userId) return null;
-  const saved = tokens.get()[identity.userId];
-  return saved?.token && (saved.scopes || []).includes(scope) ? { token: saved.token, userId: identity.userId } : null;
-}
-
-/**
  * Turn sign-in on or off. Only somebody who would still be the owner with
  * it on may: from a sign-in of their own, or the owner key — never merely
  * because it is off, or turning it on would lock out the one who did it.
@@ -410,8 +368,7 @@ export function setEnabled(enabled, identity) {
       While it was off, anybody who reached the app was the owner, and could
       have signed in as one or read the owner key. Switching on is where that
       ends: a new owner key, and every sign-in but the one switching it on
-      let go. Moderators and the streamer sign in again; the page key stays,
-      so the links in OBS keep working.
+      let go. Moderators and the streamer sign in again.
     */
     secrets.set({ ...secrets.get(), ownerKey: newKey() });
     secrets.flush();
@@ -423,10 +380,10 @@ export function setEnabled(enabled, identity) {
   return authState(identity);
 }
 
-/** A new page key (every OBS link changes) or owner key (the old one stops working, and so does every sign-in made with it). */
+/** A new owner key: the old one stops working, and so does every sign-in made with it. */
 export function newSecret(which, identity) {
   if (identity?.role !== 'owner' || identity.via === 'open') throw refusal('signin_owner_only', 'only the streamer can change sign-in');
-  if (which !== 'pageKey' && which !== 'ownerKey') throw refusal('unknown_request', `no key called ${which}`);
+  if (which !== 'ownerKey') throw refusal('unknown_request', `no key called ${which}`);
   secrets.set({ ...secrets.get(), [which]: newKey() });
   secrets.flush();
   // A sign-in made with the owner key has no Twitch account to it; with a new key, those end — but not the one asking.

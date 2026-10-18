@@ -5,8 +5,8 @@
  * A text field that does not fight the server while you are typing in it.
  *
  * Several of these fields save on every keystroke, and the server tidies what
- * it stores — a label and a plan item are both trimmed, so that leading
- * and trailing spaces do not end up in the data. Put those two together and a
+ * it stores — a label is trimmed, so that leading and trailing spaces do not
+ * end up in the data. Put that together with a save on every keystroke and a
  * space becomes impossible to type: it is sent, stripped, and the stripped
  * value comes back and replaces what is in the box before the next letter
  * arrives. "Follower goal" could only ever be typed as "Followergoal".

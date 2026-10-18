@@ -6,7 +6,7 @@
  * the one chosen and why an upload was turned away. Shared by the Discord
  * pages and the welcome and goodbye posts.
  */
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Images, Upload, Loader2, Trash2 } from 'lucide-react';
 import { refusalWords } from '../words';
 import { pictureSrc } from './DiscordPagePreview';
