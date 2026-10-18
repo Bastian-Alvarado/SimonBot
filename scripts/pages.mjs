@@ -46,7 +46,7 @@ const html = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SimonBot</title>
-<meta name="description" content="Simon's community bot for Discord and the stream, running on your own machine.">
+<meta name="description" content="Simon's community bot for Discord, running on your own machine.">
 <link rel="icon" href="bot-avatar.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&family=Pixelify+Sans:wght@600&family=JetBrains+Mono&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@ const html = `<!doctype html>
 <header class="hero">
   <img src="bot-avatar.png" alt="SimonBot, Pixel Simon holding a pixel heart">
   <h1>SimonBot</h1>
-  <p>Simon's community bot for Discord and the stream, running on your own machine.</p>
+  <p>Simon's community bot for Discord, running on your own machine.</p>
   <div class="buttons">
     <a class="btn main" href="#getting-started">Get started</a>
     <a class="btn alt" href="${REPO}">View on GitHub</a>
