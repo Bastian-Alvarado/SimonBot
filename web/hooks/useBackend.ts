@@ -60,6 +60,7 @@ function serverUrl(): string {
   const { url, remember } = resolveServerUrl(window.location, {
     remembered: read(REMEMBERED),
     apiPort: (import.meta as any).env?.VITE_API_PORT ?? undefined,
+    dev: Boolean((import.meta as any).env?.DEV),
   });
   if (remember) { try { localStorage.setItem(REMEMBERED, remember); } catch { /* a browser may refuse */ } }
   return url;

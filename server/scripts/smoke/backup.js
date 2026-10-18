@@ -16,7 +16,6 @@ export const { MANIFEST, EXCLUDED, buildBundle, applyBundle } = await import('..
 export const { says, has, platformsWith } = await import('../../../shared/platforms.js');
 export const youtubeModule = await import('../../platforms/youtube.js');
 export const busModule = await import('../../core/bus.js');
-export const { resolveServerUrl } = await import('../../../shared/server-url.js');
 export const { getCollection } = await import('../../core/store.js');
 
 test('every stored collection either travels in a backup or is excluded on purpose', () => {

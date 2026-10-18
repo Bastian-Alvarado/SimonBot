@@ -17,4 +17,4 @@
  * 0.0.1 is SimonBot's first version (2026-10-17). It was made from
  * SimonSays 2.2.1, but keeps none of that app's numbers or history.
  */
-export const VERSION = '0.0.1';
+export const VERSION = '0.0.2';

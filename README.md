@@ -342,3 +342,14 @@ SimonBot started as a copy of SimonSays, Simon's stream app, with everything
 about running and decorating the stream — overlays, alerts, OBS, the docks,
 commands and actions, Spotify — taken out. What is left is the server that
 SimonSays V3 made headless, and the community features that live in Discord.
+
+---
+
+## License
+
+Source available under the Apache License 2.0 with the **Commons Clause**
+(see [LICENSE](LICENSE)), the same as SimonSays. In plain words: use it for
+your own server and streams — monetized ones included — change it and share
+it, as long as the license and the [NOTICE](NOTICE) file go with it, crediting
+Bastian Alvarado as its author; but do not sell it, or sell hosting, setup or
+support whose value is mainly SimonBot itself.

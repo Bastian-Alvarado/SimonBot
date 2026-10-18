@@ -17,7 +17,6 @@ import { getRgbValues } from './utils';
 import { fill } from './words';
 import { useStreamSystem } from './hooks/useStreamSystem';
 import type { GuidesTab } from './components/views/GuidesView';
-import botFace from '../art/simonbot/bot-avatar-mint-circle-512.png';
 
 /** The guides module, fetched by the dashboard when it opens (see `guides` below). */
 type GuidesModule = typeof import('../shared/guides.js');
@@ -370,7 +369,7 @@ export default function App() {
     <div className={`h-dvh ${activeTheme.bgClass} ${activeTheme.textClass} font-sans flex overflow-hidden relative transition-colors duration-500`}>
       {accentStyles}
 
-      {showIntro && ( <div className="fixed inset-0 z-50 bg-[#0F0913] flex items-center justify-center font-sans overflow-hidden"> <div className="relative flex flex-col items-center"> <div className="absolute -inset-10 bg-[#66AD4F]/20 blur-[100px] rounded-full animate-pulse"></div> <img src={botFace} alt="" className="relative w-40 h-40 mb-8 [image-rendering:pixelated] animate-[pulse_2s_ease-in-out_infinite]" /> <h1 className="relative text-4xl md:text-6xl font-black tracking-tighter text-white mb-4 animate-[slide-up_0.8s_ease-out]"> SIMON<span className="text-[#66AD4F]">BOT</span> </h1> <div className="relative h-1 w-24 bg-gradient-to-r from-transparent via-[#66AD4F] to-transparent rounded-full"></div> </div> </div> )}
+      {showIntro && ( <div className="fixed inset-0 z-50 bg-[#0F0913] flex items-center justify-center font-sans overflow-hidden"> <div className="relative flex items-center justify-center"> <div className="absolute inset-0 bg-[#66AD4F]/20 blur-[100px] rounded-full animate-pulse"></div> <div className="relative z-10 flex flex-col items-center"> <div className="relative w-32 h-32 mb-8"> <div className="absolute inset-0 border-4 border-[#66AD4F]/30 rounded-full animate-[spin_3s_linear_infinite]"></div> <div className="absolute inset-2 border-4 border-[#66AD4F]/50 rounded-full border-t-transparent animate-[spin_2s_linear_infinite_reverse]"></div> <div className="absolute inset-0 flex items-center justify-center"> <Logo className="w-16 h-16 text-[#66AD4F] animate-[pulse_2s_ease-in-out_infinite]" /> </div> </div> <h1 className="text-4xl md:text-6xl font-black tracking-tighter text-white mb-4 animate-[slide-up_0.8s_ease-out]"> SIMON<span className="text-[#66AD4F]">BOT</span> </h1> <div className="h-1 w-24 bg-gradient-to-r from-transparent via-[#66AD4F] to-transparent rounded-full animate-[width_1s_ease-out]"></div> </div> </div> </div> )}
       {isMobileMenuOpen && ( <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm md:hidden animate-fade-in" onClick={() => setIsMobileMenuOpen(false)} /> )}
 
       <aside className={`fixed inset-y-0 left-0 z-[70] w-72 ${activeTheme.bgClass} border-r ${activeTheme.borderClass} md:hidden transform transition-transform duration-300 ease-out flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full shadow-none'}`}> {renderSidebar(true)} </aside>

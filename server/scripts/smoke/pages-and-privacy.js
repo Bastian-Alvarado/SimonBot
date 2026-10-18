@@ -18,6 +18,7 @@ import { SCRIPT_URL, assert, fs, test } from './harness.js';
 
 const { createHttpServer } = await import('../../api/http.js');
 const { FORGET_CHOICES } = await import('../../engine/viewer-history.js');
+const { resolveServerUrl } = await import('../../../shared/server-url.js');
 const read = (p) => fs.readFileSync(new URL(p, SCRIPT_URL), 'utf8');
 
 // A built app of one page, served the way the real one is.
@@ -96,6 +97,26 @@ test('a page that does not exist says so, before any other page is chosen, and e
   for (const key of ['notFoundTitle', 'notFoundHint', 'notFoundBack', 'notFoundTab']) {
     assert.equal(strings.split(`    ${key}: `).length - 1, 2, `${key} is not in both languages`);
   }
+});
+
+// ---------------------------------------------------------------- where the dashboard finds its server
+
+const at = (href) => { const u = new URL(href); return { protocol: u.protocol, hostname: u.hostname, port: u.port, search: u.search }; };
+
+test('the built dashboard talks to the server that served it, on whatever port that is', () => {
+  // A second server on a phone already running something on 8081: never sent to 8081.
+  assert.equal(resolveServerUrl(at('http://192.168.1.201:8082/')).url, 'ws://192.168.1.201:8082');
+  assert.equal(resolveServerUrl(at('http://localhost:8081/')).url, 'ws://localhost:8081');
+  // Behind a proxy on the default port, with a certificate: the same origin.
+  assert.equal(resolveServerUrl(at('https://bot.example.com/')).url, 'wss://bot.example.com');
+});
+
+test('only the development page looks for the server on the API port, and an address or a remembered one wins', () => {
+  assert.equal(resolveServerUrl(at('http://localhost:5173/'), { dev: true }).url, 'ws://localhost:8081');
+  assert.equal(resolveServerUrl(at('http://localhost:5173/'), { dev: true, apiPort: '9000' }).url, 'ws://localhost:9000');
+  assert.deepEqual(resolveServerUrl(at('http://192.168.1.201:8082/?server=ws://10.0.0.5:8082')), { url: 'ws://10.0.0.5:8082', remember: 'ws://10.0.0.5:8082' });
+  assert.equal(resolveServerUrl(at('http://192.168.1.201:8082/'), { remembered: 'ws://10.0.0.5:8082' }).url, 'ws://10.0.0.5:8082');
+  assert.ok(read('../../web/hooks/useBackend.ts').includes('dev: Boolean((import.meta as any).env?.DEV),'), 'the dashboard does not say whether it is the development page');
 });
 
 // ---------------------------------------------------------------- the privacy note

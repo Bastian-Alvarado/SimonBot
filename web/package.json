@@ -1,7 +1,7 @@
 {
   "name": "simonbot-web",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "SimonBot's dashboard. Holds no authority — the server does.",
   "scripts": {
