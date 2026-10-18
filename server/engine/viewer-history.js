@@ -14,7 +14,7 @@
  * ends, not with every message.
  *
  * A person takes part in a stream by talking in its chat while it is on —
- * Twitch, YouTube, TikTok, Kick, or the Discord channel the stream reads.
+ * Twitch, YouTube, TikTok, or the Discord channel the stream reads.
  * Watching without a word is not seen.
  *
  * People can be forgotten after a while away, if the Levels & XP screen says
@@ -39,7 +39,7 @@ const SAVE_EVERY_MS = 60_000;
 const DAY_MS = 24 * 3_600_000;
 const MONTH_MS = 30 * DAY_MS;
 /** Chats that are the stream's: talking in one while it is on is taking part. */
-const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'kick', 'discord']);
+const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'discord']);
 
 let store = null;
 let saveTimer = null;

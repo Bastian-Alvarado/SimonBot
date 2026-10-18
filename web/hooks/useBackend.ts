@@ -42,7 +42,7 @@ export interface BackendSnapshot {
 }
 
 const EMPTY_SNAPSHOT: BackendSnapshot = {
-  relayConfig: { twitchToDiscord: false, tiktokToDiscord: false, kickToDiscord: false },
+  relayConfig: { twitchToDiscord: false, tiktokToDiscord: false },
   xpConfig: {},
   leaderboard: [],
   status: {},

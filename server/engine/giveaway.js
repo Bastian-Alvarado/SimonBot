@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * The giveaway: one at a time, entered from every chat the app reads — the
- * keyword ("!sorteo") on Twitch, YouTube, TikTok, Kick or Discord — or with
+ * keyword ("!sorteo") on Twitch, YouTube, TikTok or Discord — or with
  * the "Participar" button on its Discord post, and drawn from the Giveaways
  * screen.
  *
@@ -143,7 +143,7 @@ function say(text) {
 
 // ------------------------------------------------------------ words
 
-const PLATFORM = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', kick: 'Kick', discord: 'Discord' };
+const PLATFORM = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', discord: 'Discord' };
 const listed = (names) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`);
 
 /** What it asks of people, in a few words: "Solo suscriptores · Nivel 5+ · Los subs tienen 2 boletos". */

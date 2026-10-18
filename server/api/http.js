@@ -43,16 +43,10 @@ const MIME = {
   '.gif': 'image/gif',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.wav': 'audio/wav',
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
   '.ttf': 'font/ttf',
   '.otf': 'font/otf',
-  '.m4a': 'audio/mp4',
-  '.webm': 'video/webm',
-  '.mp4': 'video/mp4',
   '.ico': 'image/x-icon',
 };
 
@@ -138,7 +132,7 @@ export function createHttpServer({ webRoot } = {}) {
 
     if (url.pathname.startsWith('/media/')) {
       /*
-        An upload is a picture, a sound, a font — never a page. Opened on its
+        An upload is a picture or a font — never a page. Opened on its
         own (an SVG can carry a script), it runs nothing and reaches nothing,
         so a file somebody uploaded cannot act with the streamer's sign-in.
         Drawn in a page, as it always is, these change nothing.
@@ -386,13 +380,13 @@ function listAssets() {
 function saveAsset(req, rawName) {
   const name = safeAssetName(rawName);
   if (!name) {
-    const err = new Error('Asset must be a plain filename ending in an image, audio, video or font extension (png, jpg, gif, webp, svg, mp3, ogg, wav, m4a, webm, mp4, woff2, woff, ttf, otf)');
+    const err = new Error('Asset must be a plain filename ending in an image or font extension (png, jpg, gif, webp, svg, woff2, woff, ttf, otf)');
     err.statusCode = 400;
     err.code = 'upload_type';
     throw err;
   }
 
-  // The cap follows the kind, so a video is not held to an image budget.
+  // The cap follows the kind: a picture and a font each have their own.
   const MAX_ASSET_BYTES = ASSET_KINDS[assetKind(path.extname(name).toLowerCase())].max;
 
   /*
@@ -543,14 +537,13 @@ function serveStatic(res, root, pathname, req) {
  * Send a file, and let a browser that already has it keep it.
  *
  * Every response used to carry the bytes, with nothing to say the file had not
- * changed, so a picture was downloaded again on every page that drew it. A
- * twenty-megabyte video makes that obvious; it was true of every image already.
+ * changed, so a picture was downloaded again on every page that drew it.
  *
  * Revalidation rather than a long life, because an uploaded file keeps its own
  * name: replacing logo.gif writes over the old one at the same address, so a
  * browser told to keep it for a year would show the old one for a year. A
- * conditional request answers in a couple of hundred bytes instead of twenty
- * megabytes, and a replaced file appears immediately.
+ * conditional request answers in a couple of hundred bytes instead of the
+ * whole file, and a replaced file appears immediately.
  *
  * @param {number} freshFor Seconds a browser may reuse it without asking at
  *        all. Small: it saves the round trip for a picture drawn twice in a

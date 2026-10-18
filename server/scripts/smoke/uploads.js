@@ -67,7 +67,7 @@ test('a file too big is answered with why — not cut off mid-send — and not k
 });
 
 test('the screen knows the same kinds and sizes, to say so before sending', () => {
-  assert.deepEqual([assetKindOf('a.WEBP'), assetKindOf('x.mp4'), assetKindOf('f.woff2'), assetKindOf('n.exe'), assetKindOf('none')], ['image', 'video', 'font', null, null]);
+  assert.deepEqual([assetKindOf('a.WEBP'), assetKindOf('x.mp4'), assetKindOf('f.woff2'), assetKindOf('n.exe'), assetKindOf('none')], ['image', null, 'font', null, null]);
   const hook = fs.readFileSync(new URL('../../../web/hooks/useStreamSystem.ts', import.meta.url), 'utf8');
   assert.match(hook, /assetKindOf\(file\.name\)/, 'the upload no longer checks the size before sending');
 });

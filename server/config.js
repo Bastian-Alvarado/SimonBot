@@ -96,10 +96,6 @@ export const config = {
     clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
   },
 
-  kick: {
-    clientId: process.env.KICK_CLIENT_ID || '01KG2S47PDE3JBHWBHZBCS1M6G',
-  },
-
   tiktok: {
     // How often to retry connecting while a creator is offline.
     //

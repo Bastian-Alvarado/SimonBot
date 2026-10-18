@@ -16,8 +16,8 @@
  * `@tailwind utilities` would silently change the design.
  */
 
-/* Self-hosted fonts. Weights match the old Google Fonts query exactly:
-   Montserrat 300..900, JetBrains Mono 400/700, Creepster, VT323. */
+/* Self-hosted fonts: Montserrat and JetBrains Mono for the dashboard, and the
+   faces a welcome card can be drawn in (web/components/WelcomeCardChoices.tsx). */
 @import '@fontsource/montserrat/300.css';
 @import '@fontsource/montserrat/400.css';
 @import '@fontsource/montserrat/500.css';
@@ -27,21 +27,17 @@
 @import '@fontsource/montserrat/900.css';
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/700.css';
-@import '@fontsource/creepster/400.css';
 /* VT323 — and Special Elite, below — declared for every weight, so bold is never faked on them (see the file). */
 @import './one-weight-fonts.css';
-/* Chakra Petch, for the Cyberpunky theme's squared headings. */
+/* Chakra Petch, squared. */
 @import '@fontsource/chakra-petch/500.css';
 @import '@fontsource/chakra-petch/600.css';
 @import '@fontsource/chakra-petch/700.css';
-/* Baloo 2, heavy and rounded, for the Emergency Meeting theme. */
+/* Baloo 2, heavy and rounded. */
 @import '@fontsource/baloo-2/600.css';
 @import '@fontsource/baloo-2/700.css';
 @import '@fontsource/baloo-2/800.css';
-/* Special Elite, a worn typewriter, for the Found Footage theme's case files and transcripts: in one-weight-fonts.css, above. */
-/* Pixelify Sans, a heavy pixel face, for the Mania Menu theme. Its weights stop at 700, which is what anything heavier gets. */
-@import '@fontsource/pixelify-sans/400.css';
-@import '@fontsource/pixelify-sans/700.css';
+/* Special Elite, a worn typewriter: in one-weight-fonts.css, above. */
 
 @tailwind base;
 @tailwind components;

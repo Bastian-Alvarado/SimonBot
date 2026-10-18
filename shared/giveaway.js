@@ -7,7 +7,7 @@
  * screen and the tests read the same rules.
  */
 
-export const GIVEAWAY_PLATFORMS = ['twitch', 'youtube', 'tiktok', 'kick', 'discord'];
+export const GIVEAWAY_PLATFORMS = ['twitch', 'youtube', 'tiktok', 'discord'];
 
 export const DEFAULT_GIVEAWAY_RULES = {
   /** Only subscribers (Twitch subs, YouTube members, TikTok subs, Discord members with a subscriber role). */

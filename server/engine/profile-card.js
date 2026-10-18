@@ -30,8 +30,8 @@ import { cardFonts, emojiAsset, pictureData } from './welcome-card.js';
 const log = createLogger('profile');
 
 export const DEFAULT_PROFILE = { enabled: true, word: '!perfil', accent: '#9146ff', youtube: true };
-const PLATFORM_COLOURS = { twitch: '#9146ff', youtube: '#ff0000', tiktok: '#ff0050', discord: '#5865f2', kick: '#53fc18' };
-const PLATFORM_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', discord: 'Discord', kick: 'Kick' };
+const PLATFORM_COLOURS = { twitch: '#9146ff', youtube: '#ff0000', tiktok: '#ff0050', discord: '#5865f2' };
+const PLATFORM_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', discord: 'Discord' };
 const PERSON_EVERY_MS = 30_000;
 const CHAT_EVERY_MS = 3_000;
 

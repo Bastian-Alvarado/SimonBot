@@ -5,7 +5,7 @@
  * Chat copied between the platforms, when the streamer has switched it on
  * (Connections → Chat relay).
  *
- * Into Discord: Twitch, TikTok, Kick and YouTube chat, into the channel the
+ * Into Discord: Twitch, TikTok and YouTube chat, into the channel the
  * app reads — a few lines to a post rather than a post to a line. One post
  * per message ran into Discord's limit of five posts in five seconds as soon
  * as chat got busy, and the rest queued up behind it for minutes.
@@ -32,14 +32,13 @@ const log = createLogger('relay');
 export const DEFAULT_RELAY = {
   twitchToDiscord: false,
   tiktokToDiscord: false,
-  kickToDiscord: false,
   youtubeToDiscord: false,
   discordToTwitch: false,
   discordToYoutube: false,
 };
 
 /** Which switch lets each platform's chat into Discord. */
-const INTO_DISCORD = { twitch: 'twitchToDiscord', tiktok: 'tiktokToDiscord', kick: 'kickToDiscord', youtube: 'youtubeToDiscord' };
+const INTO_DISCORD = { twitch: 'twitchToDiscord', tiktok: 'tiktokToDiscord', youtube: 'youtubeToDiscord' };
 
 /** How long lines gather before they go to Discord as one post. */
 export const BATCH_MS = 1500;

@@ -43,11 +43,8 @@ export default {
         },
       },
       fontFamily: {
-        pixel: ['"Pixelify Sans"', 'monospace'],
         sans: ['Montserrat', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
-        creep: ['Creepster', 'cursive'],
-        minecraft: ['"VT323"', 'monospace'],
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-out',

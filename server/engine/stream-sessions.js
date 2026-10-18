@@ -34,7 +34,7 @@ const CHECK_EVERY_MS = 3 * 60_000;
 /** With Twitch not answering, a stream nothing has happened in for this long is taken as over. */
 export const QUIET_OVER_MS = 6 * 60 * 60_000;
 /** The platforms a minute is counted on, in the order the counts are kept: [all, …these]. */
-export const MINUTE_PLATFORMS = ['twitch', 'youtube', 'tiktok', 'discord', 'kick'];
+export const MINUTE_PLATFORMS = ['twitch', 'youtube', 'tiktok', 'discord'];
 const STREAM_CHATS = new Set(MINUTE_PLATFORMS);
 
 let live = null;

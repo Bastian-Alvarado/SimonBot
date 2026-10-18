@@ -29,7 +29,7 @@ import * as roleSync from './role-sync.js';
 const log = createLogger('moderation');
 
 export const DEFAULT_MODERATION = { logChannelId: '', logTwitch: true, logDiscord: true, logTikTok: true };
-const NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', discord: 'Discord', kick: 'Kick' };
+const NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', discord: 'Discord' };
 /** What each platform can be made to do, and for how long a timeout is. */
 export const CAN = {
   discord: { ban: true, timeoutSec: 3600 },

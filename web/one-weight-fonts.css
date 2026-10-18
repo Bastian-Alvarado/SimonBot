@@ -10,9 +10,8 @@
  * bold got a bold the browser made up — every letter smeared a fraction of a
  * pixel sideways. On a pixel font that is the one thing it must not do: the
  * steps of the letters come out uneven. And plenty asks for bold without
- * meaning to: a component's headings are heavy, and a look that sets the font
- * leaves the weight as it was. Measured in the Library: about twenty
- * Cyberpunky and Found Footage looks drew these fonts at 600 to 900.
+ * meaning to: a welcome card's name is heavy, and a look that sets the font
+ * leaves the weight as it was.
  *
  * With the one file covering every weight, bold has nothing to fake and the
  * letters stay as they were drawn, whatever weight is asked for.

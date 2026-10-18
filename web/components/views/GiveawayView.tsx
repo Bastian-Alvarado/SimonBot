@@ -13,7 +13,7 @@ import { Button } from '../Button';
 import { textChannels } from '../DiscordPicks';
 import { refusalWords } from '../../words';
 
-const PLATFORMS: [string, string][] = [['twitch', 'Twitch'], ['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['kick', 'Kick'], ['discord', 'Discord']];
+const PLATFORMS: [string, string][] = [['twitch', 'Twitch'], ['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['discord', 'Discord']];
 const box = 'w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-current-accent';
 const tag = 'text-[9px] font-black uppercase tracking-widest text-zinc-500';
 
@@ -78,7 +78,7 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
           </span>
         </div>
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.giveawayHint || 'Viewers enter by typing the word in any chat — Twitch, YouTube, TikTok, Kick or Discord — or with the button on the Discord post. When you draw, chat and Discord are told who won.'}
+          {t.giveawayHint || 'Viewers enter by typing the word in any chat — Twitch, YouTube, TikTok or Discord — or with the button on the Discord post. When you draw, chat and Discord are told who won.'}
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px] gap-4">

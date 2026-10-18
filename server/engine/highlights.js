@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Highlights: the moments chat goes wild. Every platform's chat counted
- * together — Twitch, YouTube, TikTok, Kick and the Discord channel the stream
+ * together — Twitch, YouTube, TikTok and the Discord channel the stream
  * reads — and when a minute runs at several times the stream's usual pace,
  * that is a moment: (if a channel is chosen) Discord gets a post with what
  * chat was saying and a link to the moment in the VOD.
@@ -40,8 +40,8 @@ export const DEFAULT_HIGHLIGHTS = {
 };
 const CHECK_EVERY_MS = 15_000;
 const KEEP_MS = 3 * 60_000;
-const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'kick', 'discord']);
-const PLATFORM_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', kick: 'Kick', discord: 'Discord' };
+const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'discord']);
+const PLATFORM_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', discord: 'Discord' };
 
 let store = null;
 let timer = null;

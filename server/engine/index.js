@@ -18,7 +18,7 @@ import * as questionsModule from './questions.js';
 import * as backup from './backup.js';
 
 /** Which chats are carried to which, by engine/relay.js. All off until the streamer turns one on. */
-const DEFAULT_RELAY = { twitchToDiscord: false, tiktokToDiscord: false, kickToDiscord: false, youtubeToDiscord: false, discordToTwitch: false, discordToYoutube: false };
+const DEFAULT_RELAY = { twitchToDiscord: false, tiktokToDiscord: false, youtubeToDiscord: false, discordToTwitch: false, discordToYoutube: false };
 
 let db = null;
 

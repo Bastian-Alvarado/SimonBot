@@ -6,9 +6,9 @@
  * server, which enforces it, and the screen, which says so before sending a
  * file that would only be turned away.
  *
- * Was images only, which left out a sound to play and a short transparent
- * video. The caps differ by kind because a 25MB png is a mistake while a 25MB
- * video clip is ordinary.
+ * Pictures, for welcome cards, Discord pages and event covers, and fonts, for
+ * the welcome cards. Sounds and video were for the stream's alerts, and nothing
+ * here plays them.
  */
 export const ASSET_KINDS = {
   /*
@@ -17,8 +17,6 @@ export const ASSET_KINDS = {
     again at 1100 pixels across at most anyway.
   */
   image: { exts: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'], max: 5 * 1024 * 1024 },
-  audio: { exts: ['.mp3', '.ogg', '.wav', '.m4a'], max: 10 * 1024 * 1024 },
-  video: { exts: ['.webm', '.mp4'], max: 25 * 1024 * 1024 },
   /*
     A typeface is what makes a page look like somebody's rather than like
     this app's. Small on purpose: a woff2 of a display face is tens of

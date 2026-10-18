@@ -77,8 +77,8 @@ const savedAfterFlush = fs.existsSync(historyFile);
 test('a stream is kept: chat speed by minute and platform, who took part, the channel, clips', () => {
   assert.equal(onNow.n, first.n);
   assert.ok(first.startedAt && first.endedAt);
-  // [all, twitch, youtube, tiktok, discord, kick]: the bot is not counted, the streamer is.
-  assert.deepEqual(first.minutes[0], [5, 3, 1, 1, 0, 0]);
+  // [all, twitch, youtube, tiktok, discord]: the bot is not counted, the streamer is.
+  assert.deepEqual(first.minutes[0], [5, 3, 1, 1, 0]);
   const people = Object.values(first.attendees);
   assert.equal(people.length, 3, JSON.stringify(first.attendees));
   assert.deepEqual(first.attendees[uidOf('twitch:h-ana')], { m: 2, p: ['twitch'] });

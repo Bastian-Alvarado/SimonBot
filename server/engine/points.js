@@ -143,7 +143,7 @@ export function add(uid, delta, why, { now = false, name = '' } = {}) {
 
 // ------------------------------------------------------------ earning
 
-const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'kick', 'discord']);
+const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'discord']);
 
 function onChat(chat, { stream = true } = {}, now = Date.now()) {
   const cfg = getPoints();

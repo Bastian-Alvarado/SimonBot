@@ -2,7 +2,7 @@
 
 Newest first. Versions are **major.minor.patch**: patch for fixes, minor for something new, major for something you must redo (an old backup that won't load, a removed feature, signing in again). `npm run bump patch|minor|major` sets the number and adds a heading here. The app shows its version under Settings → About.
 
-## [0.0.1] — 2026-10-17
+## [0.0.1] — 2026-10-18
 
 - SimonBot’s first version: a Discord bot you run yourself, for your own server. It was made from SimonSays 2.2.1 and keeps its Discord and community features; the stream app around them (overlays, alerts, OBS, the docks, Commands & Actions and Spotify) is not part of it.
 - In Discord: slash commands; welcome and goodbye messages with welcome cards; Discord pages; role menus and buttons; roles for linked and loyal viewers; go-live posts, live DMs and highlights; moderation, and moderators who sign in to the dashboard.
