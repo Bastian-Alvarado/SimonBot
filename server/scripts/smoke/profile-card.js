@@ -5,7 +5,7 @@
  * Smoke tests: the profile card (server/engine/profile-card.js) — what a
  * person's profile says across every platform they are on, the line a chat
  * without pictures gets, the picture itself, "!perfil" answered in Discord
- * with it, and the shop's "Mi perfil" button answering privately.
+ * with it, and /perfil's button press answering privately.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After points.js.
@@ -65,7 +65,7 @@ test('a profile says who somebody is across their platforms: level, points, stre
   assert.equal(profile.supportLine({ bits: 1200, subs: 1, tiktokGifts: 2 }), '1,200 bits · 1 sub · 2 regalos de TikTok');
 });
 
-test('the profile is a picture: drawn, sent in Discord as a reply, and privately from the shop\'s button', () => {
+test('the profile is a picture: drawn, sent in Discord as a reply, and privately from /perfil\'s button press', () => {
   assert.equal(png.subarray(1, 4).toString(), 'PNG');
   assert.ok(png.length > 5000, 'the picture is empty');
   assert.ok(answered, 'Discord was not answered');

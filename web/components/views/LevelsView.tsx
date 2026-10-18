@@ -98,7 +98,7 @@ const ProfilePanel = ({ settings, profileCard, t, panelClass }: { settings: any;
           <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${s.enabled ? 'translate-x-5' : ''}`} />
         </div>
       </div>
-      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.profileHint || 'Anybody can ask for their profile — or somebody else\'s by name — in any chat: level, place, points, streams, streak and every account they have linked. In Discord it is a picture; Twitch, YouTube and TikTok get a line. The shop in Discord has a "Mi perfil" button too.'}</p>
+      <p className="text-[11px] text-zinc-500 leading-relaxed">{t.profileHint || 'Anybody can ask for their profile — or somebody else\'s by name — in any chat: level, place, points, streams, streak and every account they have linked. In Discord it is a picture; Twitch, YouTube and TikTok get a line.'}</p>
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2"><span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{t.profileWord || 'Word'}</span>
           <input value={word} onChange={(e) => setWord(e.target.value)} onBlur={() => word !== s.word && save({ word })} className="w-28 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-white font-mono" /></label>
