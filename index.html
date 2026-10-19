@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SimonBot</title>
+<meta name="description" content="Simon's community bot for Discord, running on your own machine.">
+<link rel="icon" href="bot-avatar.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&family=Pixelify+Sans:wght@600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0F0913; --panel:#140B18; --line:#2A1B30; --text:#F3EEF5; --muted:#A394AA; --leaf:#66AD4F; --mint:#B8E99C; --grape:#A855F7; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 Montserrat, system-ui, sans-serif; }
+  a { color:var(--mint); }
+  .hero { text-align:center; padding:64px 16px 40px; background:radial-gradient(ellipse at top, #22132A 0%, var(--bg) 70%); border-bottom:1px solid var(--line); }
+  .hero img { width:150px; height:150px; image-rendering:pixelated; border-radius:50%; box-shadow:0 0 0 6px #1C1121, 0 0 60px #66AD4F55; }
+  .hero h1 { font-family:'Pixelify Sans', monospace; font-size:clamp(40px, 8vw, 64px); margin:20px 0 8px; color:var(--mint); letter-spacing:1px; }
+  .hero p { max-width:640px; margin:0 auto; color:var(--muted); font-size:18px; }
+  .hero .buttons { margin-top:28px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .btn { display:inline-block; padding:12px 22px; border-radius:999px; font-weight:800; text-decoration:none; }
+  .btn.main { background:var(--leaf); color:#0F0913; }
+  .btn.alt { border:1px solid var(--line); color:var(--text); background:var(--panel); }
+  main { max-width:860px; margin:0 auto; padding:24px 16px 80px; }
+  h2 { font-size:28px; margin-top:56px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+  h3 { font-size:20px; margin-top:32px; color:var(--mint); }
+  h4 { color:var(--muted); }
+  code { font-family:'JetBrains Mono', monospace; font-size:.88em; background:#1C1121; border:1px solid var(--line); border-radius:6px; padding:1px 6px; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; overflow-x:auto; line-height:1.4; }
+  p code, li code, td code { overflow-wrap:anywhere; }
+  pre code { background:none; border:0; padding:0; font-size:13px; }
+  table { width:100%; border-collapse:collapse; margin:16px 0; display:block; overflow-x:auto; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.12em; }
+  hr { border:0; border-top:1px solid var(--line); margin:48px 0; }
+  li { margin:4px 0; }
+  footer { text-align:center; color:var(--muted); font-size:14px; padding:32px 16px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header class="hero">
+  <img src="bot-avatar.png" alt="SimonBot, Pixel Simon holding a pixel heart">
+  <h1>SimonBot</h1>
+  <p>Simon's community bot for Discord, running on your own machine.</p>
+  <div class="buttons">
+    <a class="btn main" href="#getting-started">Get started</a>
+    <a class="btn alt" href="https://github.com/Bastian-Alvarado/SimonBot">View on GitHub</a>
+  </div>
+</header>
+<main>
+<p>SimonBot looks after a Discord server for a streamer. It welcomes people,
+hands out roles, keeps levels and points for everybody who talks in Discord,
+runs giveaways and questions, and posts when the stream goes live. Its look
+is taken from the bot&#39;s avatar (Pixel Simon holding a pixel heart, in leaf,
+mint, grape and plum).</p>
+<p>Everything runs <strong>without a browser open</strong>. The server owns every connection;
+the dashboard is only where you set it up, and closing it changes nothing.</p>
+<pre><code>┌──────────────────────────────────────────────────────┐
+│  server/  —  always running, owns everything          │
+│                                                       │
+│  Discord gateway · slash commands · levels · points   │
+│  giveaways · questions · pages · persistence          │
+│  Twitch and YouTube: live status only                 │
+└──────────────────────────────────────────────────────┘
+                 ▲
+                 │ one WebSocket
+          ┌──────┴──────┐
+          │  Dashboard  │  any number, on any device
+          │ (closable)  │
+          └─────────────┘
+</code></pre>
+<p>Every dashboard is a replica. None of them hold authority, so opening or
+closing one changes nothing about what the bot is doing.</p>
+<h2 id="what-simonbot-does">What SimonBot does</h2>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Welcome &amp; goodbye</td>
+<td>A drawn card and a message when somebody joins, leaves, boosts or is banned</td>
+</tr>
+<tr>
+<td>Levels &amp; XP</td>
+<td>XP for talking in your Discord server, one level per person</td>
+</tr>
+<tr>
+<td>Points</td>
+<td>A score apart from XP, earned by talking and by coming to streams in a row, with a board of its own</td>
+</tr>
+<tr>
+<td>Giveaways</td>
+<td>Open a giveaway; people enter from Discord, with a button or <code>/sorteo</code></td>
+</tr>
+<tr>
+<td>Go live</td>
+<td>A Discord post for each Twitch or YouTube channel on your watch list when it goes live, and a DM to whoever asked</td>
+</tr>
+<tr>
+<td>Role menus</td>
+<td>Reaction roles and button menus people press to take a role</td>
+</tr>
+<tr>
+<td>Questions &amp; requests</td>
+<td>Questions asked in Discord collected for the stream, game requests voted on in Discord</td>
+</tr>
+<tr>
+<td>Polls</td>
+<td>Not yet: a poll maker built on Discord&#39;s own polls is coming. The Polls screen is a placeholder</td>
+</tr>
+<tr>
+<td>Discord pages</td>
+<td>Rules, information and links as tidy channel posts, built from blocks</td>
+</tr>
+<tr>
+<td>Voice</td>
+<td>The bot joins a voice call and shows who is in it</td>
+</tr>
+<tr>
+<td>Mod log</td>
+<td>Bans and timeouts posted to a Discord channel you choose</td>
+</tr>
+</tbody></table>
+<p><strong>Slash commands.</strong> Typing <code>/</code> in your server lists them, in Spanish first
+and in English on an English Discord. Each answers the same way its button
+or <code>!</code> word does.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>/perfil</code></td>
+<td>Your level, points and streak, as a card</td>
+</tr>
+<tr>
+<td><code>/rango</code></td>
+<td>Your level and place</td>
+</tr>
+<tr>
+<td><code>/top</code></td>
+<td>Who leads the levels</td>
+</tr>
+<tr>
+<td><code>/puntos</code></td>
+<td>How many points you have, shown only to you</td>
+</tr>
+<tr>
+<td><code>/sorteo</code></td>
+<td>Enter the open giveaway</td>
+</tr>
+<tr>
+<td><code>/avisame</code></td>
+<td>A DM when the stream starts, with a link to where you watch: Twitch or YouTube</td>
+</tr>
+<tr>
+<td><code>/pregunta</code></td>
+<td>A question for the stream</td>
+</tr>
+</tbody></table>
+<p><strong>The bot&#39;s home</strong> shows whether SimonBot is online and which server it is
+looking after, what it will do when you go live, every module with its state,
+and two buttons: one gives the bot account Pixel Simon&#39;s face (no trip to the
+Developer Portal), the other registers the slash commands again.</p>
+<p><strong>Going live</strong> is read from the watch list: the Twitch and YouTube channels
+you add on the Go live screen, each with its own post. Twitch is asked every
+minute and YouTube every two and a half. Channels marked with the star are
+yours: while one of them is live, the stream is on, and the DMs and points
+for coming follow it. Nobody signs in to Twitch or YouTube for this; it needs
+only the keys on the Connections screen.</p>
+<p><strong>Versions.</strong> SimonBot numbers its own versions, from 0.0.1.
+What each version changed is in <a href="https://github.com/Bastian-Alvarado/SimonBot/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and how the
+numbers move is explained at its top. The running server reports its version
+at <code>/api/health</code>, and the app shows it under Settings → About.</p>
+<p><strong>Privacy.</strong> What it keeps about you and your viewers, where, and what reaches
+which service is in <a href="https://github.com/Bastian-Alvarado/SimonBot/blob/main/PRIVACY.md">PRIVACY.md</a>. Nothing is ever sent to the
+people who make it.</p>
+<hr>
+<h2 id="getting-started">Getting started</h2>
+<p>About half an hour from nothing to SimonBot answering in your server. The app
+also walks you through all of this itself, on its home screen and in
+<strong>Guides</strong>, in English and Spanish — this is the same path, written down.</p>
+<h3 id="what-you-need">What you need</h3>
+<ul>
+<li><strong>A computer to run it on</strong>, on while the bot should be. Windows, macOS or
+Linux; a spare PC or an old Android phone on your network works too.</li>
+<li><strong><a href="https://nodejs.org">Node.js</a> 22 or newer.</strong> Take the LTS installer and
+keep its defaults. To check, open a terminal and run <code>node -v</code>.</li>
+<li><strong>A Discord server</strong> you manage, for the bot.</li>
+<li><strong>Keys for the channels you stream on</strong>, for go-live posts: a Twitch app,
+and a YouTube API key if you use YouTube. Nobody signs in to either.</li>
+</ul>
+<h3 id="1-download-it">1. Download it</h3>
+<p>On GitHub, press <strong>Code → Download ZIP</strong> and unzip it somewhere that stays
+put, like <code>Documents\SimonBot</code>. Or, with git, copy the address under
+<strong>Code</strong> and run <code>git clone</code> with it.</p>
+<h3 id="2-install-it">2. Install it</h3>
+<p>Open a terminal in that folder. On Windows: open the folder, right-click
+an empty space, and choose <strong>Open in Terminal</strong>. Then:</p>
+<pre><code class="language-bash">npm install
+</code></pre>
+<p>It downloads what the app needs. A few minutes, once.</p>
+<h3 id="3-start-it">3. Start it</h3>
+<pre><code class="language-bash">npm run serve
+</code></pre>
+<p>The first time it builds the app, then starts it. When it says
+<code>listening on http://0.0.0.0:8081</code>, it&#39;s running. <strong>Leave that window
+open</strong> — it is the bot. Closing it stops everything; closing the browser
+doesn&#39;t.</p>
+<p>Every time after that, <code>npm start</code> is enough.</p>
+<h3 id="4-open-it">4. Open it</h3>
+<p>Go to <strong><a href="http://localhost:8081">http://localhost:8081</a></strong> in your browser. SimonBot&#39;s home screen
+says whether the bot is connected, and <strong>Guides</strong> lists the setup steps
+still to do, each with a button to where it&#39;s done.</p>
+<h3 id="5-connect-simonbot-to-discord">5. Connect SimonBot to Discord</h3>
+<ol>
+<li>At <a href="https://discord.com/developers/applications">discord.com/developers/applications</a>,
+press <strong>New Application</strong> and name it (SimonBot, or what your bot should
+be called).</li>
+<li>Under <strong>Bot</strong>, turn on <strong>Server Members Intent</strong> and <strong>Message Content
+Intent</strong> (Privileged Gateway Intents). The bot won&#39;t connect without them.</li>
+<li>Copy the <strong>Client ID</strong> (OAuth2), the <strong>bot token</strong> (Bot → Reset Token,
+shown once) and the <strong>client secret</strong> (OAuth2 → Reset Secret).</li>
+<li>Under <strong>OAuth2 → Redirects</strong>, add the dashboard&#39;s address,
+<code>http://localhost:8081/</code> (the one the Connections screen shows). Signing in
+with Discord comes back there.</li>
+<li>On the <strong>Connections</strong> screen, paste the three, press the Discord login,
+then pick your server and the channel the bot talks in.</li>
+<li>In Discord, <strong>Server Settings → Roles</strong>: drag the bot&#39;s role above every
+role it should hand out (levels, role menus).</li>
+<li>Back on SimonBot&#39;s home, press <strong>Use SimonBot&#39;s face</strong> to give the bot its
+avatar, and <strong>Register / commands</strong> so <code>/</code> lists its commands.</li>
+</ol>
+<h3 id="6-connect-where-you-stream">6. Connect where you stream</h3>
+<p>Nobody signs in to Twitch or YouTube: SimonBot only reads their public live
+status, with the keys below. On the <strong>Connections</strong> screen:</p>
+<ul>
+<li><strong>Twitch</strong> needs an app of your own, made once:<ol>
+<li>Turn on two-factor authentication on your Twitch account (twitch.tv →
+Settings → Security and Privacy). Twitch won&#39;t let you make an app
+without it.</li>
+<li>At <a href="https://dev.twitch.tv/console/apps">dev.twitch.tv/console/apps</a>,
+press <strong>Register Your Application</strong>. Any name; <strong>OAuth Redirect URLs</strong>:
+<code>http://localhost</code> (Twitch asks for one; nothing signs in with it);
+category: Application Integration; client type: Confidential.</li>
+<li>Press <strong>Manage</strong>, copy the <strong>Client ID</strong>, press <strong>New Secret</strong> and copy
+the <strong>Client Secret</strong>. Paste both on the Connections screen.</li>
+</ol>
+</li>
+<li><strong>YouTube</strong> needs an API key from Google Cloud: enable the YouTube Data API
+v3, then Credentials → Create credentials → API key. Paste it on the
+Connections screen.</li>
+</ul>
+<p><strong>Guides → Start here</strong> has a click-by-click walkthrough for each.</p>
+<p>Then add the channels to watch on the <strong>Go live</strong> screen. Mark your own with
+the star.</p>
+<h3 id="7-make-it-yours">7. Make it yours</h3>
+<ul>
+<li><strong>Welcome &amp; Goodbye:</strong> the card, the message and the buttons under it.</li>
+<li><strong>Role menus:</strong> the roles people take for themselves.</li>
+<li><strong>Go live:</strong> the channels to watch, each with its own post, and the DMs.</li>
+<li><strong>Levels</strong>, <strong>Points</strong>, <strong>Giveaways</strong>, <strong>Questions</strong>, <strong>Game requests</strong> and
+<strong>Moderators</strong> (the mod log): each has its own screen. <strong>Polls</strong> is a
+placeholder for now.</li>
+</ul>
+<h3 id="8-before-anyone-else-can-reach-it">8. Before anyone else can reach it</h3>
+<p>On your home network nothing more is needed. If the app can be reached
+from anywhere else — a public address in front of it, say — switch
+<strong>sign-in</strong> on first (<strong>Settings → Sign-in</strong>): from then on only you and
+the moderators of your Discord server can open the dashboard. Every address
+you sign in from must be added to your Discord app&#39;s OAuth2 Redirects, as in
+step 4.</p>
+<p>You sign in with Discord. You are the owner if you own the server, or if you
+are the account named under <strong>Settings → Sign-in</strong> (&quot;Your Discord account&quot;).
+Moderators sign in with their own Discord account, as long as they are in
+your server and have the moderator role you choose, or any role that can
+time out or manage messages. The <strong>Moderators</strong> screen shows who&#39;s in, what
+they did, and lets you turn anybody away.</p>
+<h3 id="if-something-goes-wrong">If something goes wrong</h3>
+<ul>
+<li><strong>&quot;Port 8081 is already in use&quot;:</strong> the app is already running, in another
+window. Use that one, or close it first.</li>
+<li><strong><code>&#39;&amp;&amp;&#39; is not a valid statement separator</code></strong> (Windows PowerShell 5.1):
+run the commands on separate lines, or join them with <code>;</code>.</li>
+<li><strong>Discord says the redirect is invalid:</strong> the address in the Discord app&#39;s
+OAuth2 Redirects must be exactly the one you opened, <code>http://localhost:8081/</code>
+— slash included.</li>
+<li><strong>A phone or another PC can&#39;t open it:</strong> allow Node.js through the
+Windows firewall on private networks (Windows asks the first time).</li>
+<li><strong>Anything else:</strong> <strong>Guides</strong> has a &quot;when it doesn&#39;t work&quot; list for every
+platform.</li>
+</ul>
+<h3 id="keys-in-a-file-if-you-prefer">Keys in a file, if you prefer</h3>
+<p>Everything above goes in through the app, and the server keeps it. To set
+the port, the address it listens on, or platform keys in a file instead,
+copy <code>.env.example</code> to <code>.env</code> and fill in what you need; anything left
+blank is ignored.</p>
+<hr>
+<h2 id="closing-the-dashboard">Closing the dashboard</h2>
+<p>Start the server, set it up, then <strong>close every browser tab</strong>. Welcomes,
+roles, levels, giveaways, go-live posts and slash commands all keep working.</p>
+<p>Check on it from anywhere:</p>
+<pre><code class="language-bash">curl localhost:8081/api/health
+</code></pre>
+<hr>
+<h2 id="using-it-from-another-device">Using it from another device</h2>
+<p>The server holds every credential, connection and setting, so any device
+that can reach it gets the same fully set-up app.</p>
+<p><strong>On the host machine</strong>, build once and serve everything from a single port:</p>
+<pre><code class="language-bash">npm run serve
+</code></pre>
+<p><strong>On any other device</strong> — laptop, phone, tablet — open:</p>
+<pre><code>http://&lt;host-machine-ip&gt;:8081
+</code></pre>
+<p>A few things worth knowing:</p>
+<ul>
+<li><strong>Set the keys up once, on the host.</strong> They live on the server, so every
+other device uses them. Secrets (the bot token, the client secrets and the
+YouTube key) can only be typed on the host machine itself.</li>
+<li><strong>Prefer <code>npm run serve</code> over <code>npm run dev</code> for this.</strong> In dev the UI is on
+port 5173 and the API on 8081 — two different addresses, which means two
+separate <code>localStorage</code> buckets and a second Discord redirect URL to register.</li>
+<li><strong>Only per-device preferences stay on the device:</strong> language and colours.</li>
+<li><strong>Firewall:</strong> Windows will likely prompt the first time something connects
+from another machine. Allow it on private networks.</li>
+<li><strong>Switch sign-in on before it can be reached from outside your home</strong>
+(Settings → Sign-in). Until then there is no authentication: anybody who can
+reach the port has all of it. Set <code>HOST=127.0.0.1</code> to restrict it to the
+host machine only.</li>
+<li><strong>Signing in with Discord comes back to the address it was opened at</strong>, so
+every address you or your moderators use has to be added to your Discord
+app&#39;s OAuth2 Redirects (discord.com/developers/applications → your app →
+OAuth2).</li>
+</ul>
+<p>To point a dev-mode UI at a server on another machine, append
+<code>?server=ws://&lt;host-ip&gt;:8081</code> to the URL.</p>
+<hr>
+<h2 id="layout">Layout</h2>
+<pre><code>server/           headless service — the whole application
+  core/           event bus, atomic store, queues, logging
+  engine/         welcomes, roles, go-live, giveaways, questions, points…
+  platforms/      twitch, youtube, discord, discord-voice
+  leveling/       XP and levels
+  api/            REST + WebSocket hub, sign-in
+  scripts/smoke.js  end-to-end test, no network needed — runs scripts/smoke/,
+                    a file per part of the app, on one engine, in order
+
+shared/           code both sides run: wire protocol, guides, card styles
+
+web/              the dashboard
+  App.tsx         shell and navigation
+  components/     screens (views/) and their parts
+  hooks/          thin client over the one server socket
+</code></pre>
+<p>See <a href="https://github.com/Bastian-Alvarado/SimonBot/blob/main/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a> for how the server is put
+together.</p>
+<hr>
+<h2 id="testing">Testing</h2>
+<pre><code class="language-bash">npm --prefix server run test
+</code></pre>
+<p>Boots the engine with stub platforms, pushes synthetic chat and events through
+the bus, and asserts on the results. No network and no browser.</p>
+<h3 id="developing">Developing</h3>
+<pre><code class="language-bash">npm run dev
+</code></pre>
+<p>Runs the server on <code>:8081</code> and the UI on <code>:5173</code>, reloading as you edit.
+It has no updater; keep a development copy up to date with git.</p>
+<hr>
+<h2 id="where-it-came-from">Where it came from</h2>
+<p>SimonBot started as a copy of SimonSays, Simon&#39;s stream app, with everything
+about running and decorating the stream — overlays, alerts, OBS, the docks,
+commands and actions, Spotify — taken out. What is left is the server that
+SimonSays V3 made headless, and the community features that live in Discord.</p>
+<hr>
+<h2 id="license">License</h2>
+<p>Source available under the Apache License 2.0 with the <strong>Commons Clause</strong>
+(see <a href="https://github.com/Bastian-Alvarado/SimonBot/blob/main/LICENSE">LICENSE</a>), the same as SimonSays. In plain words: use it for
+your own server and streams — monetized ones included — change it and share
+it, as long as the license and the <a href="https://github.com/Bastian-Alvarado/SimonBot/blob/main/NOTICE">NOTICE</a> file go with it, crediting
+Bastian Alvarado as its author; but do not sell it, or sell hosting, setup or
+support whose value is mainly SimonBot itself.</p>
+
+</main>
+<footer>SimonBot · built on SimonSays · <a href="https://github.com/Bastian-Alvarado/SimonBot">github.com/Bastian-Alvarado/SimonBot</a></footer>
+</body>
+</html>
