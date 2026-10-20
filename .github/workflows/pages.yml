@@ -5,7 +5,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: [README.md, scripts/pages.mjs, art/simonbot/**, .github/workflows/pages.yml]
+    paths: [README.md, CHANGELOG.md, package.json, scripts/pages.mjs, art/simonbot/**, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:

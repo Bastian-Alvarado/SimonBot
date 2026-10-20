@@ -10,11 +10,12 @@
  *
  * Writes outDir (default _site) with index.html, the bot's avatar and the
  * dashboard screenshots in art/simonbot/site/. The modules, the slash
- * commands, the first steps, the privacy and versions notes and the guide
- * all come from the README, so the page follows it. Links to other files in
+ * commands, the first steps, the privacy and license notes and the guide
+ * come from the README, and the releases from CHANGELOG.md, so the page
+ * follows them. Links to other files in
  * the repository go to them on GitHub; links to headings stay on the page.
  * .github/workflows/pages.yml runs this on every push to main that touches
- * the README, this script or the art, and publishes it to the gh-pages branch.
+ * any of those, this script or the art, and publishes it to the gh-pages branch.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -72,8 +73,18 @@ const modules = cells(moduleTable);
 const commands = cells(commandTable).map(([name, what]) => [name.replace(/`/g, ''), what]);
 const commandsLede = labelled(does, 'Slash commands.');
 const privacy = labelled(does, 'Privacy.');
-const versions = labelled(does, 'Versions.');
+const license = paragraphs(sections.License)[0].text;
 const [, headless, replica] = paragraphs(sections.intro).map((p) => p.text);
+
+// The changelog's releases, newest first: each one's opening line, or else its first item's.
+const releases = [];
+for (const t of marked.lexer(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'))) {
+  const m = t.type === 'heading' && t.depth === 2 && /^\[(.+?)\]\s*[—-]\s*(.+)$/.exec(t.text);
+  if (m) releases.push({ version: m[1], date: m[2] });
+  else if (releases.length && !releases.at(-1).text && (t.type === 'paragraph' || t.type === 'list')) {
+    releases.at(-1).text = (t.type === 'list' ? t.items[0].text : t.text).replace(/\*\*/g, '').split(/(?<=\.)\s+/)[0];
+  }
+}
 
 // Getting started: its opening line is the section's title, the rest its lede.
 const start = sections['Getting started'];
@@ -111,7 +122,8 @@ const ICONS = [
   [/point/i, 'M14 8a6 6 0 1 1-12 0 6 6 0 0 1 12 0ZM18.09 10.37A6 6 0 1 1 10.34 18M7 6h1v4M16.71 13.88l.7.71-2.82 2.82'],
   [/giveaway/i, 'M3 8h18v4H3zM12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C9.5 3 11 5 12 8c1-3 2.5-5 4.5-5a2.5 2.5 0 0 1 0 5'],
   [/live/i, 'M4.9 19.1C1 15.2 1 8.8 4.9 4.9M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5M19.1 4.9C23 8.8 23 15.1 19.1 19M14 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z'],
-  [/sync/i, 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'],
+  [/mod/i, 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM9 12l2 2 4-4'],
+  [/question/i, 'M7.9 20A9 9 0 1 0 4 16.1L2 22ZM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01'],
   [/menu/i, 'M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13'],
   [/poll/i, 'M3 3v18h18M18 17V9M13 17V5M8 17v-3'],
   [/page/i, 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8'],
@@ -125,10 +137,10 @@ const outline = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l9 5v
 
 const SCREENS = [
   ['home', 'Home', 'Home: whether the bot is online, every module with its state, and the slash commands your server sees.'],
-  ['giveaways', 'Giveaways', 'Giveaways: a prize and a word to type. People enter from any chat, or with a button in Discord.'],
-  ['points', 'Points', 'Points: a score apart from XP, earned the same way, with a board of its own.'],
-  ['polls', 'Polls', 'Polls: voted on from every chat at once, and the winner said when it closes.'],
-  ['guides', 'Guides', 'Guides: every setup step, each with a button to where it is done, in English and Spanish.'],
+  ['go-live', 'Go live', 'Go live: the Twitch and YouTube channels the bot watches, each with its own post in Discord when it goes live.'],
+  ['giveaways', 'Giveaways', 'Giveaways: a prize and a word to type. People enter in Discord, with the word or the button.'],
+  ['points', 'Points', 'Points: a score apart from XP, earned by talking and by coming to streams, with a board of its own.'],
+  ['moderators', 'Moderators', 'Moderators: who signed in with Discord, what they did, and the mod log of bans and timeouts.'],
 ];
 
 // ------------------------------------------------------------ the page
@@ -241,7 +253,7 @@ const html = `<!doctype html>
   .server-top .up { margin-left: auto; display: flex; align-items: center; gap: 6px; font: 700 10px/1 var(--display); letter-spacing: .2em; color: var(--leaf); }
   .server-top .up::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--leaf); }
   .log { margin-top: 14px; height: 176px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; font: 400 12.5px/1.45 var(--mono); }
-  .log div { display: grid; grid-template-columns: 5.6em 5.4em minmax(0, 1fr); gap: 8px; color: var(--ink-2); }
+  .log div { display: grid; grid-template-columns: 5.6em 6.6em minmax(0, 1fr); gap: 8px; color: var(--ink-2); }
   .log i { font-style: normal; color: var(--ink-3); }
   .log b { font-weight: 600; color: var(--mint); }
   .log span { color: var(--ink); overflow-wrap: anywhere; }
@@ -258,7 +270,7 @@ const html = `<!doctype html>
   .wire strong { color: var(--ink); }
 
   /* modules */
-  .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px 20px; display: grid; align-content: start; gap: 10px; }
   .card .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--leaf-glow); color: var(--mint); margin-bottom: 6px; }
   .card .ic svg { width: 22px; height: 22px; }
@@ -293,9 +305,12 @@ const html = `<!doctype html>
   .more span { color: var(--ink-2); font-size: 14px; }
 
   /* roadmap */
-  .soon { display: flex; align-items: center; gap: 14px; padding: 22px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .soon code { color: var(--leaf); font-size: 14px; width: 80px; flex: none; }
-  .soon b { font: 800 17px/1.3 var(--display); }
+  .releases { border-top: 1px solid var(--line); }
+  .release { display: grid; grid-template-columns: 80px 200px minmax(0, 1fr); gap: 24px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid var(--line); }
+  .release code { color: var(--leaf); font-size: 14px; }
+  .release b { font: 800 17px/1.3 var(--display); }
+  .release span { color: var(--ink-2); font-size: 15px; }
+  .soon b { display: flex; align-items: center; gap: 12px; }
   .soon i { width: 10px; height: 18px; background: var(--leaf); display: block; flex: none; }
   @media (prefers-reduced-motion: no-preference) { .soon i { animation: blink 1.1s steps(1) infinite; } @keyframes blink { 50% { opacity: 0; } } }
 
@@ -355,8 +370,8 @@ const html = `<!doctype html>
     .links { gap: 14px; }
     .hero h1 { font-size: 36px; }
     .grid, .steps, .clients { grid-template-columns: minmax(0, 1fr); }
-    .facts div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-    .log div { grid-template-columns: 5.4em minmax(0, 1fr); }
+    .facts div, .release { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .log div { grid-template-columns: 6.6em minmax(0, 1fr); }
     .log i { display: none; }
     .final h2 { font-size: 28px; }
   }
@@ -477,15 +492,18 @@ ${firstSteps.map((s, i) => `    <div class="step"><span class="n">${String(i + 2
   <div class="head">
     <span class="eyebrow">Roadmap</span>
     <h2 class="title">More features to come.</h2>
-    <p class="lede">SimonBot is at ${esc(VERSION)}, its first version. What each version changes is in the <a href="${REPO}/blob/main/CHANGELOG.md">changelog</a>.</p>
+    <p class="lede">SimonBot is at ${esc(VERSION)}. What each version changed is in the <a href="${REPO}/blob/main/CHANGELOG.md">changelog</a>.</p>
   </div>
-  <div class="soon"><code>${esc(VERSION)}</code><b>SimonBot, in your server</b><i aria-hidden="true"></i></div>
+  <div class="releases">
+    <div class="release soon"><code>next</code><b>More to come<i aria-hidden="true"></i></b><span>New features, a version at a time.</span></div>
+${releases.map((r) => `    <div class="release"><code>${esc(r.version)}</code><b>${esc(r.date)}</b><span>${inline(r.text || '')}</span></div>`).join('\n')}
+  </div>
 </section>
 
 <section class="band alt" id="closing">
   <div class="notes">
     <div class="note"><span class="eyebrow">Privacy</span><p>${inline(privacy)}</p></div>
-    <div class="note"><span class="eyebrow">Versions</span><p>${inline(versions)}</p></div>
+    <div class="note"><span class="eyebrow">License</span><p>${inline(license)}</p></div>
   </div>
   <div class="final">
     <div><h2>Simon dice: bienvenidos.</h2><p>For your own Discord server, in English and Spanish.</p></div>
@@ -524,9 +542,9 @@ ${guide}
     ['level', '@luzmarina reached level 12'],
     ['role', 'Gave @nova_byte the Regulars role'],
     ['/sorteo', '@pixel_otter entered the giveaway'],
-    ['poll', '4 votes on "Next game?"'],
+    ['request', '@ripple_cat asked for Celeste'],
     ['page', 'Rules page edited in #info'],
-    ['/top', 'Levels board for @ripple_cat'],
+    ['/pregunta', 'Question from @luzmarina'],
   ];
   const log = document.getElementById('log'), up = document.getElementById('up');
   let tick = 0;
