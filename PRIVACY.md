@@ -18,43 +18,49 @@ Everything is in two folders beside the server — `data/` (settings and
 records) and `assets/` (the pictures and fonts you upload) — and in
 `.env`, if you put sign-ins there.
 
-- **Your sign-ins:** the keys and tokens for the platforms you connect. The
+- **Your sign-ins:** the keys for the platforms you connect: the Discord bot
+  token and client secret, the Twitch Client Secret, the YouTube API key. The
   server keeps them; they are never sent to a browser, and backups leave
   them out.
-- **Your setup:** welcome messages, Discord pages, role menus and every
-  other setting.
-- **About your viewers**, from the chats and events of the platforms you
-  connect:
-  - their names and account ids on each platform, and which accounts are one
-    person, when they or you link them;
+- **Your setup:** welcome messages, Discord pages, role menus, the watch list
+  and every other setting.
+- **About the people in your Discord server**, from what the bot sees there:
+  - their names and ids on Discord;
   - levels, XP and points;
-  - counts of what they did — when they were first and last seen, messages
-    per platform, streams they took part in, bits, subs, gifts and Super
-    Chats, giveaways won. Counts, not the messages themselves;
+  - counts of what they did — when they were first and last seen, messages,
+    streams they took part in, giveaways won. Counts, not the messages
+    themselves;
   - questions, game requests and giveaway entries;
-  - from Discord, members' ids, names and roles, where role menus, role
-    sync, welcome messages or the voice call need them.
-- **Your streams:** when each one ran, who took part, and its highlights.
+  - who asked to be told privately when you go live, and whether they watch
+    on Twitch or YouTube;
+  - members' ids, names and roles, where role menus or welcome messages need
+    them.
+- **Your streams:** when each one ran, what it was called and played, who
+  took part, and the recording it became, if Twitch or YouTube kept one.
 - **Who signs in to the dashboard**, once you switch sign-in on: you and your
-  moderators — their Twitch name and id, when each was last seen, and the
-  token Twitch gave them, kept on the server and never in a backup — and a
-  record of what each moderator changed from the dashboard (the last 1000
-  changes, also never in a backup).
+  moderators — their Discord name and id, and when each was last seen. Sign-ins
+  are kept on the server and never in a backup, and the token Discord gives
+  for a sign-in is used once and not kept. Also kept on the server, never in a
+  backup: the owner key, the moderators you turned away, and a record of what
+  each moderator changed from the dashboard (the last 1000 changes).
 
 ## What leaves your computer
 
 Only what a feature you turn on needs, sent straight to that service:
 
-- **Twitch, YouTube (Google) and Discord**, once connected: reading chat and
-  events, and doing what you set up — posting, answering in chat, giving a
-  role.
-- **TikTok LIVE**, through Euler Stream (eulerstream.com), the signing
-  service the TikTok connection relies on. It sees which TikTok LIVE is being
-  connected to.
+- **Discord**, once connected: reading the messages and events of your
+  server, and doing what you set up — posting, giving a role. Signing in to
+  the dashboard asks Discord only who the account is.
+- **Twitch and YouTube (Google)**, for the channels on your watch list: only
+  their public live status is asked for — whether a channel is live, its
+  title, game, thumbnail and start time, and the link to its latest
+  recording. Twitch is asked with your app's Client ID and Client Secret,
+  YouTube with your API key. Nobody's chat is read, and nobody signs in to
+  either.
 - **jsDelivr**, for the emoji pictures on welcome cards, asked for by the
   emoji's code.
 - **Pictures** from the addresses you give (Discord pages, welcome cards),
-  and avatars and emotes from the platforms' own image servers.
+  and avatars and thumbnails from the platforms' own image servers.
 
 Each service handles what it receives under its own privacy policy.
 
@@ -74,13 +80,15 @@ ads, no analytics and no outside scripts, and the fonts ship with the app.
   sign-in on before it can be reached from anywhere else. It also asks search
   engines not to index it, but that is a request, not a lock.
 - A backup is a file you download, with the sign-ins left out on purpose.
-  It still holds your viewers' data, so keep it as privately as the app.
+  It still holds everything above about your community, so keep it as
+  privately as the app.
 
 ## Deleting
 
 - **Levels & XP** can forget people after 3, 6 or 12 months away — those with
-  a single account and no points to spend. It is off unless you choose it.
+  no points to spend. It is off unless you choose it.
 - To delete everything, stop the server and delete `data/` (and `assets/`).
-- To end the app's access to an account, remove it on that platform: the bot
-  from your Discord server, and the app from your connected apps on Twitch
-  and Google.
+- To end the bot's access to your server, remove the bot from it on Discord.
+  Nothing has access to your Twitch or YouTube account, since nobody signs in
+  to them; to stop the keys working, revoke them in the Twitch and Google
+  consoles.

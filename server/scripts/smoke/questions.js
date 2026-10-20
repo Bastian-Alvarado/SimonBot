@@ -11,7 +11,10 @@
  * boots — through scripts/smoke.js, never on its own.
  */
 
-import { SCRIPT_URL, assert, bus, chat, discordSent, doubles, engine, EVENTS, fs, normaliseChat, said, settle, test } from './harness.js';
+import { SCRIPT_URL, assert, bus, chat, discordSent, doubles, engine, EVENTS, fs, normaliseChat, settle, test } from './harness.js';
+
+// What the bot said back in Discord.
+const said = { get length() { return discordSent.length; }, slice: (from) => discordSent.slice(from).map((args) => args[1]) };
 
 const questions = await import('../../engine/questions.js');
 
@@ -38,9 +41,9 @@ const items = () => questions.getQuestions().items;
 const byText = (text) => items().find((q) => q.text === text);
 
 questions.clear();
-questions.addQuestion({ user: 'Ana', platform: 'twitch', text: '¿Cuál es tu juego favorito?' });
-const twice = questions.addQuestion({ user: 'ana', platform: 'twitch', text: '  ¿cuál es tu   juego favorito? ' });
-const otherPerson = questions.addQuestion({ user: 'Luis', platform: 'twitch', text: '¿Cuál es tu juego favorito?' });
+questions.addQuestion({ user: 'Ana', platform: 'discord', text: '¿Cuál es tu juego favorito?' });
+const twice = questions.addQuestion({ user: 'ana', platform: 'discord', text: '  ¿cuál es tu   juego favorito? ' });
+const otherPerson = questions.addQuestion({ user: 'Luis', platform: 'discord', text: '¿Cuál es tu juego favorito?' });
 
 test('the same person asking the same thing again is the one question', () => {
   assert.equal(twice.added, false, 'a repeat — spacing and capitals aside — went in twice');
@@ -129,11 +132,11 @@ await settle();
 const askedByChat = items().map((q) => [q.user, q.text, q.userId, q.msgId, q.platform, q.status]);
 const repliedToChat = said.slice(saidAt);
 
-test('"!pregunta" puts a question in Waiting and says so in chat, once per person per minute', () => {
+test('"!pregunta" puts a question in Waiting and says so in Discord, once per person per minute', () => {
   assert.deepEqual(askedByChat, [
-    ['Ana', '¿Cuándo es el próximo maratón?', 'u-ana', 'msg-1', 'twitch', 'pending'],
-    ['Luis', '¿Juegas Celeste?', 'u-luis', 'msg-3', 'twitch', 'pending'],
-  ], 'the cooldown, an empty "!pregunta" or the channel’s own bot got through');
+    ['Ana', '¿Cuándo es el próximo maratón?', 'u-ana', 'msg-1', 'discord', 'pending'],
+    ['Luis', '¿Juegas Celeste?', 'u-luis', 'msg-3', 'discord', 'pending'],
+  ], 'the cooldown, an empty "!pregunta" or the bot got through');
   assert.deepEqual(repliedToChat, ['¡Pregunta recibida, @Ana!', '¡Pregunta recibida, @Luis!']);
 });
 
@@ -157,35 +160,6 @@ test('it takes nothing when turned off, and follows its word', () => {
   assert.equal(whileOff, 0, 'it took a question while turned off');
   assert.deepEqual(onOtherWord, ['what is your PB?'], 'it did not follow its new word, or still answered the old one');
   assert.deepEqual(quietReply, [], 'it answered in chat with the reply turned off');
-});
-
-// ------------------------------------------------------------ deletes and timeouts
-
-questions.clear();
-questions.resetCooldownsForTests();
-chat('!pregunta primera de Ana', { user: 'Ana', userId: 'u-ana', id: 'm-a1' });
-chat('!pregunta la de Luis', { user: 'Luis', userId: 'u-luis', id: 'm-l1' });
-chat('!pregunta la de Leo', { user: 'Leo', userId: 'u-leo', id: 'm-leo' });
-await settle();
-questions.setStatus(byText('la de Leo').id, 'approved');
-bus.emit(EVENTS.CHAT_DELETE, { platform: 'twitch', msgIds: ['m-a1'], userIds: [] });
-const afterMessageDeleted = items().map((q) => q.text);
-bus.emit(EVENTS.CHAT_DELETE, { platform: 'youtube', msgIds: [], userIds: ['u-luis'] });
-const afterOtherPlatform = items().map((q) => q.text);
-bus.emit(EVENTS.CHAT_DELETE, { platform: 'twitch', msgIds: [], userIds: ['u-luis', 'u-leo'] });
-const afterTimeout = items().map((q) => q.text);
-
-test('a deleted message or a timeout takes a waiting question with it, and leaves an approved one', () => {
-  assert.deepEqual(afterMessageDeleted, ['la de Luis', 'la de Leo'], 'the question stayed after its message was deleted');
-  assert.deepEqual(afterOtherPlatform, ['la de Luis', 'la de Leo'], 'a timeout on another platform removed a Twitch question');
-  assert.deepEqual(afterTimeout, ['la de Leo'], 'a timeout left the question, or took one the streamer had approved');
-});
-
-test('Twitch reports deleted messages, timeouts and bans, and its own message ids', () => {
-  const twitch = read('../platforms/twitch.js');
-  assert.ok(twitch.includes("client.on('messagedeleted'") && twitch.includes("tags?.['target-msg-id']"), 'a deleted message is never reported');
-  assert.ok(twitch.includes("client.on('timeout'") && twitch.includes("client.on('ban'") && twitch.includes("tags?.['target-user-id']"), 'a timeout or a ban is never reported');
-  assert.ok(twitch.includes('      id: id || null,'), 'Twitch messages carry a made-up id, so a deletion can never be matched');
 });
 
 // ------------------------------------------------------------ the end of the stream

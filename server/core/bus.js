@@ -18,16 +18,14 @@ const log = createLogger('bus');
 
 /** Canonical event names. Use these constants, never raw strings. */
 export const EVENTS = {
-  /** A chat message from any platform. Payload: NormalisedChatMessage */
+  /** A message in the Discord channel the bot reads. Payload: NormalisedChatMessage */
   CHAT: 'chat',
-  /** A stream event (follow/sub/cheer/raid/gift/...). Payload: NormalisedEvent */
+  /** Something that happened, such as a giveaway won. Payload: NormalisedEvent */
   EVENT: 'event',
   /** A platform connection status change. Payload: { platform, status, error? } */
   STATUS: 'status',
   /** Config mutated server-side. Payload: { key, value } */
   CONFIG: 'config',
-  /** The authoritative Twitch subscriber list. Payload: helix subscription[] */
-  SUBSCRIBER_LIST: 'subscriber_list',
   /**
    * What the Twitch channel is set to. Payload: { categoryId, categoryName,
    * title, initial }. `initial` marks the reading taken on connect rather than
@@ -108,7 +106,6 @@ export function normaliseChat({
   // Said by the channel's own bot account: the streamer's, not a viewer's.
   isBot = false,
   emotes,
-  highlighted = false,
   // Set when the message was typed into a channel-point reward that asks for
   // text, so a page can tell such a line apart from an ordinary one.
   rewardId = null,
@@ -139,7 +136,6 @@ export function normaliseChat({
     isBroadcaster,
     isBot,
     emotes,
-    highlighted,
     rewardId,
     raw,
     ...(names ? { names } : {}),

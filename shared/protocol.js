@@ -16,33 +16,29 @@ export const C2S = {
   GET_SNAPSHOT: 'get_snapshot',
 
   // Settings (server is the source of truth)
-  SET_RELAY_CONFIG: 'set_relay_config',
   QUESTION_SET_STATUS: 'question_set_status',
   QUESTIONS_CLEAR: 'questions_clear',
   QUESTIONS: 'questions',
-  POLL: 'poll',
   /** The giveaway: { op, value } — setDraft, open, close, draw, reroll, reset, remove, settings. */
   GIVEAWAY: 'giveaway',
   /** The Discord pages screen: { op, … } — save, remove, post, test, unpost, import, delete_source (server/engine/discord-pages.js). */
   DISCORD_PAGES: 'discord_pages',
-  /** The Twitch schedule, asked for again (server/engine/twitch-schedule.js). */
-  TWITCH_SCHEDULE: 'twitch_schedule',
   SET_VOICE: 'set_voice',
-  ROLE_SYNC: 'role_sync',
   WELCOME_CARD_PREVIEW: 'welcome_card_preview',
   /** Post a welcome, goodbye, boost or ban now, with the settings on screen: { kind, config, testChannelId }. */
   WELCOME_TEST: 'welcome_test',
-  ANNOUNCE: 'announce',
-  /** The Twitch schedule as Discord events: { settings } or { op: 'sync' }. */
-  SCHEDULE_EVENTS: 'schedule_events',
+  /**
+   * The watch list and its going-live posts (server/engine/watch.js): { op: 'add', platform, input, mine? } |
+   * { op: 'remove', id } | { op: 'update', id, mine?, alert? } | { op: 'copy', from, to: id[] | 'all' } |
+   * { op: 'check' } | { op: 'test', id }.
+   */
+  WATCH: 'watch',
   /** Viewer history: { op: 'settings', settings } | { op: 'stats' } | { op: 'prune' } (server/engine/viewer-history.js). */
   HISTORY: 'history',
   /** The Points screen: { op: 'settings' | 'give' | 'board', … } (server/engine/points.js). */
   POINTS: 'points',
   /** The profile card: { op: 'settings', settings } | { op: 'preview', uid?, settings? } (server/engine/profile-card.js). */
   PROFILE_CARD: 'profile_card',
-  /** Highlights: { op: 'settings', settings } | { op: 'test' } (server/engine/highlights.js). */
-  HIGHLIGHTS: 'highlights',
   /** Private go-live messages: { op: 'settings', settings } | { op: 'post', channelId } | { op: 'test' } (server/engine/live-dms.js). */
   LIVE_DMS: 'live_dms',
   /** Updates from GitHub: { op: 'check' | 'apply' } (server/engine/updater.js). */
@@ -55,9 +51,8 @@ export const C2S = {
   DISCORD_QUESTIONS: 'discord_questions',
   /** Game requests: { op: 'settings' | 'read' | 'played' | 'dismiss' | 'reopen' | 'remove', … } (server/engine/game-requests.js). */
   GAME_REQUESTS: 'game_requests',
-  /** Moderation: { op: 'settings', settings } | { op: 'act', uid, platform, action } | { op: 'log' } (server/engine/moderation.js). */
+  /** The mod log: { op: 'settings', settings } | { op: 'log' } (server/engine/moderation.js). */
   MODERATION: 'moderation',
-  SET_ROLE_MAPPINGS: 'set_role_mappings',
   SET_WELCOME_GOODBYE: 'set_welcome_goodbye',
   SET_REACTION_ROLES: 'set_reaction_roles',
   SET_BUTTON_MENUS: 'set_button_menus',
@@ -70,18 +65,10 @@ export const C2S = {
   CONFIG_EXPORT: 'config_export',
   CONFIG_IMPORT: 'config_import',
 
-  // Twitch and YouTube
-  TWITCH_GET_USER: 'twitch_get_user',
-  YOUTUBE_EXCHANGE_CODE: 'youtube_exchange_code',
-  YOUTUBE_SET_SETTINGS: 'youtube_set_settings',
-  YOUTUBE_LOGOUT: 'youtube_logout',
-
   // Leveling
   GET_XP_DATA: 'get_xp_data',
   UPDATE_XP_CONFIG: 'update_xp_config',
   RESET_XP: 'reset_xp',
-  LINK_IDENTITIES: 'link_identities',
-  UNLINK_USER: 'unlink_user',
 
   // Discord passthrough
   DISCORD: 'discord',

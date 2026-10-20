@@ -22,7 +22,7 @@ test('only an approved question is ever the one being answered', () => {
     whichever screen happens to be asking.
   */
   questions.clear();
-  questions.add({ user: 'Someone', platform: 'twitch', text: 'a question' });
+  questions.add({ user: 'Someone', platform: 'discord', text: 'a question' });
   const [q] = questions.clear('handled').items;
 
   assert.equal(questions.show(q.id).showingId, '', 'a waiting question was taken up');

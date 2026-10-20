@@ -21,31 +21,26 @@ import { C2S, S2C } from '../../shared/protocol.js';
 import { VERSION } from '../../shared/version.js';
 import * as engine from '../engine/index.js';
 import * as discordRoles from '../engine/discord-roles.js';
-import * as roleSync from '../engine/role-sync.js';
 import { previewCard } from '../engine/welcome-card.js';
 import { testGreeting, previewFacts } from '../engine/welcome.js';
 import * as announcer from '../engine/announce.js';
-import * as scheduleEvents from '../engine/schedule-events.js';
 import * as discordPages from '../engine/discord-pages.js';
 import * as viewerHistory from '../engine/viewer-history.js';
 import * as points from '../engine/points.js';
 import * as profileCard from '../engine/profile-card.js';
 import * as slashCommands from '../engine/slash-commands.js';
 import { setBotFace } from '../engine/bot-face.js';
-import * as highlights from '../engine/highlights.js';
 import * as liveDms from '../engine/live-dms.js';
 import * as updater from '../engine/updater.js';
 import * as discordQuestions from '../engine/discord-questions.js';
 import * as gameRequests from '../engine/game-requests.js';
 import * as moderation from '../engine/moderation.js';
 import * as streamSessions from '../engine/stream-sessions.js';
-import * as twitchSchedule from '../engine/twitch-schedule.js';
-import * as subscribers from '../engine/subscribers.js';
 import * as twitch from '../platforms/twitch.js';
-import * as tiktok from '../platforms/tiktok.js';
+import * as youtube from '../platforms/youtube.js';
+import * as watch from '../engine/watch.js';
 import * as discord from '../platforms/discord.js';
 import * as discordVoice from '../platforms/discord-voice.js';
-import * as youtube from '../platforms/youtube.js';
 import * as leveling from '../leveling/index.js';
 
 const log = createLogger('ws');
@@ -237,9 +232,8 @@ function broadcastConnections() {
 function buildConnections() {
   return {
     twitch: twitch.getCredentials(),
-    tiktok: tiktok.getCredentials(),
+    youtube: youtube.getCredentials(),
     discord: discord.getSettings(),
-    youtube: youtube.getSettings(),
   };
 }
 
@@ -248,29 +242,24 @@ function buildSnapshot() {
     ...engine.snapshot(),
     // The stream on now, for the home screen: since when, called what.
     streamNow: streamSessions.streamNow(),
-    ...twitchSchedule.snapshot(),
     ...discordRoles.snapshot(),
-    ...roleSync.snapshot(),
-    announce: announcer.getAnnounce(),
-    ...scheduleEvents.snapshot(),
+    // The channels watched for going live, each with its post (server/engine/watch.js).
+    ...watch.snapshot(),
     ...discordPages.snapshot(),
     ...viewerHistory.snapshot(),
     ...points.snapshot(),
     ...profileCard.snapshot(),
-    ...highlights.snapshot(),
     ...liveDms.snapshot(),
     ...updater.snapshot(),
     ...discordQuestions.snapshot(),
     ...gameRequests.snapshot(),
     ...moderation.snapshot(),
-    ...subscribers.snapshot(),
     xpConfig: leveling.getConfig(),
     leaderboard: leveling.leaderboard(),
     status: {
       twitch: twitch.getStatus(),
-      tiktok: tiktok.getStatus(),
-      discord: discord.getStatus(),
       youtube: youtube.getStatus(),
+      discord: discord.getStatus(),
     },
     connections: buildConnections(),
     voice: discordVoice.getState(),
@@ -291,7 +280,6 @@ const meOf = (ws) => ({ role: ws.who?.role || 'owner', login: ws.who?.login || '
 */
 const OWNER_ONLY = new Set([
   C2S.SET_CREDENTIALS, C2S.PLATFORM_CONNECT, C2S.PLATFORM_DISCONNECT,
-  C2S.YOUTUBE_EXCHANGE_CODE, C2S.YOUTUBE_SET_SETTINGS, C2S.YOUTUBE_LOGOUT,
   C2S.CONFIG_EXPORT, C2S.CONFIG_IMPORT, C2S.UPDATES, C2S.MODERATORS,
 ]);
 /** And the ops a moderator may not send in one that is otherwise theirs: signing the app in to Discord is the streamer's, like the other accounts. */
@@ -351,6 +339,8 @@ async function handleMessage(ws, raw) {
           setTimeout(() => { for (const c of clients) if (c !== ws) c.close(4001, 'sign-in changed'); }, 200);
           return;
         }
+        // Who may sign in as what: the moderator role, and the owner's Discord account.
+        if (op === 'roles') return reply(auth.setRoles(payload, ws.who));
         if (op === 'new-key') {
           const state = auth.newSecret(payload.which, ws.who);
           reply(state);
@@ -382,35 +372,6 @@ async function handleMessage(ws, raw) {
         reply(buildSnapshot());
         return;
 
-      case C2S.SET_RELAY_CONFIG:
-        broadcast(S2C.CONFIG_PATCH, { relayConfig: engine.store.setRelayConfig(payload) });
-        return reply({ ok: true });
-
-      // Linking stream accounts to Discord members, and the roles that follow them.
-      case C2S.ROLE_SYNC: {
-        const op = payload?.op;
-        if (op === 'link') return reply(await roleSync.link(payload));
-        // Another account for somebody already known: { to: one of theirs, platform, platformId, platformName, avatar }.
-        if (op === 'add_account') return reply(await roleSync.addAccount(payload));
-        // Roles for showing up: [{ kind, atLeast, roleId }].
-        if (op === 'loyalty') return reply(roleSync.setLoyalty(payload?.rules));
-        if (op === 'unlink') { roleSync.unlink(String(payload?.key || '')); return reply({ ok: true }); }
-        if (op === 'sync') return reply(await roleSync.syncNow(String(payload?.key || '')));
-        if (op === 'clear_log') { roleSync.clearLog(); return reply({ ok: true }); }
-        // Somebody on YouTube, to link by hand: seen in chat, or an @handle / channel id.
-        if (op === 'find_youtube') return reply(await roleSync.findYoutube(payload?.query));
-        // Everybody following on Twitch, to pick from instead of spelling a name.
-        if (op === 'twitch_followers') return reply(await twitch.listFollowers());
-        throw new Error(`unknown role sync operation "${op}"`);
-      }
-
-      // The Twitch schedule, asked for again (engine/twitch-schedule.js).
-      case C2S.TWITCH_SCHEDULE:
-        return reply(await twitchSchedule.refreshSchedule());
-
-      case C2S.SCHEDULE_EVENTS:
-        return reply(await scheduleEvents.control(payload));
-
       // A channel's standing posts, built on the Discord pages screen.
       case C2S.DISCORD_PAGES:
         return reply(await discordPages.control(payload));
@@ -422,10 +383,6 @@ async function handleMessage(ws, raw) {
       // The profile card's settings, and a preview of it.
       case C2S.PROFILE_CARD:
         return reply(await profileCard.control(payload));
-
-      // The moments chat goes wild: the settings, or a made-up one to the test channel.
-      case C2S.HIGHLIGHTS:
-        return reply(await highlights.control(payload));
 
       // Going live, told privately: the settings, the sign-up post, a test.
       case C2S.LIVE_DMS:
@@ -454,9 +411,10 @@ async function handleMessage(ws, raw) {
         return reply(viewerHistory.historyStats());
       }
 
-      case C2S.ANNOUNCE:
-        if (payload?.op === 'test') return reply(await announcer.announce({ test: true }));
-        return reply(announcer.setAnnounce(payload?.settings));
+      // The watch list: add, remove, update, copy a setup, check now; or post a channel's test announcement.
+      case C2S.WATCH:
+        if (payload?.op === 'test') return reply(await announcer.announce(payload.id, { test: true }));
+        return reply(await watch.control(payload));
 
       case C2S.WELCOME_CARD_PREVIEW:
         // With the server's real name and icon, for a card that shows them.
@@ -471,10 +429,6 @@ async function handleMessage(ws, raw) {
 
       case C2S.GIVEAWAY:
         return reply(await engine.store.giveaway(payload?.op, payload?.value));
-
-      case C2S.POLL:
-        // Broadcast from the engine, so every screen hears of it the same way.
-        return reply(engine.store.poll(payload?.op, payload?.value));
 
       /*
         Moderating one question at a time, never the whole queue.
@@ -496,10 +450,6 @@ async function handleMessage(ws, raw) {
         return reply(engine.store.questions(payload));
 
       // -------- discord membership automation
-      case C2S.SET_ROLE_MAPPINGS:
-        broadcast(S2C.CONFIG_PATCH, { roleMappings: discordRoles.store.setRoleMappings(payload) });
-        return reply({ ok: true });
-
       case C2S.SET_WELCOME_GOODBYE:
         broadcast(S2C.CONFIG_PATCH, { welcomeGoodbyeConfig: discordRoles.store.setWelcomeGoodbye(payload) });
         return reply({ ok: true });
@@ -523,12 +473,12 @@ async function handleMessage(ws, raw) {
         // Tokens and secrets are set from the machine running the server, not
         // from anything that can reach it: a phone on the network opening the
         // dashboard is one thing, that phone writing a bot token another.
-        const SECRET_FIELDS = ['botToken', 'clientSecret', 'signApiKey', 'password'];
+        const SECRET_FIELDS = ['botToken', 'clientSecret', 'apiKey'];
         if (!ws.isLocal && SECRET_FIELDS.some((f) => rest[f])) {
           throw refusal('secrets_local_only', 'secrets can only be set from the machine running the server');
         }
         if (platform === 'twitch') twitch.setCredentials(rest);
-        else if (platform === 'tiktok') tiktok.setCredentials(rest);
+        else if (platform === 'youtube') youtube.setCredentials(rest);
         else if (platform === 'discord') discord.setSettings(rest);
         else throw new Error(`unknown platform "${platform}"`);
         broadcastConnections();
@@ -559,24 +509,6 @@ async function handleMessage(ws, raw) {
         await platformOf(payload.platform).disconnect();
         return reply({ ok: true });
 
-      case C2S.TWITCH_GET_USER:
-        return reply(await twitch.getUser(payload.login));
-
-      case C2S.YOUTUBE_EXCHANGE_CODE:
-        await youtube.exchangeCode(payload.code, payload.redirectUri);
-        broadcastConnections();
-        return reply({ ok: true });
-
-      case C2S.YOUTUBE_SET_SETTINGS:
-        youtube.setSettings(payload || {});
-        broadcastConnections();
-        return reply({ ok: true });
-
-      case C2S.YOUTUBE_LOGOUT:
-        youtube.logout();
-        broadcastConnections();
-        return reply({ ok: true });
-
       // -------- leveling
       case C2S.GET_XP_DATA:
         return reply({ users: leveling.getUsers(), config: leveling.getConfig(), leaderboard: leveling.leaderboard() });
@@ -592,16 +524,6 @@ async function handleMessage(ws, raw) {
         broadcast(S2C.XP_DATA, { users: {}, config: leveling.getConfig(), leaderboard: [] });
         return reply({ ok: true });
 
-      case C2S.LINK_IDENTITIES:
-        leveling.link(payload.primary, payload.secondary);
-        broadcast(S2C.XP_DATA, { users: leveling.getUsers(), config: leveling.getConfig(), leaderboard: leveling.leaderboard() });
-        return reply({ ok: true });
-
-      case C2S.UNLINK_USER:
-        leveling.unlink(payload.key);
-        broadcast(S2C.XP_DATA, { users: leveling.getUsers(), config: leveling.getConfig(), leaderboard: leveling.leaderboard() });
-        return reply({ ok: true });
-
       // -------- discord passthrough
       case C2S.DISCORD:
         return reply(await discordPassthrough(payload));
@@ -615,7 +537,7 @@ async function handleMessage(ws, raw) {
 }
 
 function platformOf(name) {
-  const map = { twitch, tiktok, discord };
+  const map = { discord };
   const p = map[name];
   if (!p) throw new Error(`unknown platform "${name}"`);
   return p;

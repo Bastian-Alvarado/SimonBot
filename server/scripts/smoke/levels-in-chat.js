@@ -2,8 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Smoke tests: levels in chat — XP and levels earned from chat, and
- * "!rank" and "!top" answered in the chat they were asked in.
+ * Smoke tests: levels in Discord — XP and levels earned by talking, and
+ * "!rank" and "!top" answered in the channel they were asked in.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After discord-chat.js;
@@ -28,16 +28,16 @@ bus.on(EVENTS.LEVELUP, onLevelUp);
 const xpChanges = [];
 const onXp = (uid) => xpChanges.push(uid);
 bus.on('xp:changed', onXp);
-const chat = (over) => bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'twitch', msg: 'hola', ...over }));
+const chat = (over) => bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'discord', msg: 'hola', raw: { channelId: 'c-stream' }, ...over }));
 
 chat({ user: 'Escalador', userId: 'esc1', avatar: 'https://x/e.png' });
-chat({ user: 'MiCanal', userId: 'own1', isBroadcaster: true });
+chat({ user: 'MiBot', userId: 'own1', isBot: true });
 await wait(30);
 const firstLevel = levelUps.find((l) => l.user === 'Escalador');
 
 test('chat earns XP and levels, and the Levels screen is told as it changes', () => {
   assert.ok(firstLevel, 'no level-up');
-  assert.deepEqual([firstLevel.platform, firstLevel.level], ['twitch', 1]);
+  assert.deepEqual([firstLevel.platform, firstLevel.level], ['discord', 1]);
   assert.ok(xpChanges.length >= 2, 'the board is not told XP changed');
   // Sent as XP comes in, a few seconds behind, without the whole user list.
   assert.ok(read('../api/ws.js').includes("broadcast(S2C.XP_DATA, { leaderboard: leveling.leaderboard() });"));
@@ -48,8 +48,6 @@ test('chat earns XP and levels, and the Levels screen is told as it changes', ()
 const answers = [];
 let clock = Date.now();
 levelChat.initLevelChat({
-  twitch: async (text) => { answers.push(['twitch', text]); },
-  youtube: async (text) => { answers.push(['youtube', text]); },
   discord: async (text, c) => { answers.push(['discord', text, c.raw?.channelId]); },
   now: () => clock,
 });
@@ -83,21 +81,19 @@ bus.emit('discord:message_elsewhere', normaliseChat({ platform: 'discord', user:
 await step();
 const fromDiscord = answers.at(-1);
 
-// TikTok cannot be written to; YouTube can be left out.
+// Only Discord is answered, and never the bot itself.
 const beforeQuiet = answers.length;
-chat({ platform: 'tiktok', user: 'Tok', userId: 't1', msg: '!top' });
-leveling.setConfig({ chat: { ...leveling.getConfig().chat, youtube: false } });
-chat({ platform: 'youtube', user: 'Tubo', userId: 'y1', msg: '!top' });
+chat({ platform: 'twitch', user: 'Tw', userId: 't1', msg: '!top' });
+chat({ user: 'MiBot', userId: 'own1', isBot: true, msg: '!top' });
 await step();
 const quiet = answers.length - beforeQuiet;
-leveling.setConfig({ chat: { ...leveling.getConfig().chat, youtube: true } });
 
 levelChat.stopLevelChat();
 bus.off(EVENTS.LEVELUP, onLevelUp);
 bus.off('xp:changed', onXp);
 
 test('"!rank" says where somebody stands, in the chat it was asked in, and no more than every half minute', () => {
-  assert.equal(rankLine[0], 'twitch');
+  assert.deepEqual([rankLine[0], rankLine[2]], ['discord', 'c-stream']);
   assert.match(rankLine[1], /^Escalador: nivel \d+ · [\d,]+ XP · puesto #\d+ de \d+$/);
   assert.equal(tooSoon, 0, 'the same person was answered twice in a row');
   assert.equal(afterWaiting, 1, 'asking again later was not answered (or the word is case-sensitive)');
@@ -107,24 +103,24 @@ test('"!rank" says where somebody stands, in the chat it was asked in, and no mo
   assert.ok(fromDiscord[1].startsWith('Disc\\_or\\*d'), 'a name in Discord was not escaped');
 });
 
-test('"!top" names the leaders; TikTok and a YouTube left out get nothing', () => {
+test('"!top" names the leaders; anywhere but Discord, and the bot, get nothing', () => {
   assert.match(topLine[1], /^Top \d: 1\. .+ \(nv \d+\)/);
-  assert.equal(quiet, 0, 'TikTok, or YouTube with answers off, was answered');
+  assert.equal(quiet, 0, 'something other than a person in Discord was answered');
 });
 
-test('the streamer\'s own level leaves out a place they do not have', () => {
-  const own = leveling.findUser('twitch', 'own1');
-  assert.ok(own, 'the streamer earned no XP');
-  assert.equal(levelChat.rankAnswer(own, 'twitch'), 'MiCanal: nivel 1 · 100 XP');
+test('the bot\'s own level leaves out a place it does not have', () => {
+  const own = leveling.findUser('discord', 'own1');
+  assert.ok(own, 'the bot earned no XP');
+  assert.match(levelChat.rankAnswer(own, 'discord'), /^MiBot: nivel \d+ · [\d,]+ XP$/);
 });
 
 test('the chat answers are kept sane: one word to ask, a count of 1 to 10', () => {
   const c = leveling.cleanLevelChat({ rankWord: '  !nivel extra ', topWord: '', topCount: 99, rankText: '', youtube: false });
+  assert.equal('youtube' in c, false, 'a setting for YouTube answers is still kept');
   assert.equal(c.rankWord, '!nivel');
   assert.equal(c.topWord, '!top');
   assert.equal(c.topCount, 10);
   assert.equal(c.rankText, leveling.DEFAULT_LEVEL_CHAT.rankText);
-  assert.equal(c.youtube, false);
   assert.deepEqual(leveling.setConfig({ ignoredChannelIds: ['123', 'nope', '123', 4] }).ignoredChannelIds, ['123', '4']);
   assert.ok(read('../index.js').includes('initLevelChat();'));
 });

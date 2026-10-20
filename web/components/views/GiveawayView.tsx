@@ -4,8 +4,8 @@
  *
  * The Giveaways screen (server/engine/giveaway.js): set one up — the prize,
  * the word to type, how long, how many win, who may enter — run it, draw it,
- * and see who is in. Entered from every chat, and from a button in Discord
- * when it is posted there. The winners are told in chat and in Discord.
+ * and see who is in. Entered by typing the word in Discord, or with the
+ * button on the post. The winners are told in Discord.
  */
 import React, { useEffect, useState } from 'react';
 import { Gift, Play, Square, Shuffle, RotateCcw, Trash2, X, Loader2 } from 'lucide-react';
@@ -13,7 +13,6 @@ import { Button } from '../Button';
 import { textChannels } from '../DiscordPicks';
 import { refusalWords } from '../../words';
 
-const PLATFORMS: [string, string][] = [['twitch', 'Twitch'], ['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['discord', 'Discord']];
 const box = 'w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-current-accent';
 const tag = 'text-[9px] font-black uppercase tracking-widest text-zinc-500';
 
@@ -28,9 +27,9 @@ interface Props {
 }
 
 export const GiveawayView = ({ giveaway, settings, control, channels, roles, botConnected, t }: Props) => {
-  const g = giveaway || { mode: 'idle', count: 0, entrants: [], winners: [], byPlatform: {}, draft: {} };
+  const g = giveaway || { mode: 'idle', count: 0, entrants: [], winners: [], draft: {} };
   const d = g.draft || {};
-  const rules = d.rules || { subsOnly: false, minLevel: 0, subLuck: 1, discordRole: '', platforms: PLATFORMS.map(([p]) => p) };
+  const rules = d.rules || { minLevel: 0, discordRole: '' };
   const s = settings || { announce: true, postToDiscord: false, discordChannelId: '', autoDraw: false };
   const [prize, setPrize] = useState(d.prize || '');
   const [keyword, setKeyword] = useState(d.keyword || '!sorteo');
@@ -78,7 +77,7 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
           </span>
         </div>
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          {t.giveawayHint || 'Viewers enter by typing the word in any chat — Twitch, YouTube, TikTok or Discord — or with the button on the Discord post. When you draw, chat and Discord are told who won.'}
+          {t.giveawayHint || 'People enter by typing the word in Discord, or with the button on the Discord post. When you draw, Discord is told who won.'}
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px] gap-4">
@@ -91,7 +90,7 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
             <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onBlur={() => { if (keyword !== d.keyword) draft({ keyword }); }} className={box} data-giveaway-field="keyword" />
           </label>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <label className="space-y-1 block">
             <span className={tag}>{t.giveawayMinutes || 'Minutes (0: until closed)'}</span>
             <input type="number" min={0} max={120} value={Math.round((d.durationMs || 0) / 60000)} onChange={(e) => draft({ durationMs: Number(e.target.value) * 60000 })} className={box} data-giveaway-field="minutes" />
@@ -104,25 +103,9 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
             <span className={tag}>{t.giveawayMinLevel || 'Lowest level'}</span>
             <input type="number" min={0} max={500} value={rules.minLevel || 0} onChange={(e) => setRules({ minLevel: Number(e.target.value) })} className={box} />
           </label>
-          <label className="space-y-1 block">
-            <span className={tag}>{t.giveawaySubLuck || 'Tickets for subs'}</span>
-            <input type="number" min={1} max={5} value={rules.subLuck || 1} onChange={(e) => setRules({ subLuck: Number(e.target.value) })} className={box} />
-          </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={rules.subsOnly === true} onChange={(e) => setRules({ subsOnly: e.target.checked })} className="accent-current-accent" data-giveaway-field="subsOnly" />
-            <span className="text-[11px] text-zinc-300">{t.giveawaySubsOnly || 'Subscribers only'}</span>
-          </label>
-          {PLATFORMS.map(([p, name]) => (
-            <label key={p} className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={(rules.platforms || []).includes(p)} onChange={(e) => setRules({ platforms: e.target.checked ? [...(rules.platforms || []), p] : (rules.platforms || []).filter((x: string) => x !== p) })} className="accent-current-accent" data-giveaway-platform={p} />
-              <span className="text-[11px] text-zinc-400">{name}</span>
-            </label>
-          ))}
         </div>
         <label className="space-y-1 block max-w-sm">
-          <span className={tag}>{t.giveawayDiscordRole || 'Discord entrants need the role'}</span>
+          <span className={tag}>{t.giveawayDiscordRole || 'Entrants need the role'}</span>
           <select value={rules.discordRole || ''} onChange={(e) => setRules({ discordRole: e.target.value })} className={box}>
             <option value="">{t.giveawayAnyRole || 'Any'}</option>
             {(roles || []).filter((r: any) => r.name !== '@everyone' && !r.managed).map((r: any) => <option key={r.id} value={r.id}>@{r.name}</option>)}
@@ -143,16 +126,13 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
         <div className="glass-panel rounded-3xl border border-zinc-800 p-6 space-y-4" data-giveaway-live>
           <div className="flex flex-wrap items-baseline gap-3">
             <span className="text-2xl font-black text-white tabular-nums" data-giveaway-count>{g.count}</span>
-            <span className="text-[11px] text-zinc-500">{t.giveawayEntered || 'entered'}{g.tickets > g.count ? ` · ${g.tickets} ${t.giveawayTickets || 'tickets'}` : ''}</span>
-            <span className="flex flex-wrap gap-1.5 ml-auto">
-              {Object.entries(g.byPlatform || {}).map(([p, n]) => <span key={p} className="text-[10px] px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300">{PLATFORMS.find(([x]) => x === p)?.[1] || p} {String(n)}</span>)}
-            </span>
+            <span className="text-[11px] text-zinc-500">{t.giveawayEntered || 'entered'}</span>
           </div>
           {(g.winners || []).length > 0 && (
             <div className="space-y-1" data-giveaway-winners>
               <span className={tag}>{(g.winners || []).length === 1 ? (t.giveawayWinner || 'Winner') : (t.giveawayWinnersNow || 'Winners')}</span>
               <div className="flex flex-wrap gap-2">
-                {g.winners.map((w: any) => <span key={w.key} className="px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-200 text-xs font-black">🎉 {w.name} <span className="opacity-60 font-bold">· {PLATFORMS.find(([x]) => x === w.platform)?.[1] || w.platform}</span></span>)}
+                {g.winners.map((w: any) => <span key={w.key} className="px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-200 text-xs font-black">🎉 {w.name}</span>)}
               </div>
             </div>
           )}
@@ -161,8 +141,7 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
             <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto pr-1">
               {(g.entrants || []).map((e: any) => (
                 <span key={e.key} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg border border-zinc-800 text-[11px] text-zinc-300" data-giveaway-entrant={e.key}>
-                  {e.name}{e.tickets > 1 ? ` ×${e.tickets}` : ''}
-                  <span className="text-[9px] text-zinc-600">{PLATFORMS.find(([x]) => x === e.platform)?.[1] || e.platform}</span>
+                  {e.name}
                   <button onClick={() => run('remove', e.key)} title={t.giveawayRemove || 'Take out'} className="p-0.5 text-zinc-600 hover:text-red-400"><X size={11} /></button>
                 </span>
               ))}
@@ -177,7 +156,7 @@ export const GiveawayView = ({ giveaway, settings, control, channels, roles, bot
         <div className="flex flex-wrap gap-x-6 gap-y-2">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={s.announce !== false} onChange={(e) => control('settings', { announce: e.target.checked })} className="accent-current-accent" />
-            <span className="text-[11px] text-zinc-300">{t.giveawayAnnounce || 'Say it in Twitch chat when it opens and who won'}</span>
+            <span className="text-[11px] text-zinc-300">{t.giveawayAnnounce || 'Say it in the bot\'s Discord channel when it opens and who won'}</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={s.autoDraw === true} onChange={(e) => control('settings', { autoDraw: e.target.checked })} className="accent-current-accent" />

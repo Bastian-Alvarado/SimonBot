@@ -18,7 +18,6 @@ interface Settings {
   enabled: boolean; name: string; emoji: string;
   earn: Record<string, number>;
   words: { balance: string; give: string };
-  youtube: boolean;
 }
 interface Props {
   settings?: Settings;
@@ -37,12 +36,6 @@ const EARN_FIELDS: [string, string, string][] = [
   ['stream', 'pointsEarnStream', 'Coming to a stream'],
   ['streakStep', 'pointsEarnStreak', '+ per stream in a row'],
   ['streakMax', 'pointsEarnStreakMax', 'Streak bonus at most'],
-  ['follow', 'pointsEarnFollow', 'A follow'],
-  ['sub', 'pointsEarnSub', 'A sub (each one gifted too)'],
-  ['member', 'pointsEarnMember', 'A YouTube membership'],
-  ['perHundredBits', 'pointsEarnBits', 'Each 100 bits'],
-  ['perDiamond', 'pointsEarnDiamond', 'Each TikTok diamond'],
-  ['superChat', 'pointsEarnSuperChat', 'A Super Chat'],
 ];
 export const PointsView = ({ settings, control, emojis = [], t }: Props) => {
   const [draft, setDraft] = useState<Settings | null>(settings || null);
@@ -91,7 +84,7 @@ export const PointsView = ({ settings, control, emojis = [], t }: Props) => {
             <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${draft.enabled ? 'translate-x-5' : ''}`} />
           </div>
         </div>
-        <p className="text-[11px] text-zinc-500 leading-relaxed">{t.pointsHint || 'A score apart from XP: XP makes levels and only goes up; points are earned the same way, can be given or taken by hand, and have a board of their own. One balance per person, whatever platforms they are on.'}</p>
+        <p className="text-[11px] text-zinc-500 leading-relaxed">{t.pointsHint || 'A score apart from XP: XP makes levels and only goes up; points are earned the same way, can be given or taken by hand, and have a board of their own. Earned by talking in Discord and coming to your streams.'}</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
           <label className="space-y-1 block"><span className={tag}>{t.pointsName || 'What they are called'}</span>
@@ -122,11 +115,7 @@ export const PointsView = ({ settings, control, emojis = [], t }: Props) => {
               </label>
             ))}
           </div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={draft.youtube} onChange={(e) => change({ youtube: e.target.checked })} className="accent-current-accent" />
-            <span className="text-[11px] text-zinc-400">{t.pointsYoutube || 'Answer on YouTube too (each answer uses some of YouTube\'s daily allowance)'}</span>
-          </label>
-          <p className="text-[10px] text-zinc-600">{fill(t.pointsChatHow || 'In any chat: {balance} for a balance. Moderators: {give} @name 100.', { balance: draft.words.balance, give: draft.words.give })}</p>
+          <p className="text-[10px] text-zinc-600">{fill(t.pointsChatHow || 'In Discord: {balance} for a balance. Moderators: {give} @name 100.', { balance: draft.words.balance, give: draft.words.give })}</p>
         </div>
       </div>
 

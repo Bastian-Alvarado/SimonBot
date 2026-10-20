@@ -19,11 +19,12 @@ const shared = await import('../../../shared/discord-pages.js');
 const sessions = await import('../../engine/stream-sessions.js');
 const { config } = await import('../../config.js');
 
-const words = shared.fillWords('Votos: {pollVotes}\n🎙️ {voiceTalking} hablando\n{nope}\n{streamTitle}', { poll: { mode: 'open', total: 12 }, voice: { members: [] } }, { streamTitle: '' });
+const words = shared.fillWords('En la llamada: {voiceCount}\n🎙️ {voiceTalking} hablando\n{nope}\n{streamTitle}', { voice: { channelId: '1', members: [{ name: 'Ana' }, { name: 'Bo' }] } }, { streamTitle: '' });
 
 test('a page\'s {names} are filled in, a line with only empty ones goes, an unknown one stays to be seen', () => {
-  assert.equal(words, 'Votos: 12\n{nope}');
-  assert.equal(shared.PAGE_VAR_NAMES.has('live') && shared.PAGE_VAR_NAMES.has('pollVotes'), true);
+  assert.equal(words, 'En la llamada: 2\n{nope}');
+  assert.equal(shared.PAGE_VAR_NAMES.has('live') && shared.PAGE_VAR_NAMES.has('youtubeLink'), true);
+  assert.equal(shared.PAGE_VAR_NAMES.has('pollVotes') || shared.PAGE_VAR_NAMES.has('nextStreamAt'), false, 'a page still offers the polls or the Twitch schedule');
   assert.equal(shared.PAGE_VAR_NAMES.has('nowPlaying') || shared.PAGE_VAR_NAMES.has('viewers'), false, 'a page still offers what only the stream tools knew');
 });
 
@@ -53,7 +54,7 @@ const offline = calls.filter((c) => c.method === 'POST')[0].body.embeds[0];
 
 let t0 = Date.now() + 60_000;
 const nothing = await pages.refreshLive(t0);
-bus.emit(EVENTS.STAT, { key: 'twitchLive', value: true });
+sessions._test.onLive({ known: true, live: true });
 bus.emit(EVENTS.CHANNEL, { title: 'Jugando', categoryName: 'Among Us' });
 const before = calls.length;
 const wentLive = await pages.refreshLive(t0 += 60_000);
@@ -63,7 +64,7 @@ bus.emit(EVENTS.CHANNEL, { title: 'Jugando', categoryName: 'Minecraft' });
 const newGame = await pages.refreshLive(t0 += 60_000);
 const gameEdit = calls.filter((c) => c.method === 'PATCH').at(-1);
 const unchanged = await pages.refreshLive(t0 += 60_000);
-bus.emit(EVENTS.STAT, { key: 'twitchLive', value: false });
+sessions._test.onLive({ known: true, live: false });
 await sessions._test.finish();
 for (const p of [status, quiet]) pages.removePage(p.id);
 globalThis.fetch = realFetch;

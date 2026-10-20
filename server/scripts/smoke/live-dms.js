@@ -5,7 +5,8 @@
  * Smoke tests: going live, told privately (server/engine/live-dms.js) —
  * signing up with a button choosing where one watches, the direct message
  * with that link and a way to stop, one message a stream, and somebody whose
- * messages cannot be delivered three times running taken off the list.
+ * messages cannot be delivered three times running taken off the list. The
+ * links are the streamer's own channels on the watch list.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After live-pages.js.
@@ -18,9 +19,12 @@ const sessions = await import('../../engine/stream-sessions.js');
 const { config } = await import('../../config.js');
 dms.initLiveDms();
 
-const announce = collection('discord_announce', {});
-const announceBefore = announce.get();
-announce.set({ ...announceBefore, youtubeUrl: 'https://youtube.com/@yo/live', tiktokUrl: 'https://tiktok.com/@yo/live' });
+// The streamer's own channels, on the watch list: where the links come from.
+const watchList = collection('watch_list', {});
+const watchBefore = watchList.get();
+const entry = (platform, handle) => ({ id: `${platform}:${handle}`, platform, handle, userId: handle, name: 'Yo', avatar: '', mine: true, alert: {}, live: null, last: null, lastVideo: null });
+watchList.set({ ...watchBefore, channels: [entry('twitch', 'yo'), entry('youtube', 'UCyo')] });
+const YT = 'https://www.youtube.com/channel/UCyo/live';
 
 const calls = [];
 const closed = new Set(['600000000000000002']);
@@ -50,7 +54,7 @@ const dm = dms.dmFor('youtube', { name: 'Simon', title: 'Among Us', game: 'Among
 // Going live: after its wait, everybody on the list — once.
 dms.control({ settings: { enabled: true, delaySec: 0 } });
 const before = calls.length;
-bus.emit(EVENTS.STAT, { key: 'twitchLive', value: true });
+sessions._test.onLive({ known: true, live: true });
 // One message a second: two people take two.
 await new Promise((r) => setTimeout(r, 2600));
 const firstRound = calls.slice(before);
@@ -63,10 +67,9 @@ await dms.sendAll({}, { wait: 0 });
 const afterThree = { ...dms._test.people() };
 await press('600000000000000001', 'livedm:stop');
 const afterStop = { ...dms._test.people() };
-bus.emit(EVENTS.STAT, { key: 'twitchLive', value: false });
+sessions._test.onLive({ known: true, live: false });
 await sessions._test.finish();
 dms.control({ settings: { enabled: false } });
-announce.set(announceBefore);
 globalThis.fetch = realFetch;
 config.discord.botToken = tokenBefore;
 
@@ -74,19 +77,20 @@ test('viewers sign up with a button, choosing where they watch, and are told so 
   assert.deepEqual(Object.entries(signedUp).map(([id, p]) => [id, p.platform]), [['600000000000000001', 'youtube'], ['600000000000000002', 'twitch']]);
   assert.equal(answer.flags, 64);
   assert.match(answer.content, /YouTube/);
-  assert.deepEqual(post.components[0].components.map((b) => b.custom_id), ['livedm:on:twitch', 'livedm:on:youtube', 'livedm:on:tiktok', 'livedm:stop'], 'a platform with a link was not offered');
-  // Without a link a platform is not offered: TikTok gone, its button goes.
-  announce.set({ ...announce.get(), tiktokUrl: '' });
-  assert.ok(!dms.signUpPost().components[0].components.some((b) => b.custom_id === 'livedm:on:tiktok'));
-  announce.set(announceBefore);
+  assert.deepEqual(post.components[0].components.map((b) => b.custom_id), ['livedm:on:twitch', 'livedm:on:youtube', 'livedm:stop'], 'a platform with a channel was not offered');
+  // Without a channel of the streamer's there, a platform is not offered.
+  const both = watchList.get();
+  watchList.set({ ...both, channels: both.channels.filter((c) => c.platform === 'twitch') });
+  assert.ok(!dms.signUpPost().components[0].components.some((b) => b.custom_id === 'livedm:on:youtube'));
+  watchList.set(watchBefore);
 });
 
 test('going live sends each a direct message with their link and a way to stop — once a stream', () => {
   assert.equal(dm.content, '🔴 Simon en directo: Among Us (YouTube)');
-  assert.deepEqual(dm.components[0].components.map((b) => b.url || b.custom_id), ['https://youtube.com/@yo/live', 'livedm:stop']);
+  assert.deepEqual(dm.components[0].components.map((b) => b.url || b.custom_id), [YT, 'livedm:stop']);
   const sent = firstRound.filter((c) => c.route === '/channels/dm-600000000000000001/messages');
   assert.equal(sent.length, 1, 'the open one was not told');
-  assert.equal(sent[0].body.components[0].components[0].url, 'https://youtube.com/@yo/live');
+  assert.equal(sent[0].body.components[0].components[0].url, YT);
   assert.equal(sentAgain, 0, 'told twice for one stream');
 });
 

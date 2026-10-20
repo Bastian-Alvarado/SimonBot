@@ -26,7 +26,6 @@ export interface Me {
 }
 
 export interface BackendSnapshot {
-  relayConfig: any;
   xpConfig: any;
   leaderboard: any[];
   status: Record<string, any>;
@@ -35,14 +34,11 @@ export interface BackendSnapshot {
   reactionRoleConfigs?: any[];
   discordButtonConfigs?: any[];
   welcomeGoodbyeConfig?: any;
-  roleMappings?: any;
   roleActivityLog?: any[];
   xpData?: Record<string, any>;
-  subscribers?: any[];
 }
 
 const EMPTY_SNAPSHOT: BackendSnapshot = {
-  relayConfig: { twitchToDiscord: false, tiktokToDiscord: false },
   xpConfig: {},
   leaderboard: [],
   status: {},
@@ -60,6 +56,7 @@ function serverUrl(): string {
   const { url, remember } = resolveServerUrl(window.location, {
     remembered: read(REMEMBERED),
     apiPort: (import.meta as any).env?.VITE_API_PORT ?? undefined,
+    dev: Boolean((import.meta as any).env?.DEV),
   });
   if (remember) { try { localStorage.setItem(REMEMBERED, remember); } catch { /* a browser may refuse */ } }
   return url;
@@ -134,15 +131,7 @@ export function useBackend() {
     switch (type) {
       case S2C.SNAPSHOT:
       case S2C.CONFIG_PATCH:
-        setSnapshot((prev) => ({
-          ...prev,
-          ...p,
-          // `serverNow` is only "now" at the instant this frame arrives, so the
-          // moment of arrival is recorded with it, for the poll's clock. Measuring
-          // clock skew later — when a component happens to mount — reads a stale
-          // timestamp as the current time and shifts the clock by the age of the frame.
-          ...(p.poll?.serverNow ? { poll: { ...p.poll, clientReceivedAt: Date.now() } } : {}),
-        }));
+        setSnapshot((prev) => ({ ...prev, ...p }));
         return;
 
       case S2C.STATUS:
@@ -151,8 +140,8 @@ export function useBackend() {
           ...prev,
           status: {
             ...prev.status,
-            // Twitch reports several sub-connections (main/bot/eventsub) in
-            // `detail`; the others send a flat payload to merge in place.
+            // A platform's whole status comes in `detail` ({ status, error });
+            // one without it sends a flat payload to merge in place.
             [p.platform]: p.detail ?? { ...(prev.status?.[p.platform] ?? {}), ...p },
           },
         }));

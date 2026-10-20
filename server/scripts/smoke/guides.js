@@ -98,26 +98,25 @@ test('the setup steps tick themselves from what the app can see, remember what t
   assert.equal(empty.left, needed);
 
   const all = {
-    status: { twitch: 'connected', twitchBot: 'connected', discord: 'connected' },
-    data: {},
+    status: { discord: 'connected' },
+    data: { watch: { channels: [{ id: 'twitch:x' }] } },
     // Sign-in switched on (Settings → Sign-in).
     auth: { me: { signIn: true } },
   };
   const full = g.setupState(all);
   assert.equal(full.left, 0, 'all the needed steps are done');
   assert.deepEqual(full.items.filter((i) => !i.done).map((i) => i.check.id), ['backup'], 'only the hand-ticked one is left');
-  // YouTube or TikTok is as good as Twitch.
-  const other = { status: { tiktok: 'connected' }, data: {} };
-  assert.equal(g.setupState(other).items.find((i) => i.check.id === 'platform').done, true);
-  // Twitch closed after it was seen connected: still ticked, as it was seen.
-  const later = g.setupState({ status: {}, data: {} }, { seen: ['platform', 'discord'] });
-  assert.equal(later.items.find((i) => i.check.id === 'platform').done, true);
+  // Only Discord is needed: watching channels for going live is a choice.
+  assert.equal(needed, 1);
+  assert.deepEqual(g.SETUP_CHECKS.filter((c) => !c.optional).map((c) => c.id), ['discord']);
+  // Discord dropped after it was seen connected: still ticked, as it was seen.
+  const later = g.setupState({ status: {}, data: {} }, { seen: ['discord'] });
   assert.equal(later.items.find((i) => i.check.id === 'discord').done, true);
   // What only a hand can tick is ticked by one, and nothing else is ticked by hand.
   assert.equal(g.setupState({}, { ticked: ['backup'] }).items.find((i) => i.check.id === 'backup').done, true);
   assert.equal(g.setupState({}, { ticked: ['sign-in'] }).items.find((i) => i.check.id === 'sign-in').done, false);
   // Everything that is only true while something is open is remembered once seen.
-  for (const id of ['platform', 'bot', 'discord']) {
+  for (const id of ['discord']) {
     assert.ok(g.SETUP_CHECKS.find((c) => c.id === id).sticky, `${id} should stay ticked once seen`);
   }
 });
@@ -140,7 +139,7 @@ test('the chat words that need no command are read from the settings as they are
     if (b.en.after || b.es.after) assert.ok(b.en.after && b.es.after, `${b.id} says what follows in one language only`);
   }
   assert.equal(found.question.word, '!pregunta');
-  assert.equal(found.poll.word, '!encuesta');
+  assert.equal(found.poll, undefined, 'polls in chat are gone');
   assert.equal(found.balance.word, '!puntos');
   assert.equal(found.rank.word, '!rank');
   // A word changed in the settings is the word the reference shows.
@@ -187,35 +186,31 @@ test('each platform’s walkthrough says the same in both languages, and names o
         const [kind, name] = tok.split(':');
         if (kind === 'screen') assert.ok(VIEWS.has(name), `${p.id} goes to "${name}", which is no screen`);
         if (kind === 't') assert.equal(constants.split(`    ${name}: `).length - 1, 2, `${p.id}: ${name} is not in both languages`);
-        if (kind === 'redirect') assert.ok(['page', 'loopback'].includes(name), `${p.id}: no such address as ${name}`);
+        if (kind === 'redirect') assert.equal(name, 'page', `${p.id}: no such address as ${name}`);
       }
     }
     p.steps.forEach((s) => s.go && assert.ok(VIEWS.has(s.go), `${p.id} goes to "${s.go}"`));
     for (const f of p.fields) assert.equal(constants.split(`    ${f.t}: `).length - 1, 2, `${p.id}: the field ${f.t} is not a word the Connections screen has`);
-    // A platform that signs in through a site of its own gives the address to register there.
+    // Only Discord is signed in to through a site of its own, so only it gives an address to register; Twitch and YouTube are keys.
     const redirects = p.steps.flatMap((s) => tokens(s.en)).filter((x) => x.startsWith('redirect:'));
-    if (['twitch', 'youtube', 'discord'].includes(p.id)) assert.equal(redirects.length, 1, `${p.id} gives one address to register`);
+    assert.equal(redirects.length, p.id === 'discord' ? 1 : 0, `${p.id} gives the wrong number of addresses to register`);
   }
-  assert.deepEqual([...ids], ['twitch', 'twitch-bot', 'youtube', 'tiktok', 'discord']);
+  assert.deepEqual([...ids], ['discord', 'twitch', 'youtube']);
   // The setup steps about a platform open its walkthrough.
   for (const c of g.SETUP_CHECKS) if (c.setup) assert.ok(ids.has(c.setup), `check ${c.id} opens no walkthrough`);
-  assert.deepEqual(g.SETUP_CHECKS.filter((c) => c.setup).map((c) => c.id), ['platform', 'bot', 'discord']);
+  assert.deepEqual(g.SETUP_CHECKS.filter((c) => c.setup).map((c) => c.id), ['discord', 'watch']);
 });
 
-test('the address each walkthrough says to register is the one the Connections screen signs in with', () => {
+test('the address the Discord walkthrough says to register is the one the Connections screen signs in with', () => {
   const kindOf = (id) => g.PLATFORM_SETUPS.find((p) => p.id === id).steps.flatMap((s) => tokens(s.en)).find((x) => x.startsWith('redirect:'));
-  assert.equal(kindOf('twitch'), 'redirect:page');
   assert.equal(kindOf('discord'), 'redirect:page');
-  assert.equal(kindOf('youtube'), 'redirect:loopback');
-  // page: the address the page is at; loopback: the same, localhost made 127.0.0.1 — as the logins send them.
+  // page: the address the page is at, as the login sends it.
   const connections = read('../../web/components/views/ConnectionsView.tsx');
-  assert.equal(connections.split("redirectUri={typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}").length - 1, 2, 'Twitch and Discord register the page’s own address');
-  assert.ok(connections.includes("redirectUri={typeof window !== 'undefined' ? youtubeRedirectUri() : ''}"));
-  const utils = read('../../web/utils.ts');
-  assert.ok(utils.includes("if (url.hostname === 'localhost') url.hostname = '127.0.0.1';"), 'Google comes back to 127.0.0.1');
-  // And the walkthrough writes them for the computer the app runs on, whatever address the guide was opened at.
+  assert.equal(connections.split("redirectUri={typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}").length - 1, 1, 'Discord registers the page’s own address');
+  assert.ok(!read('../../web/utils.ts').includes('youtubeRedirectUri'), 'a Google sign-in address is still made');
+  // And the walkthrough writes it for the computer the app runs on, whatever address the guide was opened at.
   const view = read('../../web/components/views/GuidesView.tsx');
-  assert.ok(view.includes("page.hostname = 'localhost';") && view.includes("loopback.hostname = '127.0.0.1';"));
+  assert.ok(view.includes("page.hostname = 'localhost';"));
   assert.ok(view.includes('data-guides-sign-in="elsewhere"'), 'opened from elsewhere, it says where to sign in instead');
   // The Discord button the walkthrough names is the one on the screen, in both languages.
   for (const key of ['discordLogin', 'discordPickServer']) {
@@ -227,29 +222,26 @@ test('the address each walkthrough says to register is the one the Connections s
 test('a walkthrough says how far along each platform is', () => {
   const state = (id, s) => g.PLATFORM_SETUPS.find((p) => p.id === id).state(s);
   for (const p of g.PLATFORM_SETUPS) assert.equal(p.state({}), 'off', `${p.id} is on with nothing known`);
+  assert.equal(state('discord', { status: { discord: 'connected' } }), 'on');
   assert.equal(state('twitch', { status: { twitch: 'connected' } }), 'on');
-  assert.equal(state('twitch-bot', { status: { twitch: 'connected' } }), 'off');
-  assert.equal(state('twitch-bot', { status: { twitchBot: 'connected' } }), 'on');
-  assert.equal(state('tiktok', { status: { tiktok: 'waiting' } }), 'ready');
-  assert.equal(state('tiktok', { status: { tiktok: 'polling' } }), 'ready');
-  assert.equal(state('tiktok', { status: { tiktok: 'connected' } }), 'on');
+  assert.equal(state('youtube', { status: { youtube: 'connected' } }), 'on');
 });
 
-test('YouTube and TikTok count as done once set up, not only while connected; the menu still lights only what is connected', () => {
+test('Twitch and YouTube count as set up once their keys are in; the menu still lights only what works', () => {
   const state = (id, s) => g.PLATFORM_SETUPS.find((p) => p.id === id).state(s);
   const step = (id, s) => g.SETUP_CHECKS.find((c) => c.id === id).done(s);
-  const off = { youtube: 'disconnected', tiktok: 'disconnected', twitch: 'disconnected' };
-  // Signed in to YouTube, a TikTok username: set up, between streams too.
-  assert.equal(state('youtube', { status: off, connections: { youtubeAuthorised: true } }), 'ready');
-  assert.equal(state('tiktok', { status: off, connections: { tiktokUrl: 'someone' } }), 'ready');
-  // Nothing kept: still not.
-  assert.equal(state('youtube', { status: off, connections: { youtubeAuthorised: false } }), 'off');
-  assert.equal(state('tiktok', { status: off, connections: { tiktokUrl: '  ' } }), 'off');
-  // Connected beats set up.
-  assert.equal(state('youtube', { status: { youtube: 'connected' }, connections: { youtubeAuthorised: true } }), 'on');
-  // The steps tick the same way.
-  assert.equal(step('platform', { status: off, connections: { youtubeAuthorised: true } }), true);
-  assert.equal(step('platform', { status: off, connections: {} }), false);
+  const off = { youtube: 'disconnected', twitch: 'disconnected' };
+  // The keys in, not answering just now: set up.
+  assert.equal(state('youtube', { status: off, connections: { youtubeHasKey: true } }), 'ready');
+  assert.equal(state('twitch', { status: off, connections: { twitchClientId: 'x', twitchHasSecret: true } }), 'ready');
+  // Half the keys, or none: not.
+  assert.equal(state('twitch', { status: off, connections: { twitchClientId: 'x', twitchHasSecret: false } }), 'off');
+  assert.equal(state('youtube', { status: off, connections: { youtubeHasKey: false } }), 'off');
+  // Working beats set up.
+  assert.equal(state('youtube', { status: { youtube: 'connected' }, connections: { youtubeHasKey: true } }), 'on');
+  // A channel on the watch list ticks the watching step.
+  assert.equal(step('watch', { data: { watch: { channels: [{ id: 'youtube:UC1' }] } } }), true);
+  assert.equal(step('watch', { data: { watch: { channels: [] } } }), false);
   // Both places hand the rules what is set up.
   const view = read('../../web/components/views/GuidesView.tsx');
   assert.ok(view.includes('p.state({ status: system?.status, data: system?.data, connections: system?.connections })'));
@@ -257,6 +249,6 @@ test('YouTube and TikTok count as done once set up, not only while connected; th
   const app = read('../../web/App.tsx');
   assert.ok(app.includes('setupState({ status: system.status, data: system.data, connections: system.connections, auth: system.auth }'));
   // The menu's row of platforms is untouched: lit by the status, connected or not.
-  for (const id of ['youtube', 'tiktok']) assert.ok(app.includes('ok: system.status.' + id + " === 'connected' }"), 'the menu lights ' + id + ' when it is only set up');
+  for (const id of ['twitch', 'youtube']) assert.ok(app.includes('ok: system.status.' + id + " === 'connected' }"), 'the menu lights ' + id + ' when it is only set up');
   for (const key of ['guidesPlatformReady']) assert.equal(constants.split(`    ${key}: '`).length - 1, 2, `${key} is not in both languages`);
 });

@@ -2,11 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unified XP / leveling.
+ * XP and levels, earned by talking in Discord.
  *
  * Identity model: a `user` record holds the XP, and an `accounts` map points
- * `platform:id` keys at it. Linking two platforms is therefore just repointing
- * a key and merging the records.
+ * a `discord:<id>` key at it.
  *
  * XP is awarded from the bus directly, not from a message a browser sends, so
  * it accrues whether or not a page is open.
@@ -16,7 +15,6 @@ import { collection } from '../core/store.js';
 import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import * as discord from '../platforms/discord.js';
-import * as twitch from '../platforms/twitch.js';
 import { pickLine } from '../../shared/pick-line.js';
 
 const log = createLogger('leveling');
@@ -34,9 +32,8 @@ const DEFAULT_CONFIG = {
 };
 
 /*
-  "!rank" and "!top" in chat (leveling/chat.js): the words that ask, what is
-  answered, and whether YouTube is answered at all — each answer there costs
-  50 of its 10,000 units a day. In the stream's language.
+  "!rank" and "!top" in Discord (leveling/chat.js): the words that ask, and
+  what is answered. In the stream's language.
 */
 export const DEFAULT_LEVEL_CHAT = {
   enabled: true,
@@ -45,7 +42,6 @@ export const DEFAULT_LEVEL_CHAT = {
   rankText: '{user}: nivel {level} · {xp} XP · puesto #{rank} de {total}',
   topText: 'Top {count}: {top}',
   topCount: 5,
-  youtube: true,
 };
 
 /** The chat answers as stored: words of a sane length, a count of 1 to 10. */
@@ -63,7 +59,6 @@ export function cleanLevelChat(c) {
     rankText: text(c?.rankText, DEFAULT_LEVEL_CHAT.rankText, 200),
     topText: text(c?.topText, DEFAULT_LEVEL_CHAT.topText, 200),
     topCount: Number.isFinite(count) ? Math.min(10, Math.max(1, Math.round(count))) : DEFAULT_LEVEL_CHAT.topCount,
-    youtube: c?.youtube !== false,
   };
 }
 
@@ -79,13 +74,10 @@ export function initLeveling() {
   cfg = collection('xp_config', DEFAULT_CONFIG);
 
   const onMessage = (chat) => {
-    if (!cfg.get().enabled) return;
-    // Discord channels can be excluded from XP; other platforms have no
-    // equivalent concept so the check simply does not apply to them.
-    if (chat.platform === 'discord') {
-      const ignored = cfg.get().ignoredChannelIds || [];
-      if (ignored.includes(chat.raw?.channelId)) return;
-    }
+    if (!cfg.get().enabled || chat?.platform !== 'discord') return;
+    // Channels can be left out of XP.
+    const ignored = cfg.get().ignoredChannelIds || [];
+    if (ignored.includes(chat.raw?.channelId)) return;
     award(chat).catch((err) => log.error('award failed:', err));
   };
   bus.on(EVENTS.CHAT, onMessage);
@@ -139,8 +131,8 @@ async function award(chat) {
       xp: nextXp,
       level: nextLevel,
       lastXpTime: now,
-      // The streamer and their bot: they keep their XP, but are not ranked among the chatters.
-      ...(chat.isBroadcaster || chat.isBot ? { own: true } : {}),
+      // Bots: they keep their XP, but are not ranked among the people.
+      ...(chat.isBot ? { own: true } : {}),
     };
     return prev;
   });
@@ -193,7 +185,7 @@ async function grantRewards(uid, level, chat) {
 // ------------------------------------------------------------------- public
 
 export const getUsers = () => users.get();
-/** Which person every platform account belongs to — how a Twitch name is linked to a Discord member. */
+/** Which person every account belongs to: `discord:<id>` → their uid. */
 export const getAccounts = () => accounts.get();
 /** The settings, with the chat answers filled in for a config saved before they existed. */
 export const getConfig = () => ({ ...cfg.get(), chat: cleanLevelChat(cfg.get().chat || DEFAULT_LEVEL_CHAT) });
@@ -208,25 +200,22 @@ export function setConfig(patch) {
 }
 
 /**
- * The channel's own people — the streamer and their bot — by uid: whoever
- * has chatted as the broadcaster or the bot, and the Twitch main and bot
- * accounts the Connections screen is logged in with, so they are known
- * before either says another word.
+ * The server's own people — the bot, any bot that has talked, and the
+ * server's owner — by uid, so they are known before either says another word.
  */
 function ownUids() {
   const all = Object.values(users.get());
   const own = new Set(all.filter((u) => u.own).map((u) => u.id));
-  let c = null;
+  let status = null;
   try {
-    c = twitch.getCredentials();
+    status = discord.getStatus();
   } catch {
-    c = null;
+    status = null;
   }
   const map = accounts.get();
-  for (const id of [c?.userId, c?.botUser?.id]) if (id && map[`twitch:${id}`]) own.add(map[`twitch:${id}`]);
-  // By name as well, for an account whose id is not known yet.
-  const names = [c?.login, c?.botLogin].filter(Boolean).map((n) => String(n).toLowerCase());
-  for (const u of all) if (names.includes(String(u.username || '').toLowerCase())) own.add(u.id);
+  for (const id of [status?.botUserId, status?.guildId ? discord.ownerOf(status.guildId) : null]) {
+    if (id && map[`discord:${id}`]) own.add(map[`discord:${id}`]);
+  }
   return own;
 }
 
@@ -273,78 +262,9 @@ export function reset() {
   log.warn('all XP data reset');
 }
 
-/**
- * Point a secondary platform identity at the primary's unified user. If it
- * already belonged to somebody, that somebody joins the primary whole — every
- * account they had comes along — and their XP is added: it was earned
- * talking on another platform, so it is theirs as much as the rest.
- */
-export function link(primary, secondary) {
-  const primaryUid = resolveUser(primary.platform, primary.id, primary.username, primary.avatar);
-  const secondaryKey = `${secondary.platform}:${secondary.id}`;
-  const secondaryUid = accounts.get()[secondaryKey];
-
-  if (secondaryUid && secondaryUid !== primaryUid && users.get()[secondaryUid]) {
-    const a = users.get()[primaryUid];
-    const b = users.get()[secondaryUid];
-    const mergedXp = (a.xp || 0) + (b.xp || 0);
-
-    users.update((prev) => {
-      prev[primaryUid] = {
-        ...a,
-        avatar: a.avatar || b.avatar,
-        xp: mergedXp,
-        level: getLevel(mergedXp),
-        lastXpTime: Math.max(a.lastXpTime || 0, b.lastXpTime || 0),
-        createdAt: Math.min(a.createdAt || Date.now(), b.createdAt || Date.now()),
-        ...(a.own || b.own ? { own: true } : {}),
-      };
-      delete prev[secondaryUid];
-      return prev;
-    });
-
-    // Repoint every key that referenced the absorbed record.
-    accounts.update((prev) => {
-      for (const [k, v] of Object.entries(prev)) if (v === secondaryUid) prev[k] = primaryUid;
-      return prev;
-    });
-    // What else is kept per person (their history, their points) follows them into one.
-    bus.emit('people:merged', { into: primaryUid, from: secondaryUid });
-  }
-
-  accounts.update((prev) => { prev[secondaryKey] = primaryUid; return prev; });
-  log.info(`linked ${secondaryKey} -> ${primary.platform}:${primary.id}`);
-  return primaryUid;
-}
-
-export function unlink(platformKey) {
-  accounts.update((prev) => { delete prev[platformKey]; return prev; });
-  log.info(`unlinked ${platformKey}`);
-}
-
 /** Every account one person has, as `platform:id` keys. */
 export function accountsOf(uid) {
   return Object.entries(accounts?.get() || {}).filter(([, v]) => v === uid).map(([k]) => k);
-}
-
-/**
- * Take one account away from the person it belongs to. It becomes somebody
- * of its own again, starting from nothing; the person keeps their XP and
- * every other account. An account that is somebody's only one stays as it is.
- */
-export function detach(key, username = '') {
-  const uid = accounts.get()[key];
-  if (!uid) return null;
-  if (accountsOf(uid).length < 2) return uid;
-  const fresh = newUid();
-  users.update((prev) => {
-    prev[fresh] = { id: fresh, username: username || key.split(':').slice(1).join(':'), avatar: '', xp: 0, level: 0, lastXpTime: 0, createdAt: Date.now() };
-    return prev;
-  });
-  accounts.update((prev) => { prev[key] = fresh; return prev; });
-  log.info(`took ${key} off ${uid}`);
-  bus.emit('people:split', { from: uid, to: fresh, key });
-  return fresh;
 }
 
 /** The person behind a platform account, made if they are new: for something they did before they ever chatted. */

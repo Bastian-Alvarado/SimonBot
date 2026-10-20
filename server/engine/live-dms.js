@@ -4,12 +4,12 @@
  *
  * Going live, told privately: viewers who ask for it get a direct message
  * from the bot when the stream starts, with a link to where they like to
- * watch — Twitch, YouTube or TikTok — instead of the whole server being
+ * watch — Twitch or YouTube — instead of the whole server being
  * pinged. They ask with a button on a sign-up post in Discord, choosing the
- * platform; a button on every message stops them.
+ * platform; a button on every message stops them. The links are the
+ * streamer's own channels on the watch list (engine/watch.js, "mine").
  *
- * Sent once a stream, a little after it starts (as the go-live post waits for
- * Twitch to show it live), one message a second so Discord does not take it
+ * Sent once a stream, a little after it starts, one message a second so Discord does not take it
  * for spam. Somebody whose messages cannot be delivered three times running
  * — their direct messages are closed — is taken off the list.
  */
@@ -19,17 +19,16 @@ import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
 import * as discord from '../platforms/discord.js';
-import * as twitch from '../platforms/twitch.js';
+import * as watch from './watch.js';
 import * as sessions from './stream-sessions.js';
-import { getAnnounce } from './announce.js';
 import { getGreetings } from './welcome.js';
 import { pickLine } from '../../shared/pick-line.js';
 
 const log = createLogger('live-dms');
 
-export const DM_PLATFORMS = ['twitch', 'youtube', 'tiktok'];
-const NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok' };
-const EMOJI = { twitch: '💜', youtube: '❤️', tiktok: '🎵' };
+export const DM_PLATFORMS = ['twitch', 'youtube'];
+const NAMES = { twitch: 'Twitch', youtube: 'YouTube' };
+const EMOJI = { twitch: '💜', youtube: '❤️' };
 export const DEFAULT_LIVE_DMS = {
   enabled: false,
   /** Seconds after the stream starts, so the link works when it lands. */
@@ -67,18 +66,14 @@ function publish() {
   bus.emit(EVENTS.CONFIG, { key: 'liveDms', value: { ...getLiveDms(), count: Object.keys(people()).length } });
 }
 
-/** Where somebody watches, as a link: the Go live screen's links, Twitch's own when there is no other. */
-export function linkFor(platform, cfg = getAnnounce()) {
-  const login = twitch.getCredentials?.()?.login;
-  const twitchUrl = login ? `https://twitch.tv/${login}` : '';
-  if (platform === 'youtube' && cfg.youtubeUrl) return cfg.youtubeUrl;
-  if (platform === 'tiktok' && cfg.tiktokUrl) return cfg.tiktokUrl;
-  return twitchUrl || cfg.youtubeUrl || cfg.tiktokUrl || '';
+/** Where somebody watches, as a link: the streamer's channel there, or another of theirs when there is none. */
+export function linkFor(platform, links = watch.mineLinks()) {
+  return links[platform]?.url || Object.values(links)[0]?.url || '';
 }
 
-/** The platforms a viewer can choose: the ones there is a link for. */
-export function choices(cfg = getAnnounce()) {
-  return DM_PLATFORMS.filter((p) => p === 'twitch' ? Boolean(twitch.getCredentials?.()?.login) : Boolean(p === 'youtube' ? cfg.youtubeUrl : cfg.tiktokUrl));
+/** The platforms a viewer can choose: the ones the streamer has a channel on. */
+export function choices(links = watch.mineLinks()) {
+  return DM_PLATFORMS.filter((p) => Boolean(links[p]));
 }
 
 /** The direct message: words, the link as a button, and a way to stop. */
@@ -120,7 +115,7 @@ export async function postSignUp(channelId) {
   const cfg = getLiveDms();
   const where = /^\d{5,25}$/.test(String(channelId || '')) ? String(channelId) : cfg.post.channelId;
   if (!where) throw refusal('live_dms_no_channel', 'choose a channel for the sign-up post first');
-  if (!choices().length) throw refusal('live_dms_no_links', 'connect Twitch, or give a YouTube or TikTok link on the Go live screen');
+  if (!choices().length) throw refusal('live_dms_no_links', 'mark one of the channels on the watch list as yours first');
   const { embed, components } = signUpPost();
   if (where === cfg.post.channelId && cfg.post.messageId) {
     try {
@@ -199,7 +194,7 @@ export async function sendAll(info = {}, { wait = EVERY_MS } = {}) {
   return { sent, failed };
 }
 
-/** A stream started: once it has had its moment to show up on Twitch, tell everybody on the list. */
+/** A stream started: once it has had its moment to show up, tell everybody on the list. */
 function onStarted(s) {
   const cfg = getLiveDms();
   if (!cfg.enabled || !Object.keys(people()).length) return;
@@ -209,8 +204,8 @@ function onStarted(s) {
     const now = sessions.current();
     if (!now || now.id !== s.id || store.get().toldFor === s.id) return;
     store.update((v) => ({ ...v, toldFor: s.id }));
-    const info = await twitch.getLiveInfo?.().catch(() => null);
-    await sendAll({ name: info?.name || twitch.getCredentials?.()?.user?.display_name || '', title: info?.title || now.title || '', game: info?.game || now.game || '' });
+    const info = watch.mineInfo();
+    await sendAll({ name: info?.name || '', title: info?.title || now.title || '', game: info?.game || now.game || '' });
   }, cfg.delaySec * 1000);
   timer.unref?.();
 }
@@ -221,7 +216,7 @@ export async function control(payload = {}) {
   if (payload.op === 'test') {
     const channelId = getGreetings().testChannelId;
     if (!channelId) throw refusal('live_dms_no_test_channel', 'choose a test channel on the Welcome & Goodbye screen first');
-    const info = await twitch.getLiveInfo?.().catch(() => null);
+    const info = watch.mineInfo();
     const dm = dmFor(choices()[0] || 'twitch', { name: info?.name || 'El streamer', title: info?.title || 'Título del directo', game: info?.game || '' });
     await discord.sendMessage(channelId, dm.content, null, dm.components, undefined, { allowed_mentions: { parse: [] } });
     return { ok: true, channelId };

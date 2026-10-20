@@ -16,7 +16,7 @@ import { collection } from '../core/store.js';
 import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import * as discord from '../platforms/discord.js';
-import * as twitch from '../platforms/twitch.js';
+import * as watch from './watch.js';
 import * as questions from './questions.js';
 import * as sessions from './stream-sessions.js';
 
@@ -59,14 +59,14 @@ function onMessage(chat) {
   if (cfg.mark && messageId) discord.addReaction(channelId, messageId, '📝').catch(() => {});
 }
 
-/** Where on the VOD a moment is, for the reply: the stream on now (its VOD asked of Twitch), or none. */
+/** Where on the VOD a moment is, for the reply: the stream on now (its VOD asked of the watch list), or none. */
 async function momentLink(at) {
   const s = sessions.current() || sessions.latest();
   if (!s) return '';
   if (s.vod) return sessions.vodLink(s, at);
   try {
-    const vod = await twitch.latestVod?.();
-    if (vod?.createdAt && Date.parse(vod.createdAt) >= s.startedAt - 10 * 60_000) return sessions.vodLink({ ...s, vod }, at);
+    const vod = await watch.latestVod(s.startedAt);
+    if (vod) return sessions.vodLink({ ...s, vod }, at);
   } catch { /* none */ }
   return '';
 }

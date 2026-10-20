@@ -203,9 +203,9 @@ test('after an update only the version running and the one before stay; one that
 });
 
 // The updater against a stand-in GitHub. Nothing it does here gets past checking a package.
-// Live is the stream on (engine/stream-sessions.js), as Twitch says it.
+// Live is the stream on (engine/stream-sessions.js), as the watch list says it.
 const sessions = await import('../../engine/stream-sessions.js');
-const goLive = (on) => bus.emit(EVENTS.STAT, { key: 'twitchLive', value: on });
+const goLive = (on) => sessions._test.onLive({ known: true, live: on });
 let restartedWith = null;
 updater.initUpdater({ restarter: (code) => { restartedWith = code; } });
 updater.stopUpdater();

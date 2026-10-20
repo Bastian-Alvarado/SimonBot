@@ -24,7 +24,6 @@ const log = createLogger('discord-roles');
 
 let reactionRoles = null;
 let buttonMenus = null;
-let roleMappings = null;
 let activityLog = null;
 
 const LOG_LIMIT = 100;
@@ -32,7 +31,6 @@ const LOG_LIMIT = 100;
 export function initDiscordRoles() {
   reactionRoles = collection('reaction_roles', []);
   buttonMenus = collection('discord_buttons', []);
-  roleMappings = collection('role_mappings', {});
   activityLog = collection('role_activity_log', []);
 
   bus.on('discord:reaction_add', (d) => onReaction(d, 'added'));
@@ -307,14 +305,10 @@ export async function unpublishButtonMenu(id) {
   return { ok: true };
 }
 
-/** Stream status → Discord role, as set on the Role Management screen. See role-sync.js. */
-export const getRoleMappings = () => roleMappings?.get() || {};
-
 export const snapshot = () => ({
   reactionRoleConfigs: reactionRoles.get(),
   discordButtonConfigs: buttonMenus.get(),
   welcomeGoodbyeConfig: getGreetings(),
-  roleMappings: roleMappings.get(),
   roleActivityLog: activityLog.get(),
 });
 
@@ -323,6 +317,5 @@ export const store = {
   setButtonMenus: (v) => buttonMenus.set(v),
   // Cleaned on the way in (welcome.js), the picture card like a layer.
   setWelcomeGoodbye: (v) => setGreetings(v),
-  setRoleMappings: (v) => roleMappings.set(v),
   clearActivityLog: () => activityLog.set([]),
 };

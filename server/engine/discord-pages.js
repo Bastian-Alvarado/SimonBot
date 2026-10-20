@@ -42,10 +42,8 @@ import {
   PAGE_LIMITS, COMPONENTS_V2,
 } from '../../shared/discord-pages.js';
 import { drawBanner, keepDrawings, initBannerText } from './banner-text.js';
-import * as engine from './index.js';
 import * as sessions from './stream-sessions.js';
-import * as twitchSchedule from './twitch-schedule.js';
-import * as twitch from '../platforms/twitch.js';
+import * as watch from './watch.js';
 import * as discordVoice from '../platforms/discord-voice.js';
 
 const log = createLogger('discord-pages');
@@ -130,25 +128,22 @@ const gone = (err) => err?.status === 404 || err?.code === 10008 || err?.code ==
 
 // ------------------------------------------------------------------ what it says, now
 
-/** What the live {names} are read from (shared/live-vars.js): the poll, the voice call, the Twitch schedule. */
+/** What the live {names} are read from (shared/live-vars.js): the voice call. */
 function liveState() {
-  return { ...engine.snapshot(), ...twitchSchedule.snapshot(), voice: discordVoice.getState?.() };
+  return { voice: discordVoice.getState?.() };
 }
 
 /** The page's own {names}: live or not, since when, and times as Discord shows them. */
 export function pageValues(now = Date.now()) {
   const s = sessions.current();
-  const next = twitchSchedule.nextStream(now);
-  const unix = next?.start ? Math.floor(Date.parse(next.start) / 1000) : 0;
-  const login = twitch.getCredentials?.()?.login;
+  const links = watch.mineLinks();
   return {
     live: s ? '🔴 **En directo**' : '⚫ Fuera de directo',
     liveSince: s ? `<t:${Math.floor(s.startedAt / 1000)}:R>` : '',
     streamTitle: s?.title || '',
     streamGame: s?.game || '',
-    nextStreamAt: unix ? `<t:${unix}:F>` : '',
-    nextStreamRelative: unix ? `<t:${unix}:R>` : '',
-    twitchLink: login ? `https://twitch.tv/${login}` : '',
+    twitchLink: links.twitch?.url || '',
+    youtubeLink: links.youtube?.url || '',
   };
 }
 
@@ -550,5 +545,4 @@ export function initDiscordPages() {
   liveTimer.unref?.();
   for (const what of ['stream:started', 'stream:ended', EVENTS.CHANNEL]) bus.on(what, nudge);
   for (const what of ['stream:on', 'stream:off']) bus.on(what, nudge);
-  bus.on(EVENTS.CONFIG, (c) => { if (c?.key === 'twitchSchedule') nudge(); });
 }

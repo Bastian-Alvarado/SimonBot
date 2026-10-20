@@ -90,24 +90,14 @@ export const config = {
     botToken: process.env.DISCORD_BOT_TOKEN || '',
   },
 
+  // Going-live alerts only: no sign-in, just the keys that let the bot see who is live.
   twitch: {
     clientId: process.env.TWITCH_CLIENT_ID || '',
-    // Optional: only needed for the app-access-token flows.
     clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
   },
 
-  tiktok: {
-    // How often to retry connecting while a creator is offline.
-    //
-    // Deliberately 5 minutes: each attempt consumes a request against the
-    // signing service's rate limit, and polling aggressively burns through the
-    // quota. Do not lower this without a signing API key that can afford it.
-    pollIntervalMs: num(process.env.TIKTOK_POLL_MS, 5 * 60 * 1000),
-
-    // Optional Euler Stream key. Requests are signed through that service;
-    // without a key you get the shared anonymous quota, which is the reason
-    // the poll interval above is conservative.
-    signApiKey: process.env.TIKTOK_SIGN_API_KEY || process.env.EULER_API_KEY || '',
+  youtube: {
+    apiKey: process.env.YOUTUBE_API_KEY || '',
   },
 
   logLevel: process.env.LOG_LEVEL || 'info',

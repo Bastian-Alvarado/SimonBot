@@ -2,20 +2,16 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The giveaway: one at a time, entered from every chat the app reads — the
- * keyword ("!sorteo") on Twitch, YouTube, TikTok or Discord — or with
- * the "Participar" button on its Discord post, and drawn from the Giveaways
- * screen.
+ * The giveaway: one at a time, entered in Discord — the keyword ("!sorteo")
+ * typed in a channel, or the "Participar" button on its post — and drawn from
+ * the Giveaways screen. The winners are told in the bot's channel and on the
+ * post.
  *
- * Whoever is watching enters from wherever they watch, in one pool, and the
- * winners are told in chat and in Discord.
+ * Rules, set on the Giveaways screen: a level to reach, and a role to have.
+ * Entering is quiet — no answer per entry — except the button, which answers
+ * the person who pressed it, privately.
  *
- * Rules, set on the Giveaways screen: subscribers only, a level to reach,
- * extra tickets for subscribers, a Discord role, which platforms count.
- * Entering is quiet — no answer in chat per entry — except the button, which
- * answers the person who pressed it, privately.
- *
- * Like the poll, two in a sense: the one running, and the draft the screen
+ * Two in a sense: the one running, and the draft the screen
  * is setting up next. Opening copies the draft over.
  */
 
@@ -25,7 +21,6 @@ import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
 import * as discord from '../platforms/discord.js';
 import * as leveling from '../leveling/index.js';
-import { getRoleMappings } from './discord-roles.js';
 import {
   cleanPrize, cleanKeyword, cleanDuration, cleanWinners, cleanRules, pickWinners,
   DEFAULT_GIVEAWAY_RULES, MAX_ENTRANTS,
@@ -45,7 +40,7 @@ const DEFAULT = {
   openedAt: null,
   closedAt: null,
   endsAt: null,
-  /** platform:who → { name, platform, userId, avatar, tickets, at }. */
+  /** discord:who → { name, platform, userId, avatar, tickets, at }. */
   entrants: {},
   winners: [],
   /** Who was drawn and passed over with a reroll: not drawn again. */
@@ -57,7 +52,7 @@ const DEFAULT = {
 };
 
 export const DEFAULT_GIVEAWAY_SETTINGS = {
-  /** Say in Twitch chat when it opens and who won. */
+  /** Say in the bot's Discord channel when it opens and who won. */
   announce: true,
   /** Post it in Discord, with a button to enter. */
   postToDiscord: false,
@@ -70,7 +65,6 @@ const PUBLISH_EVERY_MS = 300;
 
 let state = null;
 let settingsStore = null;
-let deps = {};
 let closeTimer = null;
 let publishTimer = null;
 
@@ -136,24 +130,24 @@ function publishSoon(next) {
   if (!publishTimer) publishTimer = setTimeout(announceState, PUBLISH_EVERY_MS);
 }
 
+/** A line in the channel the bot talks in (Connections), when announcing is on. */
 function say(text) {
-  if (!text || !getSettings().announce || !deps.twitch?.say) return;
-  Promise.resolve(deps.twitch.say(text.slice(0, 500), { useBot: true })).catch((err) => log.warn(`could not tell chat: ${err.message}`));
+  const channelId = discord.getStatus?.().channelId;
+  if (!text || !getSettings().announce || !channelId) return;
+  Promise.resolve(discord.sendMessage(channelId, text.slice(0, 500), undefined, undefined, undefined, { allowed_mentions: { parse: [] } }))
+    .catch((err) => log.warn(`could not tell the channel: ${err.message}`));
 }
 
 // ------------------------------------------------------------ words
 
-const PLATFORM = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', discord: 'Discord' };
 const listed = (names) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`);
 
-/** What it asks of people, in a few words: "Solo suscriptores · Nivel 5+ · Los subs tienen 2 boletos". */
+/** What it asks of people, in a few words: "Nivel 5+ · Con el rol <@&…>". */
 export function rulesLine(rules) {
   const r = cleanRules(rules);
   return [
-    r.subsOnly && 'Solo suscriptores',
     r.minLevel > 0 && `Nivel ${r.minLevel}+`,
-    !r.subsOnly && r.subLuck > 1 && `Los subs tienen ${r.subLuck} boletos`,
-    r.platforms.length < 5 && `Desde ${listed(r.platforms.map((p) => PLATFORM[p] || p))}`,
+    r.discordRole && `Con el rol <@&${r.discordRole}>`,
   ].filter(Boolean).join(' · ');
 }
 
@@ -168,9 +162,9 @@ function postFor(s, phase) {
   const count = Object.keys(s.entrants || {}).length;
   const winners = s.winners || [];
   const description = phase === 'open'
-    ? `Escribe **${discord.sanitise(s.keyword)}** en el chat del directo, o pulsa **Participar**.${rules ? `\n${rules}` : ''}`
+    ? `Escribe **${discord.sanitise(s.keyword)}** en el chat, o pulsa **Participar**.${rules ? `\n${rules}` : ''}`
     : phase === 'closed'
-      ? `Cerrado — ${count} ${count === 1 ? 'participante' : 'participantes'}. El ganador sale en el directo.`
+      ? `Cerrado — ${count} ${count === 1 ? 'participante' : 'participantes'}. El ganador se anuncia aquí.`
       : `🎉 ${winners.length === 1 ? 'Ganador' : 'Ganadores'}: ${winners.map((w) => (w.platform === 'discord' && w.userId ? `<@${w.userId}>` : `**${discord.sanitise(w.name)}**`)).join(', ')}\nEntre ${count} ${count === 1 ? 'participante' : 'participantes'}.`;
   const embed = {
     title: `🎁 ${s.prize}`.slice(0, 256),
@@ -208,52 +202,42 @@ function updatePost(s, phase) {
 
 // ------------------------------------------------------------ entering
 
-const subRoles = () => {
-  const m = getRoleMappings() || {};
-  return ['subscriberTier1', 'subscriberTier2', 'subscriberTier3'].map((k) => m[k]).filter(Boolean);
-};
-
 /**
- * One person entering. Answers why not (why): closed, already, platform,
- * subs_only, level, role, full — for the button's private answer, not a refusal.
+ * One person entering. Answers why not (why): closed, already, level, role,
+ * full — for the button's private answer, not a refusal.
  */
 export function enter(person, now = Date.now()) {
   const s = state.get();
   if (s.mode !== 'open' || (s.endsAt && now >= s.endsAt)) return { ok: false, why: 'closed' };
-  const platform = person.platform || 'chat';
-  if (!s.rules.platforms.includes(platform)) return { ok: false, why: 'platform' };
+  const platform = person.platform || 'discord';
   const name = String(person.name || '').trim();
   const id = person.userId || name.toLowerCase();
   if (!id) return { ok: false, why: 'closed' };
   const key = `${platform}:${id}`;
   if (s.entrants[key]) return { ok: false, why: 'already' };
   if (Object.keys(s.entrants).length >= MAX_ENTRANTS) return { ok: false, why: 'full' };
-  if (s.rules.subsOnly && !person.isSub) return { ok: false, why: 'subs_only' };
   if (s.rules.minLevel > 0) {
     const level = leveling.findUser(platform, id)?.level ?? 0;
     if (level < s.rules.minLevel) return { ok: false, why: 'level', level: s.rules.minLevel };
   }
-  if (platform === 'discord' && s.rules.discordRole && !(person.roles || []).includes(s.rules.discordRole)) return { ok: false, why: 'role' };
-  const tickets = person.isSub ? s.rules.subLuck : 1;
-  publishSoon({ ...s, entrants: { ...s.entrants, [key]: { name, platform, userId: person.userId || '', avatar: person.avatar || '', tickets, at: now } } });
-  return { ok: true, tickets };
+  if (s.rules.discordRole && !(person.roles || []).includes(s.rules.discordRole)) return { ok: false, why: 'role' };
+  publishSoon({ ...s, entrants: { ...s.entrants, [key]: { name, platform, userId: person.userId || '', avatar: person.avatar || '', tickets: 1, at: now } } });
+  return { ok: true, tickets: 1 };
 }
 
 function onChat(chat) {
   const s = state?.get();
-  if (!s || s.mode !== 'open' || !chat?.msg || chat.isBot || chat.isBroadcaster) return;
+  if (!s || s.mode !== 'open' || !chat?.msg || chat.isBot || chat.platform !== 'discord') return;
   const said = String(chat.msg).trim();
   if (said.split(/\s+/)[0].toLowerCase() !== s.keyword) return;
   const roles = chat.raw?.roles || [];
-  enter({ platform: chat.platform, userId: chat.userId, name: chat.user, avatar: chat.avatar, isSub: Boolean(chat.isSub) || (chat.platform === 'discord' && subRoles().some((r) => roles.includes(r))), roles });
+  enter({ platform: 'discord', userId: chat.userId, name: chat.user, avatar: chat.avatar, roles });
 }
 
 const REPLIES = {
   ok: '¡Estás dentro del sorteo! 🍀',
   already: 'Ya estás dentro. ¡Suerte!',
   closed: 'Este sorteo ya está cerrado.',
-  platform: 'Este sorteo no acepta entradas desde Discord.',
-  subs_only: 'Este sorteo es solo para suscriptores.',
   role: 'Te falta el rol que pide este sorteo.',
   full: 'El sorteo está lleno.',
 };
@@ -274,11 +258,10 @@ export async function onInteraction(d) {
       userId: user.id,
       name: member.nick || user.global_name || user.username || '',
       avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : '',
-      isSub: subRoles().some((r) => roles.includes(r)),
       roles,
     });
   const content = result.ok
-    ? (result.tickets > 1 ? `¡Estás dentro del sorteo con ${result.tickets} boletos! 🍀` : REPLIES.ok)
+    ? REPLIES.ok
     : result.why === 'level' ? `Necesitas nivel ${result.level} para entrar a este sorteo.` : REPLIES[result.why] || REPLIES.closed;
   await discord.request('POST', `/interactions/${d.id}/${d.token}/callback`, { body: { type: 4, data: { content, flags: 64 } } })
     .catch((err) => log.warn(`could not answer the button: ${err.message}`));
@@ -313,8 +296,8 @@ function close(why) {
 }
 
 /**
- * Draw: closes it if open, picks the winners by their tickets, and tells
- * chat and Discord (and viewer history counts the win: giveaway_winner).
+ * Draw: closes it if open, picks the winners, and tells the bot's channel and
+ * the post (and viewer history counts the win: giveaway_winner).
  */
 export function draw({ reroll = false, random = Math.random } = {}) {
   let s = state.get();
@@ -423,8 +406,7 @@ export async function control(op, value) {
   }
 }
 
-export function initGiveaway(d = {}) {
-  deps = d;
+export function initGiveaway() {
   state = collection('giveaway', DEFAULT);
   settingsStore = collection('giveaway_settings', DEFAULT_GIVEAWAY_SETTINGS);
   const s = state.get();

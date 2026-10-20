@@ -2,13 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Points: a score viewers earn, apart from XP. XP is what a level is made
- * of; points are earned the same way — and for coming to streams, for
- * streaks, for following, subscribing and giving — and a moderator can give
- * or take them ("!darpuntos @name 100").
- *
- * One balance per person, whichever platforms they are on (a person is every
- * account linked together), asked for from any chat with "!puntos".
+ * Points: a score people earn in Discord, apart from XP. XP is what a level
+ * is made of; points are earned the same way — talking, and coming to
+ * streams in a row — and a moderator can give or take them ("!darpuntos
+ * @name 100"). One balance per person, asked for with "!puntos" or /puntos.
  *
  * Earned in memory and saved once a minute, as viewer history is; a change
  * by hand is saved at once.
@@ -20,11 +17,8 @@ import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
 import * as leveling from '../leveling/index.js';
 import * as discord from '../platforms/discord.js';
-import * as twitch from '../platforms/twitch.js';
-import * as youtube from '../platforms/youtube.js';
 import * as sessions from './stream-sessions.js';
 import * as history from './viewer-history.js';
-import { readMoney } from '../../shared/viewer-events.js';
 
 const log = createLogger('points');
 
@@ -41,18 +35,9 @@ export const DEFAULT_POINTS = {
     stream: 50,
     streakStep: 10,
     streakMax: 100,
-    follow: 50,
-    sub: 300,
-    /** A YouTube membership. */
-    member: 300,
-    perHundredBits: 50,
-    /** TikTok gifts, by the diamonds they are worth. */
-    perDiamond: 1,
-    superChat: 200,
   },
-  /** The words chat uses, and whether YouTube is answered (each answer spends YouTube's daily allowance). */
+  /** The words people type in Discord. */
   words: { balance: '!puntos', give: '!darpuntos' },
-  youtube: true,
 };
 
 const LOG_LIMIT = 300;
@@ -92,18 +77,11 @@ export function cleanPoints(incoming, before = DEFAULT_POINTS) {
       stream: num(e.stream, 0, 100_000, DEFAULT_POINTS.earn.stream),
       streakStep: num(e.streakStep, 0, 10_000, DEFAULT_POINTS.earn.streakStep),
       streakMax: num(e.streakMax, 0, 100_000, DEFAULT_POINTS.earn.streakMax),
-      follow: num(e.follow, 0, 100_000, DEFAULT_POINTS.earn.follow),
-      sub: num(e.sub, 0, 1_000_000, DEFAULT_POINTS.earn.sub),
-      member: num(e.member, 0, 1_000_000, DEFAULT_POINTS.earn.member),
-      perHundredBits: num(e.perHundredBits, 0, 100_000, DEFAULT_POINTS.earn.perHundredBits),
-      perDiamond: num(e.perDiamond, 0, 10_000, DEFAULT_POINTS.earn.perDiamond),
-      superChat: num(e.superChat, 0, 1_000_000, DEFAULT_POINTS.earn.superChat),
     },
     words: {
       balance: word(w.balance, DEFAULT_POINTS.words.balance),
       give: word(w.give, DEFAULT_POINTS.words.give),
     },
-    youtube: c.youtube !== false,
   };
 }
 
@@ -143,19 +121,17 @@ export function add(uid, delta, why, { now = false, name = '' } = {}) {
 
 // ------------------------------------------------------------ earning
 
-const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'discord']);
-
 function onChat(chat, { stream = true } = {}, now = Date.now()) {
   const cfg = getPoints();
-  if (!cfg.enabled || !chat?.userId || chat.isBot || !chat.platform) return;
-  const uid = leveling.personFor(chat.platform, chat.userId, chat.user, chat.avatar);
-  if (leveling.getUsers()[uid]?.own || chat.isBroadcaster) return;
+  if (!cfg.enabled || !chat?.userId || chat.isBot || chat.platform !== 'discord') return;
+  const uid = leveling.personFor('discord', chat.userId, chat.user, chat.avatar);
+  if (leveling.getUsers()[uid]?.own) return;
   if (cfg.earn.message && now - (lastTalk.get(uid) || 0) >= cfg.earn.messageEverySec * 1000) {
     lastTalk.set(uid, now);
     add(uid, cfg.earn.message, 'chat');
   }
-  // The first word in a stream: points for coming, and more for coming back stream after stream.
-  const live = stream && STREAM_CHATS.has(chat.platform) ? sessions.current() : null;
+  // The first word in the stream's channel during a stream: points for coming, and more for coming back stream after stream.
+  const live = stream ? sessions.current() : null;
   if (live) {
     const came = store.get().came || {};
     if (came[uid] !== live.id) {
@@ -168,53 +144,21 @@ function onChat(chat, { stream = true } = {}, now = Date.now()) {
   answerChat(chat, uid);
 }
 
-/** What a viewer did on stream, in points. */
-export function pointsFor(e, cfg = getPoints()) {
-  const d = e?.data || {};
-  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  switch (e?.type) {
-    case 'twitch_follow': case 'tiktok_follow': return cfg.earn.follow;
-    case 'twitch_sub': return d.giftedBy ? 0 : cfg.earn.sub;
-    case 'tiktok_sub': return cfg.earn.sub;
-    case 'twitch_sub_gift_bulk': case 'youtube_sub_gift_bulk': return cfg.earn.sub * (n(d.count) || 1);
-    case 'youtube_sub': return cfg.earn.member;
-    case 'twitch_cheer': return Math.floor(n(d.bits ?? d.amount) / 100 * cfg.earn.perHundredBits);
-    case 'tiktok_gift': return Math.floor((n(d.diamonds) || n(d.amount)) * (n(d.count) || 1) * cfg.earn.perDiamond);
-    case 'youtube_cheer': return readMoney(d.amount) ? cfg.earn.superChat : 0;
-    default: return 0;
-  }
-}
-
-function onEvent(e) {
-  const cfg = getPoints();
-  if (!cfg.enabled || !e?.data?.userId || e.data.fromBulk) return;
-  const pts = pointsFor(e, cfg);
-  if (!pts) return;
-  const uid = leveling.personFor(e.platform, e.data.userId, e.user, e.avatar);
-  add(uid, pts, e.type, { name: e.user });
-}
-
 // ------------------------------------------------------------ chat
 
-const say = {
-  twitch: (text) => twitch.say(text, { useBot: true }),
-  youtube: (text) => youtube.say(text, { cut: true }),
-  discord: (text, chat) => discord.sendMessage(chat.raw?.channelId, text, null, null, null, {
-    allowed_mentions: { parse: [] },
-    ...(chat.raw?.messageId ? { message_reference: { message_id: chat.raw.messageId, fail_if_not_exists: false } } : {}),
-  }),
-};
 const fmt = (n) => Number(n || 0).toLocaleString('es-MX');
-const nameFor = (platform, name) => (platform === 'discord' ? discord.sanitise(name) : String(name ?? ''));
+const nameFor = (_platform, name) => discord.sanitise(name);
 
+/** An answer, as a reply to the message it answers, in its channel. */
 function reply(chat, text) {
-  const cfg = getPoints();
-  const send = say[chat.platform];
-  if (!send || (chat.platform === 'youtube' && !cfg.youtube)) return;
+  if (!chat.raw?.channelId) return;
   const now = Date.now();
-  if (now - (answered.get(chat.platform) || 0) < ANSWER_EVERY_MS) return;
-  answered.set(chat.platform, now);
-  Promise.resolve(send(text, chat)).catch((err) => log.debug(`could not answer on ${chat.platform}: ${err.message}`));
+  if (now - (answered.get(chat.raw.channelId) || 0) < ANSWER_EVERY_MS) return;
+  answered.set(chat.raw.channelId, now);
+  Promise.resolve(discord.sendMessage(chat.raw.channelId, text, null, null, null, {
+    allowed_mentions: { parse: [] },
+    ...(chat.raw.messageId ? { message_reference: { message_id: chat.raw.messageId, fail_if_not_exists: false } } : {}),
+  })).catch((err) => log.debug(`could not answer: ${err.message}`));
 }
 
 /** "!puntos", and a moderator's "!darpuntos @name 100". */
@@ -278,15 +222,6 @@ export function initPoints() {
   store = collection('points', { settings: {}, balances: {}, log: [], came: {} });
   bus.on(EVENTS.CHAT, (c) => onChat(c));
   bus.on('discord:message_elsewhere', (c) => onChat(c, { stream: false }));
-  bus.on(EVENTS.EVENT, onEvent);
-  bus.on('people:merged', ({ into, from }) => {
-    const moved = balances()[from] || 0;
-    store.update((v) => {
-      v.balances[into] = (v.balances[into] || 0) + moved;
-      delete v.balances[from];
-      return v;
-    });
-  });
   bus.on('people:forgotten', ({ uids }) => store.updateQuietly((v) => { for (const uid of uids || []) delete v.balances[uid]; return v; }));
   // Somebody with points is never forgotten.
   history.keepWhen((uid) => balanceOf(uid) > 0);
@@ -295,4 +230,4 @@ export function initPoints() {
   saveTimer.unref?.();
 }
 
-export const _test = { onChat, onEvent, flush: () => store.flush() };
+export const _test = { onChat, flush: () => store.flush() };

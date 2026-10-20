@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Smoke tests: the profile card (server/engine/profile-card.js) — what a
- * person's profile says across every platform they are on, the line a chat
- * without pictures gets, the picture itself, "!perfil" answered in Discord
- * with it, and /perfil's button press answering privately.
+ * person's profile says, its line, the picture itself, "!perfil" answered in
+ * Discord with it, and /perfil's button press answering privately.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own. After points.js.
@@ -15,7 +14,6 @@ import { assert, bus, EVENTS, normaliseChat, test } from './harness.js';
 
 const profile = await import('../../engine/profile-card.js');
 const points = await import('../../engine/points.js');
-const roleSync = await import('../../engine/role-sync.js');
 const leveling = await import('../../leveling/index.js');
 const { config } = await import('../../config.js');
 profile.initProfileCard();
@@ -37,9 +35,8 @@ globalThis.fetch = async (url, init = {}) => {
 const tokenBefore = config.discord.botToken;
 config.discord.botToken = 'test-token';
 
-// Somebody on Twitch and Discord, with some XP, points and a stream behind them.
-await roleSync.link({ platform: 'twitch', platformId: '6100', platformName: 'PerfilTV', discordId: '760000000000000001', discordName: 'Perfil' });
-const uid = leveling.getAccounts()['twitch:6100'];
+// Somebody in Discord, with some points.
+const uid = leveling.personFor('discord', '760000000000000001', 'Perfil');
 points.add(uid, 1234, 'test', { now: true });
 const p = profile.profileOf(uid);
 const line = profile.profileLine(p);
@@ -51,18 +48,16 @@ await new Promise((r) => setTimeout(r, 2500));
 const answered = calls.slice(before).find((c) => c.route === '/channels/700000000000000600/messages');
 await profile._test.onInteraction({ id: 'i9', token: 'tk', type: 3, member: { user: { id: '760000000000000001', username: 'perfil' } }, data: { custom_id: 'profile:me' } });
 const button = calls.at(-1);
-roleSync.unlink('twitch:6100');
 globalThis.fetch = realFetch;
 config.discord.botToken = tokenBefore;
 
-test('a profile says who somebody is across their platforms: level, points, streams, accounts', () => {
+test('a profile says who somebody is: level, points, streams', () => {
   assert.equal(p.name, 'Perfil', 'the Discord name was not the one shown');
   assert.equal(p.points, 1234);
-  assert.deepEqual(p.accounts.map((a) => [a.platform, a.name]), [['twitch', 'PerfilTV'], ['discord', 'Perfil']]);
+  assert.equal(p.accounts, undefined, 'a list of accounts on other platforms is still shown');
   assert.ok(p.progress >= 0 && p.progress <= 1);
   assert.match(line, /^Perfil: nivel \d+/);
-  assert.ok(line.includes('1,234 🪙 puntos') && line.includes('Twitch+Discord'), line);
-  assert.equal(profile.supportLine({ bits: 1200, subs: 1, tiktokGifts: 2 }), '1,200 bits · 1 sub · 2 regalos de TikTok');
+  assert.ok(line.includes('1,234 🪙 puntos'), line);
 });
 
 test('the profile is a picture: drawn, sent in Discord as a reply, and privately from /perfil\'s button press', () => {

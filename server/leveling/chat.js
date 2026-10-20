@@ -2,12 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * "!rank" and "!top" in chat: where somebody stands, and who leads.
+ * "!rank" and "!top" in Discord: where somebody stands, and who leads.
  *
- * Answered where it was asked — Twitch (as the bot), YouTube, or the Discord
- * channel it was typed in, any channel of the server — and nowhere for a
- * platform the app cannot write to (TikTok). YouTube can be left out: an
- * answer there costs 50 of its 10,000 units a day.
+ * Answered as a reply in the channel it was typed in, any channel of the
+ * server.
  *
  * "!rank Ana" asks about somebody else. Each person is answered at most every
  * half minute per word, and each chat at most every two seconds,
@@ -18,8 +16,6 @@ import { bus, EVENTS } from '../core/bus.js';
 import { createLogger } from '../core/logger.js';
 import * as leveling from './index.js';
 import * as discord from '../platforms/discord.js';
-import * as twitch from '../platforms/twitch.js';
-import * as youtube from '../platforms/youtube.js';
 
 const log = createLogger('level-chat');
 
@@ -32,8 +28,6 @@ const answered = new Map();
 
 export function initLevelChat(overrides = {}) {
   services = {
-    twitch: (text) => twitch.say(text, { useBot: true }),
-    youtube: (text) => youtube.say(text, { cut: true }),
     discord: (text, chat) => discord.sendMessage(chat.raw?.channelId, text, null, null, null, {
       allowed_mentions: { parse: [] },
       ...(chat.raw?.messageId ? { message_reference: { message_id: chat.raw.messageId, fail_if_not_exists: false } } : {}),
@@ -52,8 +46,8 @@ export function stopLevelChat() {
   answered.clear();
 }
 
-/** Somebody's name as the chat it goes to shows it: Discord would read markdown in it. */
-const nameFor = (platform, name) => (platform === 'discord' ? discord.sanitise(name) : String(name ?? ''));
+/** Somebody's name as Discord shows it: it would read markdown in it. */
+const nameFor = (_platform, name) => discord.sanitise(name);
 
 /**
  * The answer to "!rank": the words set for it, filled in. For somebody who
@@ -90,13 +84,13 @@ export function topAnswer(platform, words = leveling.getConfig().chat) {
 
 function onChat(chat) {
   const words = leveling.getConfig().chat;
-  if (!words?.enabled || !chat || chat.isBot) return;
+  if (!words?.enabled || !chat || chat.isBot || chat.platform !== 'discord') return;
   const said = String(chat.msg ?? '').trim();
   const first = said.split(/\s+/)[0].toLowerCase();
   const which = first === words.rankWord.toLowerCase() ? 'rank' : first === words.topWord.toLowerCase() ? 'top' : null;
   if (!which) return;
-  const answer = services[chat.platform];
-  if (!answer || (chat.platform === 'youtube' && !words.youtube)) return;
+  const answer = services.discord;
+  if (!answer) return;
 
   const now = services.now();
   const who = `${chat.platform}:${chat.userId || chat.user}:${which}`;

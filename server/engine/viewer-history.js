@@ -2,24 +2,21 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * What each person has done, across every platform they are on: when they
- * were first and last seen, how many messages on each platform, which
- * streams they took part in (and so their streak), what they gave — bits,
- * subs, gifts, Super Chats — and the giveaways they won. Kept per person (a
- * person is every account linked together, server/leveling), so a viewer
- * who talks on Twitch and TikTok has one history.
+ * What each person has done in the Discord server: when they were first and
+ * last seen, how many messages, which streams they took part in (and so
+ * their streak), and the giveaways they won. Kept per person
+ * (server/leveling).
  *
  * Counts, not messages: a person is a few hundred bytes however long they
  * have been around. Kept in memory and saved once a minute and when a stream
  * ends, not with every message.
  *
- * A person takes part in a stream by talking in its chat while it is on —
- * Twitch, YouTube, TikTok, or the Discord channel the stream reads.
- * Watching without a word is not seen.
+ * A person takes part in a stream by talking in the bot's channel while the
+ * stream is on. Watching without a word is not seen.
  *
  * People can be forgotten after a while away, if the Levels & XP screen says
- * so: only those with a single account (nobody linked them to anything) and
- * no points to spend. Off unless chosen — "forever" is the default.
+ * so: only those with no points to spend. Off unless chosen — "forever" is
+ * the default.
  */
 
 import { collection } from '../core/store.js';
@@ -28,7 +25,6 @@ import { createLogger } from '../core/logger.js';
 import { refusal } from '../core/refusal.js';
 import * as leveling from '../leveling/index.js';
 import * as sessions from './stream-sessions.js';
-import { emptyTotals, addToTotals, isViewerEvent } from '../../shared/viewer-events.js';
 
 const log = createLogger('history');
 
@@ -38,8 +34,6 @@ export const DEFAULT_HISTORY_SETTINGS = { forgetAfterMonths: 0 };
 const SAVE_EVERY_MS = 60_000;
 const DAY_MS = 24 * 3_600_000;
 const MONTH_MS = 30 * DAY_MS;
-/** Chats that are the stream's: talking in one while it is on is taking part. */
-const STREAM_CHATS = new Set(['twitch', 'youtube', 'tiktok', 'discord']);
 
 let store = null;
 let saveTimer = null;
@@ -47,9 +41,9 @@ let pruneTimer = null;
 /** Something else that keeps people from being forgotten (points to spend): uid → true. */
 const keepers = [];
 
-// Nobody yet, before the module has started (a role sync or a profile may ask that early).
+// Nobody yet, before the module has started (a profile may ask that early).
 const people = () => store?.get().people || {};
-const blank = () => ({ first: 0, last: 0, msgs: {}, attended: [], best: 0, support: emptyTotals(null), wins: 0 });
+const blank = () => ({ first: 0, last: 0, msgs: {}, attended: [], best: 0, wins: 0 });
 
 function touch(uid, fn) {
   store.updateQuietly((v) => {
@@ -94,9 +88,9 @@ export function historyOf(uid) {
 // ------------------------------------------------------------ what feeds it
 
 function onChat(chat, { stream = true } = {}, now = Date.now()) {
-  if (!chat?.userId || chat.isBot || !chat.platform) return;
-  const uid = leveling.personFor(chat.platform, chat.userId, chat.user, chat.avatar);
-  const live = stream && STREAM_CHATS.has(chat.platform) ? sessions.current() : null;
+  if (!chat?.userId || chat.isBot || chat.platform !== 'discord') return;
+  const uid = leveling.personFor('discord', chat.userId, chat.user, chat.avatar);
+  const live = stream ? sessions.current() : null;
   touch(uid, (r) => {
     r.first = r.first || now;
     r.last = now;
@@ -109,47 +103,11 @@ function onChat(chat, { stream = true } = {}, now = Date.now()) {
   });
 }
 
+/** A giveaway won, counted with the person who won it. */
 function onEvent(e) {
-  if (!isViewerEvent(e) || !e.data?.userId) {
-    if (e?.type === 'giveaway_winner' && e.data?.userId && e.platform) {
-      const uid = leveling.getAccounts()[`${e.platform}:${e.data.userId}`];
-      if (uid) touch(uid, (r) => ({ ...r, wins: (r.wins || 0) + 1 }));
-    }
-    return;
-  }
-  // A sub somebody else gave is not one this person bought or gave.
-  if (e.type === 'twitch_sub' && e.data.giftedBy) return;
-  const uid = leveling.personFor(e.platform, e.data.userId, e.user, e.avatar);
-  touch(uid, (r) => ({ ...r, first: r.first || Date.now(), support: addToTotals(r.support, e) }));
-}
-
-/** Two people became one: their histories add up. */
-function onMerged({ into, from }) {
-  const a = people()[into];
-  const b = people()[from];
-  if (!b) return;
-  store.updateQuietly((v) => {
-    const sum = (x = {}, y = {}) => {
-      const out = { ...x };
-      for (const [k, n] of Object.entries(y)) {
-        if (typeof n === 'number') out[k] = (out[k] || 0) + n;
-        else if (n && typeof n === 'object') out[k] = sum(out[k], n);
-      }
-      return out;
-    };
-    const x = a || blank();
-    v.people[into] = {
-      first: Math.min(x.first || Infinity, b.first || Infinity) === Infinity ? 0 : Math.min(x.first || Infinity, b.first || Infinity),
-      last: Math.max(x.last || 0, b.last || 0),
-      msgs: sum(x.msgs, b.msgs),
-      attended: [...new Set([...x.attended, ...b.attended])].sort((p, q) => p - q),
-      best: Math.max(x.best || 0, b.best || 0, streaks([...x.attended, ...b.attended]).best),
-      support: { ...sum(x.support, b.support), startedAt: null },
-      wins: (x.wins || 0) + (b.wins || 0),
-    };
-    delete v.people[from];
-    return v;
-  });
+  if (e?.type !== 'giveaway_winner' || !e.data?.userId || !e.platform) return;
+  const uid = leveling.getAccounts()[`${e.platform}:${e.data.userId}`];
+  if (uid) touch(uid, (r) => ({ ...r, wins: (r.wins || 0) + 1 }));
 }
 
 function onForgotten({ uids }) {
@@ -167,9 +125,8 @@ export function keepWhen(fn) {
 }
 
 /**
- * Forget the people away longer than the setting allows. Only a person with
- * one account and nothing to keep them; never the channel's own. Returns how
- * many went.
+ * Forget the people away longer than the setting allows: nobody with
+ * something to keep them, and never the server's own. Returns how many went.
  */
 export function prune(now = Date.now()) {
   const months = getHistorySettings().forgetAfterMonths;
@@ -223,7 +180,6 @@ export function initViewerHistory() {
   // Talking elsewhere in the Discord server is being seen, but not taking part in the stream.
   bus.on('discord:message_elsewhere', (c) => onChat(c, { stream: false }));
   bus.on(EVENTS.EVENT, onEvent);
-  bus.on('people:merged', onMerged);
   bus.on('people:forgotten', onForgotten);
   // A stream over: its attendance is worth having on disk now.
   bus.on('stream:ended', () => store.flush());

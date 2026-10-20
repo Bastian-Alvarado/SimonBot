@@ -1,19 +1,20 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
-*/
+ *
+ * Connections: the Discord bot, and the keys the go-live alerts read Twitch
+ * and YouTube with. Nothing here signs in to Twitch or YouTube: the watch
+ * list (Go live) asks both only whether a channel is live, which needs an
+ * app of your own on each, not an account.
+ */
 import React, { useEffect } from 'react';
 import { Button } from '../Button';
-import { ThemeConfig, RelayConfig } from '../../types';
-import { AlertTriangle, Bot, ExternalLink, LogOut, Wifi, WifiOff, ToggleRight, ToggleLeft } from 'lucide-react';
-import { youtubeRedirectUri, copyText } from '../../utils';
+import { ThemeConfig } from '../../types';
+import { ExternalLink, LogOut, Wifi, WifiOff, ToggleRight, ToggleLeft } from 'lucide-react';
+import { copyText } from '../../utils';
 
 const TwitchIcon = ({ size = 24, className = "" }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} width={size} height={size}><path d="M21 2H3v16h5v4l4-4h5l4-4V2zm-10 9V7m5 4V7" /></svg>
-);
-const TikTokIcon = ({ size = 24, className = "" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg"><path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-5.201 1.743l-.002-.001.002.001a2.895 2.895 0 0 1 3.183-4.51v-3.5a6.329 6.329 0 0 0-5.394 10.692 6.33 6.33 0 0 0 10.857-4.424V8.687a8.182 8.182 0 0 0 4.773 1.526V6.79a4.831 4.831 0 0 1-1.003-.104z" /></svg>
 );
 const DiscordIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -71,32 +72,63 @@ const DevPortalSetup = ({ href, redirectUri, accent, t }: {
   );
 };
 
+/** A key typed in, kept on the server and never shown again. */
+const SecretField = ({ label, value, onChange, stored, placeholder, accent, t, field }: {
+  label: string; value: string; onChange: (v: string) => void; stored: boolean; placeholder: string; accent: string; t: any; field: string;
+}) => (
+  <div>
+    <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block text-left">{label}</label>
+    <input
+      type="password"
+      autoComplete="off"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={stored && !value ? '••••••••••••' : placeholder}
+      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-white outline-none"
+      style={{ borderColor: value ? accent : undefined }}
+      data-secret-field={field}
+    />
+    <p className="text-[10px] text-zinc-600 mt-1 text-left">{stored && !value ? t.secretStored : t.secretNeverShown}</p>
+  </div>
+);
+
+/** Where an app's keys come from: the site, in a sentence and a link. */
+const WhereFrom = ({ href, text, accent, t }: { href: string; text: string; accent: string; t: any }) => (
+  <div className="bg-black/30 rounded-xl p-3 border border-white/5 text-left">
+    <p className="text-[10px] text-zinc-400 leading-relaxed">{text}</p>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold mt-2 inline-flex items-center gap-1 hover:underline" style={{ color: accent }}>
+      {t.openDevPortal} <ExternalLink size={10} />
+    </a>
+  </div>
+);
+
+/** Whether the alerts can read a platform: working, not set up, or failing — and why. */
+const KeyStatus = ({ state, message, t }: { state: string; message?: string | null; t: any }) => {
+  const [tone, title] = state === 'connected'
+    ? ['border-green-500/30 bg-green-500/5 text-green-300', t.keysWork || 'The keys work: go-live alerts can read it']
+    : state === 'quota'
+      ? ['border-amber-500/30 bg-amber-500/5 text-amber-200', t.youtubeQuota || 'Daily YouTube allowance used up']
+      : state === 'error'
+        ? ['border-amber-500/30 bg-amber-500/5 text-amber-200', t.keysFail || 'The keys did not work']
+        : ['border-zinc-700 bg-zinc-900/60 text-zinc-400', t.keysMissing || 'Not set up: its channels are not checked'];
+  return (
+    <div className={`rounded-2xl border p-4 text-left ${tone}`} data-key-status={state}>
+      <div className="text-[11px] font-black uppercase tracking-widest">{title}</div>
+      {message ? <div className="text-[11px] opacity-80 mt-1 break-words">{message}</div> : null}
+    </div>
+  );
+};
+
+const Status = ({ on, t }: { on: boolean; t: any }) => (
+  <span className="text-xs font-bold text-zinc-500 flex items-center gap-2">
+    {on ? <span className="text-green-500 flex items-center gap-1"><Wifi size={12} /> {t.online}</span> : <span className="text-zinc-500 flex items-center gap-1"><WifiOff size={12} /> {t.offline}</span>}
+  </span>
+);
+
 interface ConnectionsViewProps {
-  twitchUser: any;
-  twitchStatus: 'disconnected' | 'connecting' | 'connected';
-  handleTwitchLogin: (type: 'main' | 'bot') => void;
-  handleTwitchConnect: () => void;
-  handleTwitchLogout: () => void;
-  
-  twitchBotUser: any;
-  twitchBotStatus: 'disconnected' | 'connecting' | 'connected';
-  handleTwitchBotConnect: () => void;
-  handleTwitchBotLogout: () => void;
-
-  tiktokUrl: string;
-  setTiktokUrl: (url: string) => void;
-  /** polling: looking for the stream now and then; waiting: armed, looking for nothing until Twitch is live. */
-  tiktokStatus: 'disconnected' | 'searching' | 'connected' | 'polling' | 'waiting';
-  /** How TikTok is being looked for, by what Twitch says about the stream. */
-  tiktokWatch?: { mode: string; nextTryAt?: number } | null;
-  handleTikTokConnect: () => void;
-  tiktokError: string | null;
-
-
-
-  // Discord
+  // Discord: the bot, and the server it looks after.
   discordToken: string | null;
-  setDiscordToken: (token: string | null) => void; // Actually Client ID in UI logic sometimes, but name persisted
+  setDiscordToken: (token: string | null) => void;
   discordChannelId: string | null;
   setDiscordChannelId: (id: string | null) => void;
   discordStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -107,59 +139,44 @@ interface ConnectionsViewProps {
   channels: any[];
   fetchChannels: (guildId: string) => void;
   handleDiscordConnect: (channelId: string) => void;
-  /** Commands work in every channel of the server (server/platforms/discord.js). */
+  /** Whether chat words answer in every channel of the server, or only the one picked. */
   discordCommandsEverywhere?: boolean;
   setDiscordCommandsEverywhere?: (on: boolean) => void;
   discordGuildId: string | null;
   setDiscordGuildId: (id: string | null) => void;
-
-  relayConfig: RelayConfig;
-  /** Only the switch that changed: the server keeps the rest, so two quick clicks cannot undo each other. */
-  setRelayConfig: (config: Partial<RelayConfig>) => void;
-
-  youtubeStatus?: string;
-  youtubeClientId?: string;
-  youtubeHasSecret?: boolean;
-  youtubeAuthorised?: boolean;
-  /** Whether the linked account let the app post in chat, not only read it. */
-  youtubeCanEdit?: boolean;
-  /** What the YouTube connection is doing: reading, waiting, out of allowance, failing. */
-  youtubeHealth?: { state: string; since?: number; everyMs?: number; streaming?: boolean; nextCheckAt?: number; resetsAt?: number; message?: string } | null;
-  youtubeChannel?: { title?: string; avatar?: string } | null;
-  youtube?: {
-    login: () => void;
-    logout: () => void;
-    setSettings: (patch: { clientId?: string; clientSecret?: string }) => void;
-  };
   discordBotToken?: string;
   setDiscordBotToken?: (v: string) => void;
   discordHasBotToken?: boolean;
   discordClientSecret?: string;
   setDiscordClientSecret?: (v: string) => void;
   discordHasClientSecret?: boolean;
-  tiktokSignKey?: string;
-  setTiktokSignKey?: (v: string) => void;
-  tiktokHasSignKey?: boolean;
 
-  // Twitch Client ID (New)
+  // Twitch: an app's Client ID and secret, for asking who is live.
   twitchClientId?: string;
   setTwitchClientId?: (id: string) => void;
+  twitchClientSecret?: string;
+  setTwitchClientSecret?: (v: string) => void;
+  twitchHasSecret?: boolean;
+  twitchStatus?: string;
+  twitchError?: string | null;
+
+  // YouTube: an API key.
+  youtubeApiKey?: string;
+  setYoutubeApiKey?: (v: string) => void;
+  youtubeHasKey?: boolean;
+  youtubeStatus?: string;
+  youtubeError?: string | null;
 
   activeTheme: ThemeConfig;
   t: any;
 }
 
 export const ConnectionsView: React.FC<ConnectionsViewProps> = ({
-  twitchUser, twitchStatus, handleTwitchLogin, handleTwitchConnect, handleTwitchLogout,
-  twitchBotUser, twitchBotStatus, handleTwitchBotConnect, handleTwitchBotLogout,
-  tiktokUrl, setTiktokUrl, tiktokStatus, handleTikTokConnect, tiktokError, tiktokWatch,
   discordToken, setDiscordToken, discordChannelId, setDiscordChannelId, discordStatus, connectDiscord, disconnectDiscord, discordUser, guilds, channels, fetchChannels, handleDiscordConnect, discordGuildId, setDiscordGuildId, discordCommandsEverywhere = true, setDiscordCommandsEverywhere,
-  relayConfig, setRelayConfig,
-  youtube, youtubeStatus, youtubeClientId, youtubeHasSecret, youtubeAuthorised, youtubeCanEdit, youtubeHealth, youtubeChannel,
   discordBotToken, setDiscordBotToken, discordHasBotToken,
   discordClientSecret, setDiscordClientSecret, discordHasClientSecret,
-  tiktokSignKey, setTiktokSignKey, tiktokHasSignKey,
-  twitchClientId, setTwitchClientId,
+  twitchClientId, setTwitchClientId, twitchClientSecret, setTwitchClientSecret, twitchHasSecret, twitchStatus = 'disconnected', twitchError,
+  youtubeApiKey, setYoutubeApiKey, youtubeHasKey, youtubeStatus = 'disconnected', youtubeError,
   activeTheme, t
 }) => {
 
@@ -170,174 +187,11 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({
       }
   }, [discordStatus, discordGuildId, channels.length, fetchChannels]);
 
+  const panel = `glass-panel p-8 rounded-[40px] border ${activeTheme.borderClass} ${activeTheme.panelClass} relative overflow-hidden`;
 
   return (
     <div className="animate-fade-in space-y-12 pb-20">
-       <div className="flex flex-col md:flex-row md:items-center justify-end gap-4">
-          
-       </div>
-
-
-       {/* Discord Help Modal */}
-
-       {/* Render Rest of component same as original (Grid with Cards) */}
        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-          {/* TWITCH */}
-          <div className={`glass-panel p-8 rounded-[40px] border ${activeTheme.borderClass} ${activeTheme.panelClass} relative overflow-hidden`}>
-             <div className="flex items-center gap-4 mb-6 relative z-10">
-                <div className="p-3 bg-[#9146FF] rounded-2xl text-white shadow-lg shadow-[#9146FF]/20"><TwitchIcon size={24} /></div>
-                <div> <h3 className="text-xl font-black uppercase tracking-tight text-[#9146FF]">Twitch</h3> <span className="text-xs font-bold text-zinc-500 flex items-center gap-2"> {twitchStatus === 'connected' ? <span className="text-green-500 flex items-center gap-1"><Wifi size={12} /> {t.online}</span> : <span className="text-zinc-500 flex items-center gap-1"><WifiOff size={12} /> {t.offline}</span>} </span> </div>
-             </div>
-             
-             <div className="space-y-6 relative z-10">
-                {(!twitchUser && !twitchBotUser) && (
-                    <div className="bg-zinc-900/50 rounded-2xl p-6 border border-zinc-800 text-center mb-2">
-                        <div className="mb-4">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block text-left">{t.twitchClientId}</label>
-                            <input 
-                                type="text" 
-                                value={twitchClientId || ''} 
-                                onChange={(e) => setTwitchClientId && setTwitchClientId(e.target.value)} 
-                                placeholder={t.twitchClientIdPlaceholder} 
-                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-white focus:border-[#9146FF] outline-none" 
-                            />
-                            <DevPortalSetup
-                              href="https://dev.twitch.tv/console"
-                              redirectUri={typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}
-                              accent="#9146FF"
-                              t={t}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                <div className="bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">{t.mainAccount}</span>
-                    {twitchUser ? (
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                {twitchUser.profile_image_url && <img src={twitchUser.profile_image_url} className="w-10 h-10 rounded-full border-2 border-[#9146FF]" alt="" />}
-                                <div> <div className="font-bold text-white">{twitchUser.display_name}</div> <div className="text-[10px] text-zinc-500 uppercase font-mono">{t.connected}</div> </div>
-                            </div>
-                            <Button size="sm" variant="secondary" onClick={handleTwitchLogout} icon={<LogOut size={14} />}>{t.twitchLogout}</Button>
-                        </div>
-                    ) : (
-                        <div className="text-center py-4">
-                            <p className="text-xs text-zinc-400 mb-4 font-medium">{t.connectReadChat}</p>
-                            <Button 
-                                className="w-full bg-[#9146FF] hover:bg-[#7c3aed] text-white disabled:opacity-50 disabled:cursor-not-allowed" 
-                                onClick={() => handleTwitchLogin('main')}
-                                disabled={!twitchClientId}
-                            >
-                                {t.twitchLogin}
-                            </Button>
-                        </div>
-                    )}
-                </div>
-                
-                <div className="bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">{t.botAccount}</span>
-                    {twitchBotUser ? (
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                {twitchBotUser.profile_image_url && <img src={twitchBotUser.profile_image_url} className="w-10 h-10 rounded-full border-2 border-blue-500" alt="" />}
-                                <div> <div className="font-bold text-white">{twitchBotUser.display_name}</div> <div className="text-[10px] text-zinc-500 uppercase font-mono">{t.connected}</div> </div>
-                            </div>
-                            <Button size="sm" variant="secondary" onClick={handleTwitchBotLogout} icon={<LogOut size={14} />}>{t.twitchLogout}</Button>
-                        </div>
-                    ) : (
-                        <div className="text-center py-4">
-                             <p className="text-xs text-zinc-400 mb-4 font-medium">{t.connectBotDesc}</p>
-                             <Button 
-                                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white disabled:opacity-50 disabled:cursor-not-allowed" 
-                                onClick={() => handleTwitchLogin('bot')}
-                                disabled={!twitchClientId}
-                             >
-                                 <Bot size={16} className="mr-2" /> {t.connectBotBtn}
-                             </Button>
-                        </div>
-                    )}
-                </div>
-             </div>
-          </div>
-
-          {/* TIKTOK */}
-          <div className={`glass-panel p-8 rounded-[40px] border ${activeTheme.borderClass} ${activeTheme.panelClass} relative overflow-hidden`}>
-             <div className="flex items-center justify-between mb-6 relative z-10">
-                 <div className="flex items-center gap-4">
-                    <div className="p-3 bg-[#ff0050] rounded-2xl text-white shadow-lg shadow-[#ff0050]/20"><TikTokIcon size={24} /></div>
-                    <div> <h3 className="text-xl font-black uppercase tracking-tight text-[#ff0050]">TikTok Live</h3> <span className="text-xs font-bold text-zinc-500 flex items-center gap-2"> {tiktokStatus === 'connected' ? <span className="text-green-500 flex items-center gap-1"><Wifi size={12} /> {t.online}</span> : tiktokStatus === 'polling' ? <span className="text-amber-500 flex items-center gap-1 animate-pulse"><Wifi size={12} /> {t.tiktokLooking || 'Looking'}</span> : tiktokStatus === 'waiting' ? <span className="text-zinc-400 flex items-center gap-1"><Wifi size={12} /> {t.waiting}</span> : <span className="text-zinc-500 flex items-center gap-1"><WifiOff size={12} /> {t.offline}</span>} </span> </div>
-                 </div>
-             </div>
-
-             <div className="space-y-6 relative z-10">
-                 {(tiktokStatus === 'polling' || tiktokStatus === 'waiting') && tiktokWatch && tiktokWatch.mode !== 'connected' && (
-                     <TiktokWatchLine watch={tiktokWatch} t={t} />
-                 )}
-                 {/* Switched off: said plainly, since nothing will look for the stream — not even when Twitch goes live. */}
-                 {tiktokStatus === 'disconnected' && tiktokUrl && (
-                     <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 text-left text-amber-200" data-tiktok-watch="off">
-                         <div className="text-[11px] font-black uppercase tracking-widest">{t.tiktokOffNow || 'TikTok is switched off'}</div>
-                         <div className="text-[11px] opacity-80 mt-1">{t.tiktokOffHint || 'It will not be looked for, not even when Twitch goes live. Press Connect to switch it back on: it waits for your Twitch stream, and looks for your TikTok stream once that is live.'}</div>
-                     </div>
-                 )}
-                 {tiktokError && (
-                     <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3">
-                         <AlertTriangle className="text-red-500 shrink-0" size={20} />
-                         <span className="text-xs font-bold text-red-500">{tiktokError}</span>
-                     </div>
-                 )}
-                 
-                 {/* Mini Modal Container */}
-                 <div className="bg-zinc-900/50 rounded-2xl border border-zinc-800 p-6 space-y-4">
-                     <div className="space-y-2">
-                         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{t.tiktokUsername}</label>
-                         <div className="bg-black/30 border border-zinc-700 rounded-xl px-4 py-3 flex items-center gap-2">
-                             <span className="text-zinc-500 font-bold">@</span>
-                             <input type="text" value={tiktokUrl} onChange={(e) => setTiktokUrl(e.target.value)} placeholder="username" className="bg-transparent border-none outline-none text-white text-sm font-bold w-full" />
-                         </div>
-                     </div>
-                     
-
-                     <div className="pt-2">
-                         <Button
-                           onClick={() => {
-                             // Stopping while it waits switches TikTok off until Connect is pressed again: asked first, so a stray tap does not.
-                             if ((tiktokStatus === 'polling' || tiktokStatus === 'waiting') && !window.confirm(t.tiktokStopConfirm || 'Stop looking for your TikTok stream? It will not be looked for when Twitch goes live until you press Connect again.')) return;
-                             handleTikTokConnect();
-                           }}
-                           disabled={!tiktokUrl || tiktokStatus === 'searching'}
-                           className={`w-full ${tiktokStatus === 'connected' || tiktokStatus === 'polling' || tiktokStatus === 'waiting' ? 'bg-red-500 hover:bg-red-600' : 'bg-[#ff0050] hover:bg-[#e60049]'}`}
-                           data-tiktok-button
-                         >
-                             {tiktokStatus === 'connected' ? t.disconnectServer
-                               : tiktokStatus === 'waiting' ? (t.tiktokStopWaiting || 'Stop waiting')
-                                 : tiktokStatus === 'polling' ? t.stopPolling
-                                 : tiktokStatus === 'searching' ? <span className="animate-pulse">{t.connecting}</span> : t.connect}
-                         </Button>
-                     </div>
-
-                     <div className="pt-2 border-t border-zinc-800/50 text-[10px] text-zinc-500 leading-relaxed">
-                         {t.tiktokSetupInfo}
-                     </div>
-                     <div className="mt-4 text-left">
-                         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">{t.tiktokSignKey}</label>
-                         <input
-                             type="password"
-                             autoComplete="off"
-                             value={tiktokSignKey || ''}
-                             onChange={(e) => setTiktokSignKey && setTiktokSignKey(e.target.value)}
-                             placeholder={t.tiktokSignKeyPlaceholder}
-                             className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-white focus:border-[#ff0050] outline-none"
-                         />
-                         <p className="text-[10px] text-zinc-600 mt-1">
-                             {tiktokHasSignKey && !tiktokSignKey ? t.secretStored : t.tiktokSignKeyHint}
-                         </p>
-                     </div>
-                 </div>
-             </div>
-          </div>
-
           {/* DISCORD */}
           <div className={`glass-panel p-8 rounded-[40px] border ${activeTheme.borderClass} ${activeTheme.panelClass} relative overflow-hidden`}>
              <div className="flex items-center justify-between mb-6 relative z-10">
@@ -431,223 +285,53 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({
                              </button>
                         </div>
                         
-                        {/* Relay Config */}
-                        <div className="pt-4 border-t border-zinc-800">
-                             <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">{t.chatRelay}</span>
-                             <div className="space-y-2">
-                                <button onClick={() => setRelayConfig({ twitchToDiscord: !relayConfig.twitchToDiscord})} className={`w-full p-3 rounded-xl border flex items-center justify-between ${relayConfig.twitchToDiscord ? 'bg-[#9146FF]/10 border-[#9146FF] text-[#9146FF]' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
-                                    <span className="text-xs font-bold">Twitch Chat {`->`} Discord</span>
-                                    {relayConfig.twitchToDiscord ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-                                </button>
-                                <button onClick={() => setRelayConfig({ tiktokToDiscord: !relayConfig.tiktokToDiscord})} className={`w-full p-3 rounded-xl border flex items-center justify-between ${relayConfig.tiktokToDiscord ? 'bg-[#ff0050]/10 border-[#ff0050] text-[#ff0050]' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
-                                    <span className="text-xs font-bold">TikTok Chat {`->`} Discord</span>
-                                    {relayConfig.tiktokToDiscord ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-                                </button>
-                                <button data-relay="youtubeToDiscord" onClick={() => setRelayConfig({ youtubeToDiscord: !relayConfig.youtubeToDiscord})} className={`w-full p-3 rounded-xl border flex items-center justify-between ${relayConfig.youtubeToDiscord ? 'bg-[#FF0000]/10 border-[#FF0000] text-[#FF0000]' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
-                                    <span className="text-xs font-bold">YouTube Chat {`->`} Discord</span>
-                                    {relayConfig.youtubeToDiscord ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-                                </button>
-                                <button data-relay="discordToTwitch" onClick={() => setRelayConfig({ discordToTwitch: !relayConfig.discordToTwitch})} className={`w-full p-3 rounded-xl border flex items-center justify-between gap-3 text-left ${relayConfig.discordToTwitch ? 'bg-[#5865F2]/10 border-[#5865F2] text-[#5865F2]' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
-                                    <span className="flex flex-col"><span className="text-xs font-bold">Discord {`->`} Twitch Chat</span><span className="text-[10px] font-medium opacity-80">{t.relayDiscordToTwitchHint || 'Sent as your bot account when it is connected.'}</span></span>
-                                    {relayConfig.discordToTwitch ? <ToggleRight size={18} className="shrink-0" /> : <ToggleLeft size={18} className="shrink-0" />}
-                                </button>
-                                <button data-relay="discordToYoutube" onClick={() => setRelayConfig({ discordToYoutube: !relayConfig.discordToYoutube})} className={`w-full p-3 rounded-xl border flex items-center justify-between gap-3 text-left ${relayConfig.discordToYoutube ? 'bg-[#5865F2]/10 border-[#5865F2] text-[#5865F2]' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
-                                    <span className="flex flex-col"><span className="text-xs font-bold">Discord {`->`} YouTube Chat</span><span className="text-[10px] font-medium opacity-80">{t.relayDiscordToYoutubeHint || "Each message uses 50 of YouTube's 10,000 daily units. It pauses while fewer than 1,000 are left."}</span></span>
-                                    {relayConfig.discordToYoutube ? <ToggleRight size={18} className="shrink-0" /> : <ToggleLeft size={18} className="shrink-0" />}
-                                </button>
-                             </div>
-                        </div>
                     </div>
                  )}
              </div>
           </div>
 
-          {/* YOUTUBE */}
-          <div className={`glass-panel p-8 rounded-[40px] border ${activeTheme.borderClass} ${activeTheme.panelClass} relative overflow-hidden`} data-connection="youtube">
-            <div className="flex items-center justify-between mb-6 relative z-10">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-[#FF0000] rounded-2xl text-white shadow-lg shadow-[#FF0000]/20">
-                  <svg width={24} height={24} viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg>
-                </div>
+
+          {/* TWITCH: an app's keys, for the go-live alerts */}
+          <div className={panel} data-connection="twitch">
+             <div className="flex items-center gap-4 mb-6 relative z-10">
+                <div className="p-3 bg-[#9146FF] rounded-2xl text-white shadow-lg shadow-[#9146FF]/20"><TwitchIcon size={24} /></div>
+                <div> <h3 className="text-xl font-black uppercase tracking-tight text-[#9146FF]">Twitch</h3> <Status on={twitchStatus === 'connected'} t={t} /> </div>
+             </div>
+             <div className="space-y-4 relative z-10">
+                <p className="text-xs text-zinc-400 leading-relaxed">{t.twitchAlertsOnly || 'Only for go-live alerts: Twitch is asked whether the channels on your watch list are live. Nobody signs in.'}</p>
                 <div>
-                  <h3 className="text-xl font-black uppercase tracking-tight text-[#FF0000]">YouTube</h3>
-                  <span className="text-xs font-bold text-zinc-500 flex items-center gap-2">
-                    {youtubeStatus === 'connected'
-                      ? <span className="text-green-500 flex items-center gap-1"><Wifi size={12} /> {t.online}</span>
-                      : <span className="text-zinc-500 flex items-center gap-1"><WifiOff size={12} /> {t.offline}</span>}
-                  </span>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block text-left">{t.twitchClientId}</label>
+                    <input
+                        type="text"
+                        value={twitchClientId || ''}
+                        onChange={(e) => setTwitchClientId && setTwitchClientId(e.target.value)}
+                        placeholder={t.twitchClientIdPlaceholder}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-white focus:border-[#9146FF] outline-none"
+                    />
                 </div>
+                <SecretField field="twitch" label={t.twitchClientSecret || 'Client secret'} value={twitchClientSecret || ''} onChange={(v) => setTwitchClientSecret?.(v)} stored={Boolean(twitchHasSecret)} placeholder={t.twitchClientSecretPlaceholder || 'From "New Secret" on your app'} accent="#9146FF" t={t} />
+                <WhereFrom href="https://dev.twitch.tv/console/apps" accent="#9146FF" t={t} text={t.twitchAppHint || 'At dev.twitch.tv: Register Your Application (any name; OAuth Redirect URL http://localhost; category Application Integration; client type Confidential), then Manage → copy the Client ID and press New Secret.'} />
+                <KeyStatus state={twitchStatus} message={twitchError} t={t} />
+             </div>
+          </div>
+
+          {/* YOUTUBE: an API key, for the go-live alerts */}
+          <div className={panel} data-connection="youtube">
+            <div className="flex items-center gap-4 mb-6 relative z-10">
+              <div className="p-3 bg-[#FF0000] rounded-2xl text-white shadow-lg shadow-[#FF0000]/20">
+                <svg width={24} height={24} viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg>
               </div>
+              <div> <h3 className="text-xl font-black uppercase tracking-tight text-[#FF0000]">YouTube</h3> <Status on={youtubeStatus === 'connected'} t={t} /> </div>
             </div>
-
-            <div className="space-y-6 relative z-10">
-              {/*
-                Signed in, the card says whose account it is and offers the way
-                out — the same as Discord. The setup fields are for
-                setting up, and once that is done they are a form asking to be
-                filled in again.
-              */}
-              {youtubeAuthorised ? (
-                <div className="flex items-center justify-between gap-4 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {youtubeChannel?.avatar
-                      ? <img src={youtubeChannel.avatar} alt="" className="w-10 h-10 rounded-full shrink-0" />
-                      : <div className="w-10 h-10 rounded-full bg-[#FF0000]/20 shrink-0" />}
-                    <div className="min-w-0">
-                      <div className="font-bold text-white truncate">{youtubeChannel?.title || t.youtubeChannel || 'YouTube channel'}</div>
-                      <div className="text-[10px] text-zinc-500 uppercase font-mono">{t.connected}</div>
-                    </div>
-                  </div>
-                  <Button size="sm" variant="secondary" onClick={() => youtube?.logout()} icon={<LogOut size={14} />}>{t.twitchLogout}</Button>
-                </div>
-              ) : null}
-              {/*
-                Linked when the app only asked to read, so the account never
-                granted posting. One more sign-in grants it; until then the
-                bot cannot answer in YouTube chat.
-              */}
-              {youtubeAuthorised && youtubeHealth && youtubeHealth.state !== 'off' && (
-                <YoutubeHealthLine health={youtubeHealth} t={t} />
-              )}
-              {youtubeAuthorised && !youtubeCanEdit && (
-                <div className="flex items-center justify-between gap-4 bg-amber-500/5 border border-amber-500/30 rounded-2xl p-4 text-left">
-                  <p className="text-[11px] text-zinc-300 leading-relaxed">
-                    {t.youtubeNeedsEdit || 'Sign in again to let the bot answer in your YouTube chat. Until then YouTube only lets it read.'}
-                  </p>
-                  <Button size="sm" onClick={() => youtube?.login()}>{t.youtubeSignInAgain || 'Sign in again'}</Button>
-                </div>
-              )}
-              {youtubeAuthorised ? null : (
-              <>
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block text-left">{t.youtubeClientId || 'Client ID'}</label>
-                <input
-                  type="text"
-                  value={youtubeClientId || ''}
-                  onChange={(e) => youtube?.setSettings({ clientId: e.target.value })}
-                  placeholder="123456789-abc.apps.googleusercontent.com"
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-mono text-white outline-none focus:border-[#FF0000]"
-                />
-                <p className="text-[10px] text-zinc-600 mt-1 text-left">
-                  {t.youtubeConsoleHint || 'An OAuth client from the Google Cloud console, with the YouTube Data API v3 enabled.'}
-                </p>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block text-left">{t.youtubeClientSecret || 'Client secret'}</label>
-                <input
-                  type="password"
-                  onChange={(e) => youtube?.setSettings({ clientSecret: e.target.value })}
-                  placeholder={youtubeHasSecret ? '••••••••••••' : 'GOCSPX-…'}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-mono text-white outline-none focus:border-[#FF0000]"
-                />
-              </div>
-
-              {/*
-                The same block every other platform gets: the exact redirect to
-                copy, and the way to the console it has to be registered at.
-                Google refuses anything that does not match character for
-                character, so it is copied rather than described and retyped.
-              */}
-              <DevPortalSetup
-                href="https://console.cloud.google.com/apis/credentials"
-                redirectUri={typeof window !== 'undefined' ? youtubeRedirectUri() : ''}
-                accent="#FF0000"
-                t={t}
-              />
-              {/*
-                Named exactly, because Google has two boxes and rejects anything
-                that is not this string character for character. Putting it in
-                the other one, or dropping the slash it ends with, both come
-                back as redirect_uri_mismatch with nothing to say which it was.
-              */}
-              <p className="text-[10px] text-zinc-600 -mt-2 text-left leading-relaxed">
-                {t.youtubeRedirectField
-                  || 'On the OAuth client, this goes in "Authorised redirect URIs" — not "Authorised JavaScript origins". The slash at the end is part of it.'}
-              </p>
-
-              <Button onClick={() => youtube?.login()} className="w-full">{t.youtubeLogin || 'Sign in with Google'}</Button>
-              </>
-              )}
-
-              {/*
-                Said plainly rather than discovered: YouTube's live chat API
-                raises nothing when somebody subscribes for free, so there is
-                no event for it anywhere in the app.
-              */}
-              <p className="text-[10px] text-zinc-600 text-left leading-relaxed">
-                {t.youtubeNoSubscribeEvents
-                  || 'YouTube reports members, gifted memberships and Super Chats. It reports nothing when somebody subscribes for free, so that earns nothing.'}
-              </p>
+            <div className="space-y-4 relative z-10">
+              <p className="text-xs text-zinc-400 leading-relaxed">{t.youtubeAlertsOnly || 'Only for go-live alerts: each watched channel\'s public feed is read, and YouTube is asked whether its newest videos are live. Nobody signs in.'}</p>
+              <SecretField field="youtube" label={t.youtubeApiKey || 'API key'} value={youtubeApiKey || ''} onChange={(v) => setYoutubeApiKey?.(v)} stored={Boolean(youtubeHasKey)} placeholder="AIza…" accent="#FF0000" t={t} />
+              <WhereFrom href="https://console.cloud.google.com/apis/credentials" accent="#FF0000" t={t} text={t.youtubeKeyHint || 'In the Google Cloud console: enable the YouTube Data API v3, then Credentials → Create credentials → API key.'} />
+              <KeyStatus state={youtubeStatus} message={youtubeError} t={t} />
             </div>
           </div>
 
        </div>
-
-    </div>
-  );
-};
-
-/**
- * What the YouTube connection is doing, in words.
- *
- * "Online" said only that the account was linked; chat could be failing
- * underneath it for a whole stream with nothing on screen to say so. This
- * says which of the four it is.
- */
-const YoutubeHealthLine = ({ health, t }: {
-  health: { state: string; everyMs?: number; streaming?: boolean; nextCheckAt?: number; resetsAt?: number; message?: string };
-  t: any;
-}) => {
-  const clock = (at?: number) => (at ? new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
-
-  const tone = health.state === 'reading' ? 'border-green-500/30 bg-green-500/5 text-green-300'
-    : health.state === 'waiting' || health.state === 'paused' ? 'border-zinc-700 bg-zinc-900/60 text-zinc-300'
-      : 'border-amber-500/30 bg-amber-500/5 text-amber-200';
-
-  let title = '';
-  let detail = '';
-  if (health.state === 'reading') {
-    title = t.youtubeReading || 'Reading chat';
-    // Streamed: messages as they are sent. Otherwise looked at, every few seconds.
-    detail = health.streaming ? (t.youtubeAsSent || 'Messages arrive as they are sent') : `${t.youtubeEvery || 'Checks every'} ${Math.round((health.everyMs || 7000) / 1000)}s`;
-  } else if (health.state === 'waiting') {
-    title = t.youtubeWaiting || 'Waiting for a live broadcast';
-    detail = `${t.youtubeNextLook || 'Next look at'} ${clock(health.nextCheckAt)}`;
-  } else if (health.state === 'paused') {
-    title = t.youtubePaused || 'Waiting for Twitch to go live';
-    detail = t.youtubePausedHint || 'Not looking for a YouTube broadcast until your Twitch stream is live — no allowance spent meanwhile.';
-  } else if (health.state === 'quota') {
-    title = t.youtubeQuota || 'Daily YouTube allowance used up';
-    detail = `${t.youtubeQuotaBack || 'Chat resumes at'} ${clock(health.resetsAt)}`;
-  } else {
-    title = t.youtubeTrouble || 'Cannot reach YouTube';
-    detail = `${health.message || ''}${health.nextCheckAt ? ` · ${t.youtubeRetryAt || 'trying again at'} ${clock(health.nextCheckAt)}` : ''}`;
-  }
-
-  return (
-    <div className={`rounded-2xl border p-4 text-left${' '}${tone}`} data-youtube-health={health.state}>
-      <div className="text-[11px] font-black uppercase tracking-widest">{title}</div>
-      <div className="text-[11px] opacity-80 mt-1 break-words">{detail}</div>
-    </div>
-  );
-};
-
-/**
- * How TikTok is being looked for, in words: waiting on Twitch, looking because
- * Twitch is live, or looking on the slow timetable because Twitch is not connected.
- */
-const TiktokWatchLine = ({ watch, t }: { watch: { mode: string; nextTryAt?: number }; t: any }) => {
-  const clock = (at?: number) => (at ? new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : '');
-  const [title, detail] = watch.mode === 'twitch-idle'
-    ? [t.tiktokTwitchIdle || 'Waiting for Twitch to go live', t.tiktokTwitchIdleHint || 'Not looking for your TikTok stream — no requests at all — until your Twitch stream is live.']
-    : watch.mode === 'twitch-live'
-      ? [t.tiktokTwitchLive || 'Twitch is live — looking for your TikTok stream', `${t.tiktokNextLook || 'Next look at'} ${clock(watch.nextTryAt)}`]
-      : [t.tiktokNoTwitch || 'Twitch not connected — looking every few minutes', `${t.tiktokNextLook || 'Next look at'} ${clock(watch.nextTryAt)}`];
-  return (
-    <div className="rounded-2xl border border-zinc-700 bg-zinc-900/60 p-4 text-left text-zinc-300" data-tiktok-watch={watch.mode}>
-      <div className="text-[11px] font-black uppercase tracking-widest">{title}</div>
-      <div className="text-[11px] opacity-80 mt-1">{detail}</div>
     </div>
   );
 };

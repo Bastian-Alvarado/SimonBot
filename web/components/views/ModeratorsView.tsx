@@ -4,18 +4,20 @@
  *
  * The Moderators screen, the streamer's only: who has signed in as a
  * moderator, who is here now, and what they did; signing one out, turning
- * one away from the dashboard (or letting them back in).
+ * one away from the dashboard (or letting them back in). And the Discord mod
+ * log: which channel is told about bans and timeouts, and the latest ones.
  *
- * Every moderator of the Twitch channel can sign in (server/api/auth.js);
+ * Every moderator of the Discord server can sign in (server/api/auth.js);
  * this is for the ones who should not, and for seeing what the ones who do
  * have changed. The list and the record are asked for again every few
  * seconds while the screen is open, so somebody arriving or a button pressed
  * shows up without reloading.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ShieldCheck, LogOut, Ban, Undo2, Users, ScrollText } from 'lucide-react';
+import { ShieldCheck, LogOut, Ban, Undo2, Users, ScrollText, Gavel } from 'lucide-react';
 import { Button } from '../Button';
 import { fill, refusalWords } from '../../words';
+import { textChannels } from '../DiscordPicks';
 
 interface Moderator {
   userId: string;
@@ -35,6 +37,8 @@ interface Props {
   language: string;
   light: boolean;
   openSettings: () => void;
+  /** The Discord mod log (server/engine/moderation.js): its settings, latest entries, the server's channels, and saving. */
+  modLog?: { settings?: { logChannelId: string }; entries: any[]; channels: any[]; save: (op: string, payload?: any) => Promise<any> };
   t: any;
 }
 
@@ -55,7 +59,7 @@ function ago(at: number, language: string, t: any) {
   return rtf.format(Math.round(s / 86400), 'day');
 }
 
-export const ModeratorsView = ({ ask, language, light, openSettings, t }: Props) => {
+export const ModeratorsView = ({ ask, language, light, openSettings, modLog, t }: Props) => {
   const [state, setState] = useState<{ enabled: boolean; moderators: Moderator[]; blocked: Blocked[] } | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [who, setWho] = useState('');
@@ -105,7 +109,7 @@ export const ModeratorsView = ({ ask, language, light, openSettings, t }: Props)
           <h3 className="text-xl font-extrabold uppercase tracking-tight">{t.moderatorsNav || 'Moderators'}</h3>
         </div>
         <p className="text-xs text-zinc-500 leading-relaxed max-w-3xl">
-          {t.modsIntro || 'Every moderator of your Twitch channel can sign in to the dashboard. Here you see who has, who is here now and what they did — and you can sign one out or turn one away.'}
+          {t.modsIntro || 'Every moderator of your Discord server can sign in to the dashboard with Discord. Here you see who has, who is here now and what they did — and you can sign one out or turn one away.'}
         </p>
         {state && !state.enabled && (
           <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3" data-mods-signin-off>
@@ -144,7 +148,7 @@ export const ModeratorsView = ({ ask, language, light, openSettings, t }: Props)
                     {t.modsSignOut || 'Sign out'}
                   </Button>
                   <Button size="sm" variant="danger" icon={<Ban size={12} />} disabled={Boolean(busy)} data-mod-block
-                    onClick={() => act({ op: 'block', userId: m.userId, login: m.login }, fill(t.modsBlockConfirm || 'Turn {name} away from the dashboard? They are signed out now and cannot sign in again until you let them back in. They stay a moderator on Twitch.', { name: m.name || m.login }))}>
+                    onClick={() => act({ op: 'block', userId: m.userId, login: m.login }, fill(t.modsBlockConfirm || 'Turn {name} away from the dashboard? They are signed out now and cannot sign in again until you let them back in. They stay a moderator in Discord.', { name: m.name || m.login }))}>
                     {t.modsBlock || 'Turn away'}
                   </Button>
                 </div>
@@ -197,6 +201,38 @@ export const ModeratorsView = ({ ask, language, light, openSettings, t }: Props)
           </ul>
         )}
       </section>
+
+      {/* ------------------------------------------------- the Discord mod log */}
+      {modLog && (
+        <section className={card} data-mod-log>
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <Gavel size={16} className="text-current-accent" />
+            <h4 className={`${heading} flex-1`}>{t.modLogTitle || 'Mod log'}</h4>
+            <select value={modLog.settings?.logChannelId || ''} onChange={(e) => modLog.save('settings', { settings: { logChannelId: e.target.value } }).catch((err: any) => setNote(refusalWords(t, err) || String(err?.message || err)))}
+              className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-[11px] text-zinc-300 max-w-[220px]" data-mod-log-channel>
+              <option value="">{t.modLogNowhere || 'Nowhere'}</option>
+              {textChannels(modLog.channels).map((c: any) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+            </select>
+          </div>
+          <p className="text-xs text-zinc-500 leading-relaxed max-w-3xl mb-4">
+            {t.modLogHint || 'When somebody is banned or timed out in your Discord server, this channel is told who, how long and why. Pick a channel only moderators can see.'}
+          </p>
+          {!modLog.entries.length ? (
+            <p className="text-xs text-zinc-500">{t.modLogNone || 'No bans or timeouts yet.'}</p>
+          ) : (
+            <ul className="divide-y divide-zinc-800/60">
+              {modLog.entries.slice(0, 20).map((e: any, i: number) => (
+                <li key={`${e.at}-${i}`} className="py-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
+                  <span className="text-[10px] font-mono text-zinc-500 w-24 shrink-0">{ago(e.at, language, t)}</span>
+                  <span className={`font-bold ${light ? 'text-zinc-800' : 'text-zinc-200'}`}>{e.user || e.userId}</span>
+                  <span className="text-zinc-400">{e.kind === 'ban' ? (t.modLogBan || 'Banned') : (t.modLogTimeout || 'Timed out')}</span>
+                  {e.reason && <span className="text-zinc-500 truncate max-w-full">“{e.reason}”</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 };

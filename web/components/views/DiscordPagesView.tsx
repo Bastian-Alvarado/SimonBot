@@ -669,7 +669,7 @@ const PagesScreen = ({ pages, control, channels, roles, emojis, testChannelId, l
                 <input type="checkbox" checked={!!draft.live} onChange={(e) => change({ live: e.target.checked })} className="accent-current-accent mt-0.5" />
                 <span className="text-[11px] text-zinc-300 leading-snug">
                   <span className="font-bold flex items-center gap-1"><Radio size={11} className="text-rose-400" /> {t.pageLive || 'Keep it up to date'}</span>
-                  <span className="block text-[10px] text-zinc-500">{t.pageLiveHint || 'Once posted, it is edited in place when what its { } values show changes — going live, the game, the poll, the voice call. A line whose values are all empty is left out, so one card reads right live and not.'}</span>
+                  <span className="block text-[10px] text-zinc-500">{t.pageLiveHint || 'Once posted, it is edited in place when what its { } values show changes — going live, the game, the voice call. A line whose values are all empty is left out, so one card reads right live and not.'}</span>
                 </span>
               </label>
             </div>

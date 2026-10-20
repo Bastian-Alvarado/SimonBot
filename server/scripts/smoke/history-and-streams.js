@@ -3,12 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Smoke tests: every stream kept (server/engine/stream-sessions.js) and what
- * each person has done across them (server/engine/viewer-history.js) — chat
- * speed by minute and platform, who took part, clips, the channel's changes,
- * a stream that drops and comes back being one stream, VOD links;
- * messages, attendance and streaks, support, giveaway wins, two people's
- * histories adding up when they are linked; and forgetting people who have
- * been away, only when chosen and only those with nothing to keep them.
+ * each person has done across them (server/engine/viewer-history.js) — how
+ * fast Discord went by minute, who took part, the channel's changes, a stream
+ * that drops and comes back being one stream, VOD links; messages, attendance
+ * and streaks, giveaway wins; and forgetting people who have been away, only
+ * when chosen and only those with nothing to keep them.
+ *
+ * A stream is the streamer's own channels on the watch list being live; here
+ * that word is given straight to the stream sessions (onLive), as the watch
+ * list gives it.
  *
  * Runs in order with the other feature files, on the one engine the harness
  * boots — through scripts/smoke.js, never on its own.
@@ -21,31 +24,28 @@ const sessions = await import('../../engine/stream-sessions.js');
 const history = await import('../../engine/viewer-history.js');
 const leveling = await import('../../leveling/index.js');
 const { config } = await import('../../config.js');
-// Twitch's word on the channel, as core/twitch-live.js hears it; off to start with, whatever earlier files left.
-const live = (on) => bus.emit(EVENTS.STAT, { key: 'twitchLive', value: on });
+// The streamer live or not, as the watch list says it.
+const live = (on) => sessions._test.onLive({ known: true, live: on });
 live(false);
 sessions.initStreamSessions();
 history.initViewerHistory();
 
 const historyFile = path.join(config.dataDir, 'viewer_history.json');
-const say = (over) => bus.emit(EVENTS.CHAT, normaliseChat({ msg: 'hola', ...over }));
+const say = (over) => bus.emit(EVENTS.CHAT, normaliseChat({ platform: 'discord', msg: 'hola', raw: { channelId: 'c-stream' }, ...over }));
 const event = (type, over = {}) => bus.emit(EVENTS.EVENT, normaliseEvent({ type, ...over }));
 const uidOf = (key) => leveling.getAccounts()[key];
 
 // ---------------------------------------------------------------- stream 1
 
 live(true);
-say({ platform: 'twitch', user: 'AnaH', userId: 'h-ana', isSub: true });
-say({ platform: 'twitch', user: 'AnaH', userId: 'h-ana' });
-say({ platform: 'tiktok', user: 'BetoH', userId: 'h-beto' });
-say({ platform: 'youtube', user: 'Yuyu', userId: 'UCh-yuyu' });
-say({ platform: 'twitch', user: 'Elbot', userId: 'h-bot', isBot: true });
-say({ platform: 'twitch', user: 'Streamer', userId: 'h-me', isBroadcaster: true });
+say({ user: 'AnaH', userId: 'h-ana' });
+say({ user: 'AnaH', userId: 'h-ana' });
+say({ user: 'BetoH', userId: 'h-beto' });
+say({ user: 'Elbot', userId: 'h-bot', isBot: true });
+// Twitch chat is not read any more: nothing from it counts.
+say({ platform: 'twitch', user: 'Tw', userId: 'h-tw' });
 bus.emit(EVENTS.CHANNEL, { title: 'Jugando cosas', categoryName: 'Among Us' });
-bus.emit('stream:moment', { kind: 'clip', url: 'https://clips.twitch.tv/x' });
-event('twitch_cheer', { platform: 'twitch', user: 'AnaH', data: { bits: 100, userId: 'h-ana' } });
-event('twitch_sub', { platform: 'twitch', user: 'BetoGift', data: { userId: 'h-gifted', giftedBy: 'AnaH' } });
-event('giveaway_winner', { platform: 'twitch', user: 'AnaH', data: { userId: 'h-ana', prize: 'x' } });
+event('giveaway_winner', { platform: 'discord', user: 'AnaH', data: { userId: 'h-ana', prize: 'x' } });
 // Talking elsewhere in the Discord server is being seen, not taking part.
 bus.emit('discord:message_elsewhere', normaliseChat({ platform: 'discord', user: 'AnaD', userId: '990000000000000001', msg: 'hola', raw: { channelId: 'c9' } }));
 const onNow = sessions.current();
@@ -56,35 +56,34 @@ await sessions._test.finish();
 // ---------------------------------------------------------------- stream 2, which drops and comes back
 
 live(true);
-say({ platform: 'twitch', user: 'AnaH', userId: 'h-ana' });
+say({ user: 'AnaH', userId: 'h-ana' });
 live(false);
 live(true);
 const afterDrop = sessions.current();
-say({ platform: 'youtube', user: 'Yuyu', userId: 'UCh-yuyu' });
+say({ user: 'Caro', userId: 'h-caro' });
 live(false);
 await sessions._test.finish();
 const streams = sessions.finished();
 const first = streams.at(-2);
 const second = streams.at(-1);
 
-const ana = history.historyOf(uidOf('twitch:h-ana'));
-const beto = history.historyOf(uidOf('tiktok:h-beto'));
-const gifted = history.historyOf(uidOf('twitch:h-gifted'));
+const ana = history.historyOf(uidOf('discord:h-ana'));
+const beto = history.historyOf(uidOf('discord:h-beto'));
 const discordOnly = history.historyOf(uidOf('discord:990000000000000001'));
 history._test.flush();
 const savedAfterFlush = fs.existsSync(historyFile);
 
-test('a stream is kept: chat speed by minute and platform, who took part, the channel, clips', () => {
+test('a stream is kept: how fast Discord went by minute, who took part, the channel', () => {
   assert.equal(onNow.n, first.n);
   assert.ok(first.startedAt && first.endedAt);
-  // [all, twitch, youtube, tiktok, discord]: the bot is not counted, the streamer is.
-  assert.deepEqual(first.minutes[0], [5, 3, 1, 1, 0]);
+  // [all, discord]: the bot and Twitch chat are not counted.
+  assert.deepEqual(first.minutes[0], [3, 3]);
   const people = Object.values(first.attendees);
-  assert.equal(people.length, 3, JSON.stringify(first.attendees));
-  assert.deepEqual(first.attendees[uidOf('twitch:h-ana')], { m: 2, p: ['twitch'] });
+  assert.equal(people.length, 2, JSON.stringify(first.attendees));
+  assert.deepEqual(first.attendees[uidOf('discord:h-ana')], { m: 2, p: ['discord'] });
+  assert.equal(uidOf('twitch:h-tw'), undefined, 'somebody in Twitch chat was kept');
   assert.equal(first.game, 'Among Us');
   assert.equal(first.channel[0].title, 'Jugando cosas');
-  assert.deepEqual(first.moments.map((m) => m.kind), ['clip']);
 });
 
 test('a stream that drops and is back within minutes is the same stream; the next one is numbered after it', () => {
@@ -96,43 +95,29 @@ test('a stream that drops and is back within minutes is the same stream; the nex
   assert.equal(sessions.vodLink(first, first.startedAt), '', 'a link was made without a VOD');
 });
 
-test('each person has a history: messages per platform, streams and streaks, support, giveaway wins', () => {
-  assert.equal(ana.msgs.twitch, 3);
+test('each person has a history: messages, streams and streaks, giveaway wins', () => {
+  assert.equal(ana.msgs.discord, 3);
   assert.equal(ana.streams, 2);
   assert.equal(ana.streak, 2);
   assert.equal(ana.bestStreak, 2);
-  assert.equal(ana.support.bits, 100);
   assert.equal(ana.wins, 1);
+  assert.equal(ana.support, undefined, 'support from Twitch or YouTube is still kept');
   assert.equal(beto.streams, 1);
   assert.equal(beto.streak, 0, 'a streak carried past a stream they missed');
-  assert.equal(gifted?.support?.subs || 0, 0, 'a gifted sub counted as one bought');
   assert.equal(discordOnly.msgs.discord, 1);
   assert.equal(discordOnly.streams, 0, 'talking elsewhere in Discord counted as taking part in the stream');
   assert.equal(savedBeforeFlush, false, 'history was written with every message');
   assert.equal(savedAfterFlush, true);
 });
 
-// ---------------------------------------------------------------- two people become one
-
-leveling.link({ platform: 'twitch', id: 'h-ana', username: 'AnaH' }, { platform: 'youtube', id: 'UCh-yuyu' });
-const merged = history.historyOf(uidOf('twitch:h-ana'));
-
-test('linking two people adds their histories together', () => {
-  assert.equal(merged.msgs.twitch, 3);
-  assert.equal(merged.msgs.youtube, 2);
-  assert.equal(merged.streams, 2, 'a stream both attended was counted twice');
-  assert.equal(merged.support.bits, 100);
-  assert.deepEqual(merged.platforms.sort(), ['twitch', 'youtube']);
-});
-
 // ---------------------------------------------------------------- forgetting, only when chosen
 
 const users = collection('users', {});
 const old = Date.now() - 400 * 24 * 3_600_000;
-const oldOne = leveling.personFor('tiktok', 'h-old', 'Viejo');
-const oldKept = leveling.personFor('tiktok', 'h-old-points', 'Puntos');
+const oldOne = leveling.personFor('discord', 'h-old', 'Viejo');
+const oldKept = leveling.personFor('discord', 'h-old-points', 'Puntos');
 users.update((prev) => {
-  for (const uid of [oldOne, oldKept, uidOf('twitch:h-ana')]) prev[uid] = { ...prev[uid], createdAt: old, lastXpTime: old };
+  for (const uid of [oldOne, oldKept]) prev[uid] = { ...prev[uid], createdAt: old, lastXpTime: old };
   return prev;
 });
 const neverForgets = history.prune();
@@ -149,33 +134,33 @@ test('people away too long are forgotten only when chosen, and only those with n
   assert.equal(badMonths, 'history_bad_months');
   assert.ok(stats.wouldForget[6] >= 1);
   assert.ok(pruned.people >= 1);
-  assert.equal(uidOf('tiktok:h-old'), undefined, 'the one away a year was kept');
-  assert.ok(uidOf('tiktok:h-old-points'), 'somebody with points to spend was forgotten');
-  assert.ok(uidOf('twitch:h-ana'), 'a linked person was forgotten');
+  assert.equal(uidOf('discord:h-old'), undefined, 'the one away a year was kept');
+  assert.ok(uidOf('discord:h-old-points'), 'somebody with points to spend was forgotten');
+  assert.ok(uidOf('discord:h-ana'), 'somebody here lately was forgotten');
   assert.equal(history.getHistorySettings().forgetAfterMonths, 0);
 });
 
 // ---------------------------------------------------------------- a stream whose end was missed
 
 const HOUR = 3_600_000;
-const asks = (info) => ({ twitch: async () => info });
+const asks = (info) => ({ mine: async () => info });
 const endOf = async () => { const s = sessions.latest(); await sessions._test.finish(); return s; };
 const offline = { live: false };
 const goesLive = (since) => sessions._test.onLive({ known: true, live: true, ...(since ? { since } : {}) });
 
-// Twitch offline twice in a row ends it, from the first time.
+// Offline twice in a row ends it, from the first time.
 goesLive();
 await sessions._test.checkStillLive(Date.now(), asks({ live: true }));
 const firstOffline = Date.now() + 3 * 60_000;
 await sessions._test.checkStillLive(firstOffline, asks(offline));
 const afterOneOffline = sessions.isRunning();
 await sessions._test.checkStillLive(firstOffline + 3 * 60_000, asks(offline));
-const twitchOver = await endOf();
+const offlineOver = await endOf();
 
 // Found offline hours after anything was known of the stream: it ended then, not now.
 const lateStart = Date.now() - 4 * HOUR;
 goesLive(lateStart);
-sessions._test.onChat(normaliseChat({ platform: 'twitch', user: 'AnaH', userId: 'h-ana', msg: 'hola' }), lateStart + 30_000);
+sessions._test.onChat(normaliseChat({ platform: 'discord', user: 'AnaH', userId: 'h-ana', msg: 'hola' }), lateStart + 30_000);
 const lastKnown = sessions.lastSign(sessions.current());
 const lateCheck = Date.now();
 await sessions._test.checkStillLive(lateCheck, asks(offline));
@@ -184,7 +169,7 @@ const lateOver = sessions.latest();
 await new Promise((r) => setTimeout(r, 30));
 const lateKeptAlone = sessions.finished().some((x) => x.id === lateOver.id);
 
-// Quiet for hours, but Twitch said it was live a check ago: one check nobody can answer does not end it.
+// Quiet for hours, but said to be live a check ago: one check nobody can answer does not end it.
 goesLive();
 const quietButOn = Date.now() + 7 * HOUR;
 await sessions._test.checkStillLive(quietButOn, asks({ live: true }));
@@ -198,35 +183,35 @@ await sessions._test.checkStillLive(quietButOn + 6 * 60_000, asks(offline));
 await sessions._test.checkStillLive(quietButOn + 9 * 60_000, asks(offline));
 await endOf();
 
-// Twitch cannot say: hours of nothing end it, from its last sign of life.
+// Nobody can say: hours of nothing end it, from its last sign of life.
 goesLive();
-say({ platform: 'youtube', user: 'Yuyu', userId: 'UCh-yuyu' });
+say({ user: 'Caro', userId: 'h-caro' });
 const quietFrom = sessions.lastSign(sessions.current());
 await sessions._test.checkStillLive(Date.now() + 5 * HOUR, asks(null));
 const fiveHoursQuiet = sessions.isRunning();
 await sessions._test.checkStillLive(Date.now() + 7 * HOUR, asks(null));
 const quietOver = await endOf();
 
-// Twitch's own word, as core/twitch-live.js passes it on: live starts a stream, offline ends it, not connected says neither.
+// The watch list's word: live starts a stream, offline ends it, not known says neither.
 let ons = 0;
 let offs = 0;
 bus.on('stream:on', () => { ons += 1; });
 bus.on('stream:off', () => { offs += 1; });
 const noneBefore = sessions.isRunning();
 live(true);
-const startedByTwitch = sessions.current();
-bus.emit(EVENTS.STATUS, { platform: 'twitch', status: 'disconnected', detail: { bot: 'disconnected', eventsub: 'disconnected' } });
+const startedLive = sessions.current();
+sessions._test.onLive({ known: false, live: false });
 const stillOnWhileUnknown = sessions.isRunning();
 live(false);
-const endedByTwitch = !sessions.isRunning();
+const endedOffline = !sessions.isRunning();
 await sessions._test.finish();
 
-test('a stream whose end was missed is ended: by Twitch offline twice, or by hours of nothing', () => {
-  assert.equal(afterOneOffline, true, 'one offline answer from Twitch ended the stream');
-  assert.equal(twitchOver.endedAt, firstOffline, 'the stream did not end from the first offline answer');
+test('a stream whose end was missed is ended: by offline twice, or by hours of nothing', () => {
+  assert.equal(afterOneOffline, true, 'one offline answer ended the stream');
+  assert.equal(offlineOver.endedAt, firstOffline, 'the stream did not end from the first offline answer');
   assert.equal(lateOver.endedAt, lastKnown, 'a stream found over hours later was kept as ending when it was found');
   assert.ok(lateKeptAlone, 'a stream found over long after was not kept straight away');
-  assert.equal(confirmedQuietStillOn, true, 'a quiet stream Twitch had just said was live was ended by one unanswered check');
+  assert.equal(confirmedQuietStillOn, true, 'a quiet stream just said to be live was ended by one unanswered check');
   assert.equal(sameAfterTwice, true, 'a second "live" replaced the stream on');
   assert.equal(fiveHoursQuiet, true, 'a stream was ended after five quiet hours');
   assert.equal(quietOver.endedAt, quietFrom, 'a quiet stream did not end at its last sign of life');
@@ -234,11 +219,11 @@ test('a stream whose end was missed is ended: by Twitch offline twice, or by hou
   assert.equal(sessions.isRunning(), false);
 });
 
-test('Twitch going live starts a stream and going offline ends it, each said once; Twitch not connected says neither', () => {
+test('going live starts a stream and going offline ends it, each said once; not known says neither', () => {
   assert.equal(noneBefore, false);
-  assert.ok(startedByTwitch?.startedAt, 'Twitch going live did not start a stream');
-  assert.equal(stillOnWhileUnknown, true, 'Twitch disconnecting ended the stream');
-  assert.equal(endedByTwitch, true, 'Twitch going offline did not end the stream');
+  assert.ok(startedLive?.startedAt, 'going live did not start a stream');
+  assert.equal(stillOnWhileUnknown, true, 'not knowing ended the stream');
+  assert.equal(endedOffline, true, 'going offline did not end the stream');
   assert.equal(ons, 1, 'the stream going on was not said once');
   assert.equal(offs, 1, 'the stream going off was not said once');
   assert.equal(sessions.streamNow(), null);

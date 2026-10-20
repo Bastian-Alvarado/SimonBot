@@ -20,31 +20,25 @@ import { createLogger } from './core/logger.js';
 import { initEngine } from './engine/index.js';
 import { initDiscordRoles } from './engine/discord-roles.js';
 import { initSlashCommands } from './engine/slash-commands.js';
-import { initRoleSync } from './engine/role-sync.js';
 import { initAnnounce, stopAnnounce } from './engine/announce.js';
-import { initScheduleEvents } from './engine/schedule-events.js';
-import { initTwitchSchedule } from './engine/twitch-schedule.js';
 import { initDiscordPages } from './engine/discord-pages.js';
-import { initSubscribers } from './engine/subscribers.js';
 import { initLeveling } from './leveling/index.js';
 import { initLevelChat } from './leveling/chat.js';
 import { initStreamSessions } from './engine/stream-sessions.js';
 import { initViewerHistory } from './engine/viewer-history.js';
 import { initPoints } from './engine/points.js';
 import { initProfileCard } from './engine/profile-card.js';
-import { initHighlights } from './engine/highlights.js';
 import { initLiveDms } from './engine/live-dms.js';
 import { initUpdater } from './engine/updater.js';
 import { initDiscordQuestions } from './engine/discord-questions.js';
 import { initGameRequests } from './engine/game-requests.js';
 import { initModeration } from './engine/moderation.js';
-import { initRelay } from './engine/relay.js';
 
 import * as twitch from './platforms/twitch.js';
-import * as tiktok from './platforms/tiktok.js';
+import * as youtube from './platforms/youtube.js';
+import { initWatch, stopWatch } from './engine/watch.js';
 import * as discord from './platforms/discord.js';
 import * as discordVoice from './platforms/discord-voice.js';
-import * as youtube from './platforms/youtube.js';
 
 import { createHttpServer } from './api/http.js';
 import { initWebSocket, closeWebSocket } from './api/ws.js';
@@ -62,59 +56,48 @@ async function main() {
   // 1. Persistence
   initStore();
 
-  // 2. Engine, wired to the platform services it will drive
-  initEngine({ twitch: twitch.service, discord: discord.service });
+  // Twitch and YouTube, read with the app's keys only, and the channels watched
+  // for going live: first, since the stream on now (below) follows them.
+  twitch.initTwitch();
+  youtube.initYouTube();
+  initWatch();
 
-  // 3. Leveling (subscribes to chat on the bus)
+  // 2. Engine, wired to the platform services it will drive
+  initEngine({ discord: discord.service });
+
+  // 3. Leveling (subscribes to Discord chat on the bus)
   initLeveling();
   // "!rank" and "!top", answered in the chat they were asked in.
   initLevelChat();
   // Every stream kept (when it was on, chat speed, who took part), and what each person has done across them.
   initStreamSessions();
   initViewerHistory();
-  // Points: a score apart from XP, earned everywhere.
+  // Points: a score apart from XP, earned in Discord.
   initPoints();
-  // "!perfil": a person's level, points, streams and accounts — a picture in Discord, a line elsewhere.
+  // "!perfil": a person's level, points and streams, as a picture in Discord.
   initProfileCard();
-  // The moments chat goes wild, on every platform at once: a post in Discord.
-  initHighlights();
   // Going live, told privately to those who asked, with the link to where they watch.
   initLiveDms();
   // Questions posted in a Discord channel, into the Questions screen; answered there.
   initDiscordQuestions();
   // A Discord channel of game suggestions, as a board by votes.
   initGameRequests();
-  // The mod log, and banning or timing out somebody on their other accounts.
+  // The mod log: who was banned or timed out in Discord.
   initModeration();
 
   // 4. Discord membership automation (reaction roles, buttons, welcomes)
   initDiscordRoles();
   // Slash commands: today's !words and buttons, as Discord's own commands.
   initSlashCommands();
-  // Discord roles that follow stream status, for accounts linked to Discord.
-  initRoleSync();
-  // Going live, announced in Discord.
+  // Going live, announced in Discord: a post per watched channel.
   initAnnounce();
-  // The Twitch schedule: asked for when Twitch connects, and every quarter of an hour.
-  initTwitchSchedule();
-  // The Twitch schedule, as Discord events.
-  initScheduleEvents();
   // A channel's standing posts — welcome, rules, links — built from blocks.
   initDiscordPages();
 
-  // 4b. The subscriber ledger (learns tenure from chat badges)
-  initSubscribers();
-
-  // 5. Cross-platform relays (engine/relay.js)
-  initRelay();
-
   // 5. Platform connectors
-  twitch.initTwitch();
-  tiktok.initTikTok();
   // Before the gateway connects, so it hears the first voice states.
   discordVoice.initDiscordVoice();
   discord.initDiscord();
-  youtube.initYouTube();
 
   // 6. Public surface: who may use it (api/auth.js), then the UI when it is built.
   initAuth();
@@ -172,8 +155,7 @@ function installShutdownHandlers(server) {
 
     // Saying goodbye to each platform is a courtesy, so it gets three seconds.
     await Promise.race([new Promise((resolve) => { setTimeout(resolve, 3000); }), Promise.allSettled([
-      twitch.disconnect(),
-      tiktok.disconnect(),
+      Promise.resolve(stopWatch()),
       Promise.resolve(discordVoice.stopDiscordVoice()),
       Promise.resolve(stopAnnounce()),
       Promise.resolve(discord.disconnect()),

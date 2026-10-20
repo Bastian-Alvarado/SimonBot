@@ -7,8 +7,8 @@
  * bot's own (leaf, mint, grape and plum, taken from its avatar).
  */
 import React, { useState } from 'react';
-import { DoorOpen, Trophy, Coins, Gift, BarChart3, Megaphone, Shield, Headphones, Newspaper, MessageCircleQuestion,
-  Sparkles, Bell, Terminal, Wand2, RefreshCw, ArrowRight, Radio } from 'lucide-react';
+import { DoorOpen, Trophy, Coins, Gift, Megaphone, Headphones, Newspaper, MessageCircleQuestion,
+  Bell, Terminal, Wand2, RefreshCw, ArrowRight, Radio } from 'lucide-react';
 import type { AppView } from '../../types';
 import face from '../../../art/simonbot/bot-avatar-mint-circle-512.png';
 
@@ -43,7 +43,7 @@ export const BotHomeView = ({ system, t, go, language }: Props) => {
   const bot = c.botMember?.user;
   const botFace = bot?.avatar ? `https://cdn.discordapp.com/avatars/${bot.id}/${bot.avatar}.png?size=256` : face;
   const guild = (c.discordGuilds || []).find((g: any) => g.id === c.discordGuildId);
-  // Live as Twitch says it (server/engine/stream-sessions.js).
+  // Live as your own channels say (server/engine/stream-sessions.js).
   const live = Boolean(d.streamNow);
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
@@ -55,22 +55,20 @@ export const BotHomeView = ({ system, t, go, language }: Props) => {
   };
 
   const on = (v: any) => v?.enabled === true;
+  // Channels on the watch list with their going-live post on.
+  const posting = (d.watch?.channels || []).filter((c: any) => c.alert?.enabled).length;
   const modules: { view: AppView; icon: React.ReactNode; name: string; line: string; state: boolean | null; tone?: 'grape' }[] = [
     { view: 'welcome-goodbye', icon: <DoorOpen size={18} />, name: es ? 'Bienvenidas' : 'Welcome & goodbye',
       line: es ? 'Tarjeta y reacción para saludar' : 'Card and a reaction to say hi', state: on(d.welcomeGoodbyeConfig?.welcome) },
     { view: 'levels', icon: <Trophy size={18} />, name: es ? 'Niveles' : 'Levels & XP',
-      line: es ? 'XP por hablar en cualquier chat' : 'XP for chatting anywhere', state: null },
+      line: es ? 'XP por hablar en Discord' : 'XP for talking in Discord', state: null },
     { view: 'points', icon: <Coins size={18} />, name: es ? 'Puntos' : 'Points',
       line: es ? 'Una puntuación aparte, con su tabla' : 'A score of their own, with a board', state: d.pointsSettings ? d.pointsSettings.enabled !== false : null },
     { view: 'giveaway', icon: <Gift size={18} />, name: es ? 'Sorteos' : 'Giveaways', tone: 'grape',
       line: d.giveaway?.mode === 'open' ? `${es ? 'Abierto' : 'Open'} · ${d.giveaway?.count || 0} ${es ? 'dentro' : 'in'}` : (es ? 'Ninguno abierto' : 'None open'),
       state: d.giveaway?.mode === 'open' },
     { view: 'go-live', icon: <Megaphone size={18} />, name: es ? 'Aviso de directo' : 'Go live', tone: 'grape',
-      line: d.liveDms?.enabled ? `${d.liveDms?.count || 0} ${es ? 'piden DM' : 'want a DM'}` : (es ? 'Post al empezar' : 'Post when you start'), state: on(d.announce) },
-    { view: 'role-management', icon: <Shield size={18} />, name: es ? 'Roles' : 'Role sync',
-      line: es ? 'Subs, VIPs y mods de Twitch' : 'Subs, VIPs, mods from Twitch', state: null },
-    { view: 'polls', icon: <BarChart3 size={18} />, name: es ? 'Encuestas' : 'Polls',
-      line: d.poll?.mode === 'open' ? (es ? 'Una abierta' : 'One open') : (es ? 'Ninguna abierta' : 'None open'), state: d.poll?.mode === 'open' },
+      line: d.liveDms?.enabled ? `${d.liveDms?.count || 0} ${es ? 'piden DM' : 'want a DM'}` : (es ? 'Post al empezar' : 'Post when you start'), state: posting > 0 },
     { view: 'questions', icon: <MessageCircleQuestion size={18} />, name: es ? 'Preguntas' : 'Questions',
       line: `${(d.questions?.items || []).filter((q: any) => q.status === 'pending').length} ${es ? 'esperando' : 'waiting'}`, state: null },
     { view: 'discord-pages', icon: <Newspaper size={18} />, name: es ? 'Páginas' : 'Discord pages',
@@ -131,9 +129,8 @@ export const BotHomeView = ({ system, t, go, language }: Props) => {
           <div className="mt-4 text-white font-bold">{live ? (es ? 'Estás en directo' : 'You are live') : (es ? 'Cuando empieces' : 'When you go live')}</div>
           <ul className="mt-3 space-y-3 text-sm">
             {[
-              [<Megaphone size={14} />, es ? 'Post de directo' : 'Go-live post', on(d.announce) ? (es ? 'activo' : 'on') : (es ? 'apagado' : 'off')],
+              [<Megaphone size={14} />, es ? 'Posts de directo' : 'Go-live posts', posting ? `${posting} ${es ? 'canales' : posting === 1 ? 'channel' : 'channels'}` : (es ? 'apagado' : 'off')],
               [<Bell size={14} />, es ? 'DMs de directo' : 'Live DMs', d.liveDms?.enabled ? `${d.liveDms?.count || 0} ${es ? 'personas' : 'people'}` : (es ? 'apagado' : 'off')],
-              [<Sparkles size={14} />, es ? 'Momentos a Discord' : 'Highlights to Discord', on(d.highlights) ? (es ? 'activo' : 'on') : (es ? 'apagado' : 'off')],
             ].map(([ic, a, b], i) => (
               <li key={i} className="flex items-center gap-3">
                 <span className="w-7 h-7 rounded-lg bg-[#66AD4F]/15 text-[#B8E99C] flex items-center justify-center">{ic}</span>
